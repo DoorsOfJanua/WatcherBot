@@ -24,7 +24,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 127.0.0.1 explicitly — vite binds IPv4; a bare "localhost" here can
 // resolve to ::1 and paint a black window
 const DEV_URL = process.env.ELECTRON_START_URL ?? "http://127.0.0.1:5199";
-const DEFAULT_COMPOSIO_BROKER_URL = "https://openmausbot-composio.milindsoni201.workers.dev";
+// A private fork must not silently enroll itself in somebody else's hosted
+// broker. Set OMB_COMPOSIO_BROKER_URL deliberately when Janua owns the path.
+const DEFAULT_COMPOSIO_BROKER_URL = "";
 let SERVER_PORT = 8799;
 const APP_ICON = path.join(__dirname, "resources/app-icon.png");
 let desktopViewerWindow = null;
@@ -70,7 +72,7 @@ async function saveSecureCredentials(credentials) {
 }
 
 async function secureComposioConfig() {
-  const dataDir = process.env.OMB_DATA_DIR || path.join(app.getPath("home"), ".openmausbot");
+  const dataDir = process.env.MYAGENT_ROOM_DATA_DIR || process.env.OMB_DATA_DIR || path.join(app.getPath("home"), ".myagent-room");
   const configPath = path.join(dataDir, "config.json");
   try {
     const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
@@ -112,7 +114,7 @@ async function secureComposioConfig() {
 // migrates plaintext left by older versions or direct development clients.
 // See workspace-credentials.mjs for the exact rules.
 async function secureWorkspaceConfig() {
-  const dataDir = process.env.OMB_DATA_DIR || path.join(app.getPath("home"), ".openmausbot");
+  const dataDir = process.env.MYAGENT_ROOM_DATA_DIR || process.env.OMB_DATA_DIR || path.join(app.getPath("home"), ".myagent-room");
   const configPath = path.join(dataDir, "config.json");
   try {
     const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
@@ -220,6 +222,8 @@ async function startServerOn(port) {
       OMB_SKILLS_DIR: path.join(process.resourcesPath, "skills"),
       OMB_PORT: String(port),
       OMB_USER_DATA: app.getPath("userData"),
+      MYAGENT_ROOM_DATA_DIR:
+        process.env.MYAGENT_ROOM_DATA_DIR || process.env.OMB_DATA_DIR || path.join(app.getPath("home"), ".myagent-room"),
       ...(secureCredentials.composioApiKey
         ? { COMPOSIO_API_KEY: secureCredentials.composioApiKey }
         : {}),
@@ -882,7 +886,9 @@ app.whenReady().then(async () => {
   const win = createWindow();
   // in-app auto-update (packaged only) — checks GitHub releases, downloads on
   // the user's click, installs on "Restart to update"
-  startUpdater(win);
+  // There is no Janua-owned signed release feed yet. Opt in only when that
+  // infrastructure exists; never install upstream binaries into this fork.
+  if (process.env.MYAGENT_ENABLE_UPDATES === "1") startUpdater(win);
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

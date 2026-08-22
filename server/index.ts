@@ -96,6 +96,7 @@ import { readCuaConnection } from "./local-computer.ts";
 import { LocalVmIdleTimer } from "./local-vm-idle.ts";
 import { LocalVmLease, LocalVmLeasePool } from "./local-vm-lease.ts";
 import { RepeatDetector, callKey } from "./repeat-detector.ts";
+import { ProjectContextProvider } from "./project-context.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import { fetchGithubTeam, fetchLibraryTeam, fetchTeamCatalog } from "./team-library.ts";
@@ -127,6 +128,7 @@ const cfg = loadConfig();
 const registry = new ProviderRegistry(BUILT_IN_DRIVERS);
 await registry.load(instanceConfigs(cfg));
 const bundledSkills = loadBundledSkills();
+const projectContexts = new ProjectContextProvider();
 
 const bus = new EventBus();
 bus.attach(registry.instances());
@@ -1380,12 +1382,13 @@ async function startTurn(
   });
 
   const persona = [
-    `You are ${bot.name}, a personal bot in OpenMausBot.`,
+    `You are ${bot.name}, a personal bot in MyAgent Room (a private OpenMausBot fork).`,
     bot.title && `Role: ${bot.title}.`,
     bot.description && `About: ${bot.description}`,
   ]
     .filter(Boolean)
     .join(" ");
+  const projectContext = projectContexts.forTurn(threadId, text);
 
   // busy flips immediately so the composer locks; the dispatch itself runs
   // in the background — box provisioning can take ~90s and must never
@@ -1624,6 +1627,7 @@ async function startTurn(
         transcript,
         system:
           persona +
+          projectContext.systemPrompt +
           (computerKind === "vm"
             ? localVmMode(cfg) === "per-bot"
               ? " You have your own isolated Cua sandbox: a Linux desktop in a container reserved for this bot. Only /home/cua/workspace is durable; save downloads, repositories, working files, and browser profiles there because everything else inside the VM is disposable. No other host folder is mounted. Use the computer tools for desktop, accessibility, window, and shell work. Inspect the desktop state before acting, prefer accessibility targets over raw coordinates, and work carefully."
@@ -1874,7 +1878,7 @@ async function runGroupMemberTurn(
     .map((b) => `@${b.name}${b.title ? ` (${b.title})` : ""}`)
     .join(", ");
   const system = [
-    `You are ${bot.name}, a bot in the room "${group.name}" in OpenMausBot.`,
+    `You are ${bot.name}, a bot in the room "${group.name}" in MyAgent Room (a private OpenMausBot fork).`,
     bot.title && `Role: ${bot.title}.`,
     bot.description && `About: ${bot.description}`,
     `Room members: ${roster}, and ${userName} (the human).`,
@@ -1883,6 +1887,10 @@ async function runGroupMemberTurn(
   ]
     .filter(Boolean)
     .join("\n");
+  const latestUserText = [...store.messagesFor(group.threadId)]
+    .reverse()
+    .find((message) => message.role === "user" && message.kind === "text" && message.text?.trim())?.text ?? "";
+  const projectContext = projectContexts.forTurn(group.threadId, latestUserText);
 
   const text = `${serializeRoomContext(group.threadId, userName)}\n\n(Reply to the conversation above as ${bot.name}.)${
     connectorContinuation ? `\n\n${connectorContinuation}` : ""
@@ -1900,7 +1908,9 @@ async function runGroupMemberTurn(
   // room, not of whichever member happened to speak first.
   const cwd = groupTurnCwd(workspace, () => store.pinGroupCwd(group.id));
   const roomSystem =
-    (workspace ? `${system}\n${memorySystemPrompt(bot.id).trim()}` : system) +
+    (workspace
+      ? `${system}${projectContext.systemPrompt}\n${memorySystemPrompt(bot.id).trim()}`
+      : `${system}${projectContext.systemPrompt}`) +
     renderSkillInstructions(selectedSkills);
 
   // run the turn and wait for it to settle, folding the reply text so a

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "projects": [
+    {
+      "id": "farmada",
+      "name": "Farmada",
+      "aliases": ["farmada", "farmada vragenlijst", "farmada questionnaires"],
+      "statePath": "/absolute/path/to/FARMADA/STATE.md",
+      "critical": true
+    }
+  ]
+}

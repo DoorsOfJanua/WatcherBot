@@ -139,8 +139,10 @@ export function localVmMaxInstances(cfg: AppConfig): number {
   return cfg.localVm?.maxInstances ?? DEFAULT_LOCAL_VM_MAX_INSTANCES;
 }
 
-// OMB_DATA_DIR isolates test/soak rigs from the user's real fleet.
-export const DATA_DIR = process.env.OMB_DATA_DIR ?? join(homedir(), ".openmausbot");
+// MYAGENT_ROOM_DATA_DIR keeps this fork's state separate. OMB_DATA_DIR stays
+// supported for upstream tests and compatibility harnesses.
+export const DATA_DIR =
+  process.env.MYAGENT_ROOM_DATA_DIR ?? process.env.OMB_DATA_DIR ?? join(homedir(), ".openmausbot");
 const LEGACY_DATA_DIR = join(homedir(), ".opengrokbot");
 export const EVENTS_DIR = join(DATA_DIR, "events");
 export const NATIVE_DIR = join(DATA_DIR, "native");
