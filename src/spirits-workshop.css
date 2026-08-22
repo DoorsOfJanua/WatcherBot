@@ -35,8 +35,9 @@ body {
 
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
 
-/* Hood direction reviews on the reference's own ground: deep space navy. */
-.bench--hood {
+/* Hood and alien directions review on the reference's own ground: deep space navy. */
+.bench--hood,
+.bench--alien {
   --bench-bg: oklch(0.16 0.03 275);
   --bench-bg-deep: oklch(0.13 0.03 275);
   --bench-panel: oklch(0.2 0.035 275);
@@ -47,9 +48,11 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   --dark-well: oklch(0.18 0.032 275);
 }
 
-.bench--hood { background: var(--bench-bg); }
+.bench--hood,
+.bench--alien { background: var(--bench-bg); }
 
-body:has(.bench--hood) {
+body:has(.bench--hood),
+body:has(.bench--alien) {
   background:
     radial-gradient(ellipse at 85% -6%, oklch(0.24 0.08 290 / 45%), transparent 36rem),
     radial-gradient(ellipse at 6% 32%, oklch(0.2 0.06 250 / 50%), transparent 30rem),
