@@ -1,0 +1,59 @@
+/* Hood ring comet — the "something important is happening" layer.
+ *
+ * Separate file (Fable-owned) so the shared family stylesheet stays
+ * Codex's to edit. The comet is invisible in quiet states; it orbits the
+ * ring while working, does one full celebratory sweep on success, and
+ * peeks attentively at the top while listening.
+ *
+ * It rotates about the ring center (60,60), not its own bounding box, so
+ * it escapes the family's fill-box transform default via view-box units.
+ */
+
+.hood .hood__comet {
+  opacity: 0;
+  transform-box: view-box;
+  transform-origin: 60px 60px;
+}
+
+.spirit--working.hood .hood__comet {
+  opacity: 1;
+  animation: hdx-orbit 1.7s linear infinite;
+}
+
+.spirit--success.hood .hood__comet {
+  animation: hdx-sweep 1.15s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.spirit--listening.hood .hood__comet {
+  opacity: 1;
+  animation: hdx-peek 1.3s ease-in-out infinite alternate;
+}
+
+.spirit--thinking.hood .hood__comet {
+  opacity: 0.55;
+  animation: hdx-orbit 9s linear infinite reverse;
+}
+
+@keyframes hdx-orbit {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes hdx-sweep {
+  0% { opacity: 0; transform: rotate(0deg); }
+  12% { opacity: 1; }
+  82% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(360deg); }
+}
+
+@keyframes hdx-peek {
+  from { transform: rotate(-14deg); }
+  to { transform: rotate(14deg); }
+}
+
+/* Frozen modes: the comet is a motion creature; it simply stays hidden. */
+.spirit--still .hood__comet { animation: none !important; opacity: 0 !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hood__comet { animation: none !important; opacity: 0 !important; }
+}
