@@ -488,7 +488,7 @@ export function AlienSpirit({
           />
 
           <g className="alien__head-wrap">
-            <g transform={`translate(${60 - 60 * sx} ${52 - 52 * sy}) scale(${sx} ${sy})`}>
+            <g className="alien__rot" transform={`translate(${60 - 60 * sx} ${52 - 52 * sy}) scale(${sx} ${sy})`}>
               {/* the skull: broad domed cranium, one smooth taper to the chin */}
               <path
                 className="alien__skull"
