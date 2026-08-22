@@ -1,0 +1,734 @@
+/* Agent Spirits — family stylesheet.
+ *
+ * One grammar, six bodies. Every spirit is a static SVG whose state class
+ * (`spirit--idle` … `spirit--sleeping`) drives pure-CSS transform/opacity
+ * animation — no React rerenders, no layout properties, reduced-motion safe.
+ *
+ * Family tokens live on `.spirit`; each spirit scopes its own palette.
+ */
+
+.spirit {
+  --spirit-ink: #241d15;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  contain: layout paint;
+  vertical-align: middle;
+}
+
+.spirit > svg {
+  display: block;
+  overflow: visible;
+}
+
+.spirit :is(g, path, circle, rect, ellipse, line) {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.spirit__shadow {
+  fill: var(--spirit-ink);
+  stroke: none;
+  opacity: 0.12;
+}
+
+/* ================================================================ Wormhole */
+
+.spirit-wormhole {
+  --wh-deep: #5b3ba6;
+  --wh-base: #8a5fd0;
+  --wh-pale: #cdb4f2;
+  --wh-void: #2a1b47;
+  --wh-glow: #cfa9ff;
+  --wh-light: #f3eaff;
+}
+
+.wormhole__ring { fill: var(--wh-base); stroke: var(--spirit-ink); stroke-width: 3; stroke-linejoin: round; }
+.wormhole__seam { fill: none; stroke: var(--wh-pale); stroke-width: 2; stroke-linecap: round; opacity: 0.85; }
+.wormhole__void { fill: var(--wh-void); stroke: var(--spirit-ink); stroke-width: 3; }
+.wormhole__sash path:first-child { fill: var(--wh-pale); stroke: var(--spirit-ink); stroke-width: 3; stroke-linejoin: round; }
+.wormhole__sash-fold { fill: none !important; stroke: var(--wh-base); stroke-width: 2; stroke-linecap: round; }
+.wormhole__aperture circle { fill: var(--wh-glow); stroke: var(--spirit-ink); stroke-width: 3; }
+.wormhole__aperture-mark { fill: var(--wh-light); stroke: none; }
+.wormhole__motes path { fill: var(--wh-pale); stroke: var(--spirit-ink); stroke-width: 1.5; stroke-linejoin: round; }
+.wormhole__motes { opacity: 0.75; }
+.wormhole__branches path { stroke: var(--wh-glow); stroke-width: 2.5; stroke-dasharray: 34; stroke-dashoffset: 34; }
+.wormhole__branches { opacity: 0; }
+.wormhole__flare { fill: none; stroke: var(--wh-glow); stroke-width: 2.5; opacity: 0; }
+.wormhole__knot { fill: none; stroke: var(--spirit-ink); stroke-width: 2.5; stroke-linecap: round; opacity: 0; }
+
+.spirit--idle.spirit-wormhole .wormhole__loop { animation: wh-drift 5.2s ease-in-out infinite; }
+.spirit--idle.spirit-wormhole .wormhole__aperture { animation: wh-breathe 2.8s ease-in-out infinite alternate; }
+.spirit--idle.spirit-wormhole .wormhole__motes { animation: wh-mote 4.4s ease-in-out infinite alternate; }
+
+.spirit--listening.spirit-wormhole .wormhole__figure { animation: wh-attend 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--listening.spirit-wormhole .wormhole__aperture { animation: wh-glisten 1.3s ease-in-out infinite alternate; }
+
+.spirit--thinking.spirit-wormhole .wormhole__loop { animation: wh-consider 2.4s ease-in-out infinite; }
+.spirit--thinking.spirit-wormhole .wormhole__motes path { animation: wh-orbit 2.4s ease-in-out infinite; }
+.spirit--thinking.spirit-wormhole .wormhole__motes path:last-child { animation-delay: -1.2s; }
+
+.spirit--working.spirit-wormhole .wormhole__sash { animation: wh-feed 1.15s ease-in-out infinite alternate; }
+.spirit--working.spirit-wormhole .wormhole__aperture { animation: wh-route 0.85s ease-in-out infinite alternate; }
+.spirit--working.spirit-wormhole .wormhole__branches { opacity: 1; }
+.spirit--working.spirit-wormhole .wormhole__branches path { animation: wh-branch 2.3s ease-in-out infinite; }
+.spirit--working.spirit-wormhole .wormhole__branches path:last-child { animation-delay: -1.15s; }
+
+.spirit--waiting.spirit-wormhole .wormhole__figure { animation: wh-settle 0.8s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--waiting.spirit-wormhole .wormhole__aperture { animation: wh-patient 2.6s ease-in-out infinite; }
+
+.spirit--success.spirit-wormhole .wormhole__branches { opacity: 1; }
+.spirit--success.spirit-wormhole .wormhole__branches path { animation: wh-open 1s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--success.spirit-wormhole .wormhole__flare { animation: wh-flare 0.9s ease-out both; }
+.spirit--success.spirit-wormhole .wormhole__loop { animation: wh-lift 0.8s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+.spirit--failure.spirit-wormhole .wormhole__loop { animation: wh-pinch 0.9s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--failure.spirit-wormhole .wormhole__aperture { opacity: 0.35; }
+.spirit--failure.spirit-wormhole .wormhole__knot { opacity: 1; animation: wh-snag 1.6s ease-in-out infinite alternate; }
+
+.spirit--sleeping.spirit-wormhole .wormhole__figure { animation: wh-rest 5.5s ease-in-out infinite alternate; }
+.spirit--sleeping.spirit-wormhole .wormhole__aperture { opacity: 0.25; }
+.spirit--sleeping.spirit-wormhole .wormhole__motes { opacity: 0; }
+
+@keyframes wh-drift { 50% { transform: rotate(-2.5deg) translateY(-1.5px); } }
+@keyframes wh-breathe { from { opacity: 0.75; } to { opacity: 1; } }
+@keyframes wh-mote { from { transform: translateY(1px); } to { transform: translateY(-2px); } }
+@keyframes wh-attend { from { transform: translateY(3px) rotate(3deg); } to { transform: translateY(0) rotate(-5deg); } }
+@keyframes wh-glisten { from { opacity: 0.8; transform: scale(1); } to { opacity: 1; transform: scale(1.12); } }
+@keyframes wh-consider { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
+@keyframes wh-orbit {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(3px, -3px); }
+  50% { transform: translate(0, -5px); }
+  75% { transform: translate(-3px, -3px); }
+}
+@keyframes wh-feed { from { transform: translate(-1.5px, 1.5px) rotate(-3deg); } to { transform: translate(1.5px, -1.5px) rotate(2deg); } }
+@keyframes wh-route { from { transform: scale(0.92); opacity: 0.8; } to { transform: scale(1.12); opacity: 1; } }
+@keyframes wh-branch {
+  0%, 15% { stroke-dashoffset: 34; opacity: 0; }
+  45% { stroke-dashoffset: 0; opacity: 1; }
+  75%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+@keyframes wh-settle { from { transform: translateY(-2px); } to { transform: translateY(2px) rotate(2deg); } }
+@keyframes wh-patient { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+@keyframes wh-open { from { stroke-dashoffset: 34; opacity: 0; } 30% { opacity: 1; } to { stroke-dashoffset: 0; opacity: 1; } }
+@keyframes wh-flare { from { transform: scale(0.55); opacity: 0; } 40% { opacity: 1; } to { transform: scale(1.18); opacity: 0; } }
+@keyframes wh-lift { 0% { transform: translateY(4px); } 55% { transform: translateY(-4px) rotate(-3deg); } 100% { transform: translateY(0); } }
+@keyframes wh-pinch { from { transform: none; } 40% { transform: scale(0.94, 1.04) rotate(-4deg); } to { transform: scale(0.97, 1.01) rotate(3deg) translateY(2px); } }
+@keyframes wh-snag { from { transform: rotate(-6deg); } to { transform: rotate(6deg); } }
+@keyframes wh-rest { from { transform: rotate(-6deg) translateY(3px); } to { transform: rotate(-8deg) translateY(5px); } }
+
+/* ================================================================== Sensei */
+
+.spirit-sensei {
+  --sn-deep: #17694a;
+  --sn-base: #2f9e6e;
+  --sn-pale: #aee6c8;
+  --sn-glow: #8ef2c0;
+  --sn-light: #eafff3;
+  --sn-stone: #d9d4c8;
+}
+
+.sensei__fold-main { fill: var(--sn-base); stroke: var(--spirit-ink); stroke-width: 3; stroke-linejoin: round; }
+.sensei__fold-facet { fill: none; stroke: var(--sn-pale); stroke-width: 2; stroke-linecap: round; opacity: 0.9; }
+.sensei__fold-crease { fill: none; stroke: var(--sn-deep); stroke-width: 2; stroke-linecap: round; }
+.sensei__base { fill: var(--sn-deep); stroke: var(--spirit-ink); stroke-width: 3; stroke-linejoin: round; }
+.sensei__aperture circle { fill: var(--sn-glow); stroke: var(--spirit-ink); stroke-width: 3; }
+.sensei__aperture-mark { fill: var(--sn-light); stroke: none; }
+.sensei__stones path { fill: var(--sn-stone); stroke: var(--spirit-ink); stroke-width: 2; stroke-linejoin: round; }
+.sensei__stroke { fill: none; stroke: var(--sn-deep); stroke-width: 5; stroke-linecap: round; stroke-dasharray: 82; stroke-dashoffset: 82; opacity: 0; }
+.sensei__figure { transform-origin: 50% 92%; }
+
+.spirit--idle.spirit-sensei .sensei__figure { animation: sn-still 6s ease-in-out infinite; }
+.spirit--idle.spirit-sensei .sensei__aperture { animation: sn-breathe 4s ease-in-out infinite alternate; }
+
+.spirit--listening.spirit-sensei .sensei__figure { animation: sn-incline 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--listening.spirit-sensei .sensei__aperture { animation: sn-widen 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+.spirit--thinking.spirit-sensei .sensei__figure { animation: sn-weigh 4.2s ease-in-out infinite; }
+.spirit--thinking.spirit-sensei .sensei__aperture { animation: sn-breathe 2.2s ease-in-out infinite alternate; }
+
+.spirit--working.spirit-sensei .sensei__figure { animation: sn-strike 2.4s ease-in-out infinite; }
+.spirit--working.spirit-sensei .sensei__stroke { animation: sn-slash 2.4s linear infinite; }
+
+.spirit--waiting.spirit-sensei .sensei__figure { animation: sn-settle 0.8s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--waiting.spirit-sensei .sensei__aperture { animation: sn-calm 3s ease-in-out infinite; }
+
+.spirit--success.spirit-sensei .sensei__figure { animation: sn-bow 1s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--success.spirit-sensei .sensei__stroke { animation: sn-signature 1.1s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+.spirit--failure.spirit-sensei .sensei__figure { animation: sn-tip 1s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--failure.spirit-sensei .sensei__aperture { opacity: 0.4; }
+
+.spirit--sleeping.spirit-sensei .sensei__figure { animation: sn-fold 5.4s ease-in-out infinite alternate; }
+.spirit--sleeping.spirit-sensei .sensei__aperture { opacity: 0.25; }
+
+@keyframes sn-still { 50% { transform: scale(1.008); } }
+@keyframes sn-breathe { from { opacity: 0.8; } to { opacity: 1; } }
+@keyframes sn-incline { from { transform: none; } to { transform: rotate(-5deg) translateY(-1px); } }
+@keyframes sn-widen { from { transform: scale(1); } to { transform: scale(1.16); } }
+@keyframes sn-weigh { 0%, 100% { transform: rotate(-2.5deg); } 50% { transform: rotate(2.5deg); } }
+@keyframes sn-strike {
+  0%, 68% { transform: rotate(0); }
+  74% { transform: rotate(-13deg); }
+  79% { transform: rotate(8deg); }
+  86%, 100% { transform: rotate(0); }
+}
+@keyframes sn-slash {
+  0%, 72% { stroke-dashoffset: 82; opacity: 0; }
+  76% { opacity: 1; }
+  86% { stroke-dashoffset: 0; opacity: 1; }
+  96%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+@keyframes sn-settle { from { transform: none; } to { transform: translateY(2px) rotate(1deg); } }
+@keyframes sn-calm { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+@keyframes sn-bow { 0% { transform: none; } 45% { transform: rotate(7deg) translateY(2px); } 100% { transform: none; } }
+@keyframes sn-signature { from { stroke-dashoffset: 82; opacity: 1; } 70% { stroke-dashoffset: 0; opacity: 1; } to { stroke-dashoffset: 0; opacity: 0.85; } }
+@keyframes sn-tip { from { transform: none; } 55% { transform: rotate(12deg) translateY(1px); } to { transform: rotate(9deg) translateY(1px); } }
+@keyframes sn-fold { from { transform: scaleY(0.9) translateY(3px) rotate(2deg); } to { transform: scaleY(0.88) translateY(4px) rotate(3deg); } }
+
+/* ================================================================= Mailman */
+
+.spirit-mailman {
+  --mm-paper: #e7ddc7;
+  --mm-paper-light: #f2ead7;
+  --mm-fold: #8f8779;
+  --mm-red: #b94236;
+  --mm-red-trim: #e36c4f;
+  --mm-red-deep: #762d2b;
+  --mm-gold: #f5c95c;
+  --mm-gold-light: #fff5bc;
+}
+
+.mailman__loose-letters path,
+.mailman__cards path { fill: var(--mm-paper-light); stroke: var(--spirit-ink); stroke-width: 1.5; stroke-linejoin: round; }
+.mailman__loose-letters { opacity: 0.75; }
+.mailman__legs path { fill: none; stroke: var(--spirit-ink); stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+.mailman__satchel-body { fill: var(--mm-red); stroke: none; }
+.mailman__satchel-trim { fill: none; stroke: var(--mm-red-trim); stroke-width: 3; stroke-linecap: round; }
+.mailman__satchel-crease { fill: none; stroke: var(--mm-red-deep); stroke-width: 2; opacity: 0.7; }
+.mailman__satchel-strap { fill: none; stroke: var(--spirit-ink); stroke-width: 4; stroke-linecap: round; }
+.mailman__satchel-stud { fill: var(--mm-gold); }
+.mailman__envelope { fill: var(--mm-paper); stroke: var(--spirit-ink); stroke-width: 3; stroke-linejoin: round; }
+.mailman__flap { fill: var(--mm-paper-light); stroke: var(--spirit-ink); stroke-width: 3; stroke-linejoin: round; }
+.mailman__fold { fill: none; stroke: var(--mm-fold); stroke-width: 2; stroke-linejoin: round; }
+.mailman__arm { fill: var(--mm-paper); stroke: var(--spirit-ink); stroke-width: 3; stroke-linejoin: round; }
+.mailman__aperture circle { fill: var(--mm-gold); stroke: var(--spirit-ink); stroke-width: 3; }
+.mailman__aperture-mark { fill: var(--mm-gold-light); stroke: none; }
+.mailman__seal-burst path { fill: none; stroke: var(--mm-gold); stroke-linecap: round; stroke-width: 2; }
+.mailman__salute { fill: none; stroke: var(--spirit-ink); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+.mailman__jam { fill: var(--mm-paper); stroke: var(--spirit-ink); stroke-width: 2; stroke-linejoin: round; }
+.mailman__seal-burst,
+.mailman__salute,
+.mailman__jam { opacity: 0; }
+
+.spirit--idle.spirit-mailman .mailman__body { animation: mm-breathe 3.8s ease-in-out infinite; }
+.spirit--idle.spirit-mailman .mailman__foot--left { animation: mm-tap 2.4s ease-in-out infinite; transform-origin: right center; }
+.spirit--listening.spirit-mailman .mailman__figure { animation: mm-attend 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--listening.spirit-mailman .mailman__aperture { animation: mm-glow 1.3s ease-in-out infinite alternate; }
+.spirit--thinking.spirit-mailman .mailman__cards { animation: mm-sort 1.5s cubic-bezier(0.22, 1, 0.36, 1) infinite; }
+.spirit--thinking.spirit-mailman .mailman__body { animation: mm-think 0.9s ease-in-out infinite alternate; }
+.spirit--working.spirit-mailman .mailman__body { animation: mm-sprint 0.48s ease-in-out infinite alternate; transform-origin: 60% 80%; }
+.spirit--working.spirit-mailman .mailman__legs { animation: mm-legs 0.24s linear infinite alternate; }
+.spirit--working.spirit-mailman .spirit__shadow { animation: mm-skid 0.48s ease-in-out infinite alternate; }
+.spirit--working.spirit-mailman .mailman__loose-letters { animation: mm-trail 0.6s linear infinite; }
+.spirit--waiting.spirit-mailman .mailman__figure { animation: mm-sit 0.75s cubic-bezier(0.22, 1, 0.36, 1) both; transform-origin: 55% 85%; }
+.spirit--waiting.spirit-mailman .mailman__cards { animation: mm-check 2.2s ease-in-out infinite; }
+.spirit--success.spirit-mailman .mailman__figure { animation: mm-leap 0.72s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--success.spirit-mailman .mailman__salute,
+.spirit--success.spirit-mailman .mailman__seal-burst { opacity: 1; animation: mm-seal 0.9s ease-out both; }
+.spirit--failure.spirit-mailman .mailman__figure { animation: mm-jam-fold 0.8s cubic-bezier(0.22, 1, 0.36, 1) both; transform-origin: 52% 78%; }
+.spirit--failure.spirit-mailman .mailman__jam { opacity: 1; animation: mm-jam-card 0.75s ease-in-out infinite alternate; }
+.spirit--sleeping.spirit-mailman .mailman__figure { animation: mm-curl 3.6s ease-in-out infinite alternate; transform-origin: 62% 80%; }
+.spirit--sleeping.spirit-mailman .mailman__aperture { opacity: 0.35; }
+
+@keyframes mm-breathe { 50% { transform: translateY(-2px) rotate(-1deg); } }
+@keyframes mm-tap { 0%, 72%, 100% { transform: rotate(0); } 78% { transform: rotate(-10deg); } 84% { transform: rotate(2deg); } }
+@keyframes mm-attend { from { transform: translateY(4px) rotate(4deg); } to { transform: translateY(0) rotate(-6deg); } }
+@keyframes mm-glow { from { opacity: 0.72; } to { opacity: 1; } }
+@keyframes mm-sort { 0%, 100% { transform: translateX(0) rotate(0); } 35% { transform: translateX(-4px) rotate(-6deg); } 70% { transform: translateX(4px) rotate(5deg); } }
+@keyframes mm-think { to { transform: rotate(-3deg) translateY(-1px); } }
+@keyframes mm-sprint { from { transform: translateX(-2px) rotate(-4deg); } to { transform: translateX(3px) rotate(5deg); } }
+@keyframes mm-legs { from { transform: translateX(-1px) rotate(-3deg); } to { transform: translateX(2px) rotate(4deg); } }
+@keyframes mm-skid { from { transform: scaleX(0.85); opacity: 0.08; } to { transform: scaleX(1.15); opacity: 0.18; } }
+@keyframes mm-trail { from { transform: translateX(3px); opacity: 0.2; } to { transform: translateX(-5px); opacity: 0.8; } }
+@keyframes mm-sit { from { transform: translateY(-4px) rotate(-2deg); } to { transform: translateY(6px) rotate(8deg); } }
+@keyframes mm-check { 0%, 100% { transform: translateY(0) rotate(0); } 45% { transform: translateY(2px) rotate(8deg); } 65% { transform: translateY(-2px) rotate(-3deg); } }
+@keyframes mm-leap { 0% { transform: translateY(8px) rotate(2deg); } 55% { transform: translateY(-10px) rotate(-5deg); } 100% { transform: translateY(0) rotate(0); } }
+@keyframes mm-seal { from { transform: scale(0.55); opacity: 0; } 45% { opacity: 1; } to { transform: scale(1.12); opacity: 0; } }
+@keyframes mm-jam-fold { from { transform: rotate(0); } 40% { transform: rotate(-9deg) scale(0.96, 1.04); } to { transform: rotate(5deg) scale(0.98, 1); } }
+@keyframes mm-jam-card { from { transform: translateX(-2px) rotate(-5deg); } to { transform: translateX(4px) rotate(8deg); } }
+@keyframes mm-curl { from { transform: rotate(0) translateY(2px); } to { transform: rotate(8deg) translateY(5px); } }
+
+/* =================================================================== Ganga */
+
+.spirit-ganga {
+  --gg-deep: #0d6e6a;
+  --gg-base: #1fa89f;
+  --gg-pale: #9fe4db;
+  --gg-glow: #8beadd;
+  --gg-light: #eafffb;
+  --gg-cream: #efe6d2;
+}
+
+.ganga__pool ellipse { fill: var(--gg-deep); stroke: var(--spirit-ink); stroke-width: 3; }
+.ganga__ripple { fill: none; stroke: var(--gg-pale); stroke-width: 2; stroke-linecap: round; opacity: 0.8; }
+.ganga__body { fill: var(--gg-base); stroke: var(--spirit-ink); stroke-width: 3; stroke-linejoin: round; }
+.ganga__currents path { fill: none; stroke: var(--gg-pale); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 9 9; }
+.ganga__page-sheet { fill: var(--gg-cream); stroke: var(--spirit-ink); stroke-width: 2.5; stroke-linejoin: round; }
+.ganga__page-line { fill: none; stroke: var(--gg-deep); stroke-width: 2; stroke-linecap: round; stroke-dasharray: 12; }
+.ganga__aperture circle { fill: var(--gg-glow); stroke: var(--spirit-ink); stroke-width: 3; }
+.ganga__aperture-mark { fill: var(--gg-light); stroke: none; }
+.ganga__fragments path { fill: var(--gg-pale); stroke: var(--spirit-ink); stroke-width: 1.5; stroke-linejoin: round; }
+.ganga__fragments { opacity: 0.75; }
+.ganga__crest { fill: none; stroke: var(--gg-glow); stroke-width: 2.5; opacity: 0; }
+.ganga__flame { transform-origin: 50% 88%; }
+
+.spirit--idle.spirit-ganga .ganga__flame { animation: gg-sway 4.6s ease-in-out infinite; }
+.spirit--idle.spirit-ganga .ganga__currents path { animation: gg-flow 3.4s linear infinite; }
+.spirit--idle.spirit-ganga .ganga__aperture { animation: gg-breathe 3s ease-in-out infinite alternate; }
+
+.spirit--listening.spirit-ganga .ganga__flame { animation: gg-lean 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--listening.spirit-ganga .ganga__currents path { animation: gg-flow 4.6s linear infinite; }
+.spirit--listening.spirit-ganga .ganga__aperture { animation: gg-glisten 1.3s ease-in-out infinite alternate; }
+
+.spirit--thinking.spirit-ganga .ganga__fragments { opacity: 1; }
+.spirit--thinking.spirit-ganga .ganga__fragments path { animation: gg-gather 2.6s ease-in-out infinite; }
+.spirit--thinking.spirit-ganga .ganga__fragments path:nth-child(2) { animation-delay: -0.9s; }
+.spirit--thinking.spirit-ganga .ganga__fragments path:nth-child(3) { animation-delay: -1.7s; }
+.spirit--thinking.spirit-ganga .ganga__currents path { animation: gg-flow 2.6s linear infinite; }
+
+.spirit--working.spirit-ganga .ganga__currents path { animation: gg-flow 1.4s linear infinite; }
+.spirit--working.spirit-ganga .ganga__page-line { animation: gg-write 2.2s ease-in-out infinite; }
+.spirit--working.spirit-ganga .ganga__page-line--second { animation-delay: -1.1s; }
+.spirit--working.spirit-ganga .ganga__flame { animation: gg-carry 2.2s ease-in-out infinite; }
+
+.spirit--waiting.spirit-ganga .ganga__flame { animation: gg-settle 0.8s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--waiting.spirit-ganga .ganga__aperture { animation: gg-patient 2.8s ease-in-out infinite; }
+
+.spirit--success.spirit-ganga .ganga__crest { animation: gg-crest 0.95s ease-out both; }
+.spirit--success.spirit-ganga .ganga__flame { animation: gg-rise 0.9s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+.spirit--failure.spirit-ganga .ganga__currents path { animation: gg-stutter 1.3s steps(3) infinite; }
+.spirit--failure.spirit-ganga .ganga__fragments path:first-child { animation: gg-drop 1.4s ease-in both; }
+.spirit--failure.spirit-ganga .ganga__aperture { opacity: 0.45; animation: gg-ember 2.6s ease-in-out infinite; }
+.spirit--failure.spirit-ganga .ganga__flame { animation: gg-slump 1s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+.spirit--sleeping.spirit-ganga .ganga__flame { animation: gg-pool 5.6s ease-in-out infinite alternate; }
+.spirit--sleeping.spirit-ganga .ganga__aperture { opacity: 0.25; }
+.spirit--sleeping.spirit-ganga .ganga__ripple { animation: gg-lap 4.4s ease-in-out infinite alternate; }
+
+@keyframes gg-sway { 0%, 100% { transform: rotate(-1.5deg); } 50% { transform: rotate(1.5deg); } }
+@keyframes gg-flow { to { stroke-dashoffset: -36; } }
+@keyframes gg-breathe { from { opacity: 0.78; } to { opacity: 1; } }
+@keyframes gg-lean { from { transform: none; } to { transform: rotate(-5deg); } }
+@keyframes gg-glisten { from { opacity: 0.85; transform: scale(1); } to { opacity: 1; transform: scale(1.1); } }
+@keyframes gg-gather {
+  0% { transform: translate(0, 0); opacity: 0.9; }
+  70% { transform: translate(14px, -4px); opacity: 0.6; }
+  100% { transform: translate(22px, -8px); opacity: 0; }
+}
+@keyframes gg-write { 0%, 12% { stroke-dashoffset: 12; } 55% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 0; } }
+@keyframes gg-carry { 0%, 100% { transform: rotate(-1deg); } 50% { transform: rotate(1.5deg) translateY(-1px); } }
+@keyframes gg-settle { from { transform: none; } to { transform: translateY(2px) scaleY(0.98); } }
+@keyframes gg-patient { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+@keyframes gg-crest { from { transform: scale(0.5); opacity: 0; } 40% { opacity: 1; } to { transform: scale(1.2); opacity: 0; } }
+@keyframes gg-rise { 0% { transform: translateY(3px); } 50% { transform: translateY(-5px) scaleY(1.04); } 100% { transform: none; } }
+@keyframes gg-stutter { to { stroke-dashoffset: -18; } }
+@keyframes gg-drop { from { transform: translateY(0); opacity: 0.9; } to { transform: translateY(26px); opacity: 0; } }
+@keyframes gg-ember { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.55; } }
+@keyframes gg-slump { from { transform: none; } to { transform: scaleY(0.94) translateY(2px); } }
+@keyframes gg-pool { from { transform: scaleY(0.84) translateY(5px); } to { transform: scaleY(0.8) translateY(7px); } }
+@keyframes gg-lap { from { transform: translateX(-2px); } to { transform: translateX(2px); } }
+
+/* ================================================================== Signal */
+
+.spirit-signal {
+  --sg-deep: #0e5f86;
+  --sg-base: #1a95c4;
+  --sg-pale: #a9def2;
+  --sg-glow: #8fe0ff;
+  --sg-dish: #0d3950;
+}
+
+.signal__body { fill: var(--sg-deep); stroke: var(--spirit-ink); stroke-width: 3; stroke-linejoin: round; }
+.signal__wing-shape { fill: var(--sg-base); stroke: var(--spirit-ink); stroke-width: 3; stroke-linejoin: round; }
+.signal__wing-facet { fill: none; stroke: var(--sg-pale); stroke-width: 2; stroke-linecap: round; opacity: 0.9; }
+.signal__antenna path { fill: none; stroke: var(--sg-base); stroke-width: 3; stroke-linecap: round; }
+.signal__antenna circle { fill: var(--sg-pale); stroke: var(--spirit-ink); stroke-width: 1.5; }
+.signal__lens-dish { fill: var(--sg-dish); stroke: var(--sg-pale); stroke-width: 2.5; }
+.signal__needle { fill: none; stroke: var(--sg-glow); stroke-width: 2.5; stroke-linecap: round; transform-origin: 50% 100%; }
+.signal__aperture circle { fill: var(--sg-glow); stroke: none; }
+.signal__pings path { fill: none; stroke: var(--sg-pale); stroke-width: 2.5; stroke-linecap: round; }
+.signal__pings { opacity: 0; }
+.signal__flatline { fill: none; stroke: var(--sg-glow); stroke-width: 2.5; stroke-linecap: round; opacity: 0; }
+.signal__antenna--left { transform-origin: 100% 100%; }
+.signal__antenna--right { transform-origin: 0% 100%; }
+.signal__wing--left { transform-origin: 95% 40%; }
+.signal__wing--right { transform-origin: 5% 40%; }
+
+.spirit--idle.spirit-signal .signal__antenna--left { animation: sg-drift 3.4s ease-in-out infinite alternate; }
+.spirit--idle.spirit-signal .signal__antenna--right { animation: sg-drift 3.9s ease-in-out infinite alternate-reverse; }
+.spirit--idle.spirit-signal .signal__figure { animation: sg-hover 4.2s ease-in-out infinite; }
+.spirit--idle.spirit-signal .signal__aperture { animation: sg-breathe 2.8s ease-in-out infinite alternate; }
+
+.spirit--listening.spirit-signal .signal__antenna--left { animation: sg-perk-left 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--listening.spirit-signal .signal__antenna--right { animation: sg-perk-right 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--listening.spirit-signal .signal__antenna circle { animation: sg-quiver 0.5s ease-in-out infinite alternate; }
+.spirit--listening.spirit-signal .signal__aperture { animation: sg-glisten 1.2s ease-in-out infinite alternate; }
+
+.spirit--thinking.spirit-signal .signal__needle { animation: sg-scan 1.7s ease-in-out infinite alternate; }
+.spirit--thinking.spirit-signal .signal__figure { animation: sg-tilt 3.4s ease-in-out infinite; }
+
+.spirit--working.spirit-signal .signal__needle { animation: sg-sweep 1.4s linear infinite; }
+.spirit--working.spirit-signal .signal__pings { opacity: 1; }
+.spirit--working.spirit-signal .signal__pings path { animation: sg-ping 1.4s ease-out infinite; }
+.spirit--working.spirit-signal .signal__pings path:last-child { animation-delay: -0.7s; }
+.spirit--working.spirit-signal .signal__figure { animation: sg-focus 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+.spirit--waiting.spirit-signal .signal__antenna--left { animation: sg-relax 0.8s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--waiting.spirit-signal .signal__antenna--right { animation: sg-relax-r 0.8s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--waiting.spirit-signal .signal__aperture { animation: sg-patient 2.6s ease-in-out infinite; }
+
+.spirit--success.spirit-signal .signal__pings { opacity: 1; }
+.spirit--success.spirit-signal .signal__pings path { animation: sg-found 0.9s ease-out both; }
+.spirit--success.spirit-signal .signal__pings path:last-child { animation-delay: 0.15s; }
+.spirit--success.spirit-signal .signal__wing--left { animation: sg-flick-l 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--success.spirit-signal .signal__wing--right { animation: sg-flick-r 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+.spirit--failure.spirit-signal .signal__antenna--left { animation: sg-static-droop 1.4s ease-out both; }
+.spirit--failure.spirit-signal .signal__antenna--right { animation: sg-static-droop-r 1.4s ease-out both; }
+.spirit--failure.spirit-signal .signal__flatline { opacity: 1; }
+.spirit--failure.spirit-signal .signal__needle { opacity: 0; }
+.spirit--failure.spirit-signal .signal__aperture { animation: sg-retry 2.4s ease-in-out infinite; }
+
+.spirit--sleeping.spirit-signal .signal__wing--left { animation: sg-fold-l 1.2s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--sleeping.spirit-signal .signal__wing--right { animation: sg-fold-r 1.2s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--sleeping.spirit-signal .signal__antenna--left { animation: sg-curl 1.2s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--sleeping.spirit-signal .signal__antenna--right { animation: sg-curl-r 1.2s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--sleeping.spirit-signal .signal__aperture { opacity: 0.25; }
+.spirit--sleeping.spirit-signal .signal__needle { opacity: 0.25; }
+
+@keyframes sg-drift { from { transform: rotate(-6deg); } to { transform: rotate(6deg); } }
+@keyframes sg-hover { 50% { transform: translateY(-1.5px); } }
+@keyframes sg-breathe { from { opacity: 0.7; } to { opacity: 1; } }
+@keyframes sg-perk-left { from { transform: rotate(0); } to { transform: rotate(14deg); } }
+@keyframes sg-perk-right { from { transform: rotate(0); } to { transform: rotate(6deg); } }
+@keyframes sg-quiver { from { transform: translateY(0); } to { transform: translateY(-1px); } }
+@keyframes sg-glisten { from { opacity: 0.8; transform: scale(1); } to { opacity: 1; transform: scale(1.25); } }
+@keyframes sg-scan { from { transform: rotate(-42deg); } to { transform: rotate(42deg); } }
+@keyframes sg-tilt { 0%, 100% { transform: rotate(-1.5deg); } 50% { transform: rotate(1.5deg); } }
+@keyframes sg-sweep { to { transform: rotate(360deg); } }
+@keyframes sg-ping { 0%, 55% { opacity: 0; transform: scale(0.85); } 70% { opacity: 1; } 100% { opacity: 0; transform: scale(1.08); } }
+@keyframes sg-focus { from { transform: none; } to { transform: scale(1.02); } }
+@keyframes sg-relax { from { transform: rotate(0); } to { transform: rotate(-9deg); } }
+@keyframes sg-relax-r { from { transform: rotate(0); } to { transform: rotate(9deg); } }
+@keyframes sg-patient { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+@keyframes sg-found { from { opacity: 0; transform: scale(0.7); } 45% { opacity: 1; } to { opacity: 0; transform: scale(1.15); } }
+@keyframes sg-flick-l { 0% { transform: rotate(0); } 45% { transform: rotate(-10deg); } 100% { transform: rotate(0); } }
+@keyframes sg-flick-r { 0% { transform: rotate(0); } 45% { transform: rotate(10deg); } 100% { transform: rotate(0); } }
+@keyframes sg-static-droop {
+  0% { transform: rotate(0); }
+  12% { transform: rotate(4deg) translateX(1px); }
+  24% { transform: rotate(-4deg) translateX(-1px); }
+  36% { transform: rotate(3deg); }
+  100% { transform: rotate(-24deg); }
+}
+@keyframes sg-static-droop-r {
+  0% { transform: rotate(0); }
+  12% { transform: rotate(-4deg) translateX(-1px); }
+  24% { transform: rotate(4deg) translateX(1px); }
+  36% { transform: rotate(-3deg); }
+  100% { transform: rotate(24deg); }
+}
+@keyframes sg-retry { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.6; } }
+@keyframes sg-fold-l { from { transform: rotate(0); } to { transform: rotate(18deg) scaleY(0.92); } }
+@keyframes sg-fold-r { from { transform: rotate(0); } to { transform: rotate(-18deg) scaleY(0.92); } }
+@keyframes sg-curl { from { transform: rotate(0); } to { transform: rotate(-30deg); } }
+@keyframes sg-curl-r { from { transform: rotate(0); } to { transform: rotate(30deg); } }
+
+/* =================================================================== Forge */
+
+.spirit-forge {
+  --fg-deep: #9a5a14;
+  --fg-base: #d88a2c;
+  --fg-pale: #f2cf92;
+  --fg-ember: #ffb45e;
+  --fg-ember-light: #ffe7c2;
+  --fg-slate: #7d7164;
+  --fg-spark: #ffcf7a;
+}
+
+.forge__block-body { fill: var(--fg-base); stroke: var(--spirit-ink); stroke-width: 3; stroke-linejoin: round; }
+.forge__block-facet { fill: var(--fg-pale); stroke: var(--spirit-ink); stroke-width: 2; stroke-linejoin: round; }
+.forge__block-base { fill: var(--fg-deep); stroke: var(--spirit-ink); stroke-width: 3; stroke-linejoin: round; }
+.forge__ember circle { fill: var(--fg-ember); stroke: var(--spirit-ink); stroke-width: 3; }
+.forge__ember-mark { fill: var(--fg-ember-light); stroke: none; }
+.forge__workpiece rect { fill: var(--fg-slate); stroke: var(--spirit-ink); stroke-width: 2.5; }
+.forge__gleam { fill: none; stroke: var(--fg-ember-light); stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 20; stroke-dashoffset: 20; opacity: 0; }
+.forge__hammer { transform-origin: 0% 100%; }
+.forge__hammer-handle { fill: none; stroke: var(--spirit-ink); stroke-width: 4; stroke-linecap: round; }
+.forge__hammer-head { fill: var(--fg-slate); stroke: var(--spirit-ink); stroke-width: 3; stroke-linejoin: round; }
+.forge__sparks path { fill: none; stroke: var(--fg-spark); stroke-width: 2.5; stroke-linecap: round; }
+.forge__sparks { opacity: 0; }
+.forge__crack { fill: none; stroke: var(--spirit-ink); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }
+
+.spirit--idle.spirit-forge .forge__ember { animation: fg-breathe 2.6s ease-in-out infinite alternate; }
+.spirit--idle.spirit-forge .forge__hammer { animation: fg-rest-hold 0.01s both; }
+
+.spirit--listening.spirit-forge .forge__figure { animation: fg-attend 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--listening.spirit-forge .forge__ember { animation: fg-glisten 1.3s ease-in-out infinite alternate; }
+
+.spirit--thinking.spirit-forge .forge__workpiece { animation: fg-turn 2.8s ease-in-out infinite; }
+.spirit--thinking.spirit-forge .forge__ember { animation: fg-flicker 1.8s ease-in-out infinite; }
+
+.spirit--working.spirit-forge .forge__hammer { animation: fg-strike 1.05s ease-in-out infinite; }
+.spirit--working.spirit-forge .forge__sparks { opacity: 1; }
+.spirit--working.spirit-forge .forge__sparks path { animation: fg-spark 1.05s ease-out infinite; }
+.spirit--working.spirit-forge .forge__workpiece { animation: fg-shape 1.05s ease-in-out infinite; }
+.spirit--working.spirit-forge .forge__block { animation: fg-thud 1.05s ease-in-out infinite; }
+.spirit--working.spirit-forge .forge__ember { animation: fg-stoke 1.05s ease-in-out infinite; }
+
+.spirit--waiting.spirit-forge .forge__hammer { animation: fg-lower 0.9s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--waiting.spirit-forge .forge__ember { animation: fg-patient 2.8s ease-in-out infinite; }
+
+.spirit--success.spirit-forge .forge__gleam { animation: fg-gleam 1s ease-out both; }
+.spirit--success.spirit-forge .forge__figure { animation: fg-pride 0.85s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--success.spirit-forge .forge__sparks { opacity: 1; }
+.spirit--success.spirit-forge .forge__sparks path { animation: fg-fountain 0.8s ease-out both; }
+
+.spirit--failure.spirit-forge .forge__workpiece { animation: fg-slip 1s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--failure.spirit-forge .forge__hammer { animation: fg-lower 1.3s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--failure.spirit-forge .forge__ember { animation: fg-coal 2.8s ease-in-out infinite; }
+.spirit--failure.spirit-forge .forge__crack { opacity: 1; }
+
+.spirit--sleeping.spirit-forge .forge__ember { animation: fg-banked 6s ease-in-out infinite alternate; }
+.spirit--sleeping.spirit-forge .forge__hammer { animation: fg-rest-hold 0.01s both; }
+.spirit--sleeping.spirit-forge .forge__figure { animation: fg-settle 1.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@keyframes fg-breathe { from { opacity: 0.7; } to { opacity: 1; } }
+@keyframes fg-rest-hold { to { transform: rotate(38deg); } }
+@keyframes fg-attend { from { transform: none; } to { transform: rotate(-3deg) translateY(-1px); } }
+@keyframes fg-glisten { from { opacity: 0.85; transform: scale(1); } to { opacity: 1; transform: scale(1.12); } }
+@keyframes fg-turn {
+  0% { transform: rotate(0) translateY(0); }
+  40% { transform: rotate(95deg) translateY(-7px); }
+  58% { transform: rotate(95deg) translateY(-7px); }
+  100% { transform: rotate(180deg) translateY(0); }
+}
+@keyframes fg-flicker { 0%, 100% { opacity: 0.75; } 35% { opacity: 1; } 55% { opacity: 0.85; } 75% { opacity: 1; } }
+@keyframes fg-strike {
+  0%, 42% { transform: rotate(0); }
+  52% { transform: rotate(-8deg); }
+  60% { transform: rotate(40deg); }
+  68% { transform: rotate(40deg); }
+  100% { transform: rotate(0); }
+}
+@keyframes fg-spark {
+  0%, 58% { opacity: 0; transform: translate(0, 0) scale(0.6); }
+  64% { opacity: 1; }
+  84%, 100% { opacity: 0; transform: translate(3px, -7px) scale(1.1); }
+}
+@keyframes fg-shape { 0%, 58% { transform: scaleY(1); } 62% { transform: scaleY(0.78) translateY(1px); } 76%, 100% { transform: scaleY(1); } }
+@keyframes fg-thud { 0%, 58% { transform: translateY(0); } 62% { transform: translateY(1.5px); } 74%, 100% { transform: translateY(0); } }
+@keyframes fg-stoke { 0%, 58% { opacity: 0.8; } 64% { opacity: 1; } 100% { opacity: 0.8; } }
+@keyframes fg-lower { from { transform: rotate(0); } to { transform: rotate(44deg); } }
+@keyframes fg-patient { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+@keyframes fg-gleam { 0% { stroke-dashoffset: 20; opacity: 1; } 60% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes fg-pride { 0% { transform: translateY(2px); } 50% { transform: translateY(-3px); } 100% { transform: none; } }
+@keyframes fg-fountain { from { opacity: 0; transform: translate(0, 2px) scale(0.6); } 40% { opacity: 1; } to { opacity: 0; transform: translate(2px, -9px) scale(1.2); } }
+@keyframes fg-slip { from { transform: none; } to { transform: rotate(-9deg) translate(3px, -2px); } }
+@keyframes fg-coal { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.5; } }
+@keyframes fg-banked { from { opacity: 0.18; } to { opacity: 0.3; } }
+@keyframes fg-settle { from { transform: none; } to { transform: translateY(2px); } }
+
+/* ==================================================================== Hood */
+
+.hood__ring-line { fill: none; stroke-width: 1.6; opacity: 0.75; }
+.hood__ring-dot--minor { opacity: 0.7; }
+.hood__halo { fill: none; stroke-width: 1.3; }
+.hood__halo-wrap { opacity: 0.38; }
+.hood__brush { fill: none; stroke-width: 3.5; stroke-linecap: round; opacity: 0.85; }
+.hood__strap { fill: none; stroke-width: 4; stroke-linecap: round; opacity: 0.9; }
+.hood__wave { fill: none; stroke-width: 2.5; stroke-linecap: round; opacity: 0.8; }
+.hood__void { fill: #070a16; }
+.hood__facet { opacity: 0.62; }
+.hood__chest { opacity: 0.85; }
+.hood__peak { opacity: 0.9; }
+.hood__rim { fill: none; stroke-width: 1.4; stroke-linecap: round; opacity: 0.35; }
+.hood__hem { fill: none; stroke-width: 3; stroke-linecap: round; opacity: 0.9; }
+.hood__underglow { opacity: 0.22; }
+.hood__eyes--line path { fill: none; stroke: #fff; stroke-width: 4.2; stroke-linecap: round; }
+.hood__eyes--fill path,
+.hood__eyes--fill circle { fill: #fff; stroke: none; }
+.hood__eyes--fill .hood__eyes-linebit { fill: none; stroke: #fff; stroke-width: 4.2; stroke-linecap: round; }
+.hood__eyes--dim { opacity: 0.5; }
+.hood__edge { fill: none; stroke-width: 2; stroke-linecap: round; opacity: 0.45; }
+
+/* Head poses — the head shifts, the eyes shift further (parallax). */
+.hood__head { transform-origin: 50% 82%; transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.hood__eyepose { transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.hood--look-left .hood__head { transform: translateX(-3px) rotate(-4.5deg); }
+.hood--look-left .hood__eyepose { transform: translateX(-3.5px); }
+.hood--look-right .hood__head { transform: translateX(3px) rotate(4.5deg); }
+.hood--look-right .hood__eyepose { transform: translateX(3.5px); }
+.hood--look-up .hood__head { transform: translateY(-2.6px) scaleY(1.02); }
+.hood--look-up .hood__eyepose { transform: translateY(-3.2px); }
+.hood--look-down .hood__head { transform: translateY(2.6px) scaleY(0.97); }
+.hood--look-down .hood__eyepose { transform: translateY(3.2px); }
+.hood__badge--think { stroke-width: 2; stroke-linecap: round; opacity: 0; }
+.hood__spark { opacity: 0; }
+.hood__alert { opacity: 0; }
+
+.spirit--idle.hood .hood__figure { animation: hd-breathe 4.2s ease-in-out infinite; }
+.spirit--idle.hood .hood__ring { animation: hd-turn 46s linear infinite; }
+.spirit--idle.hood .hood__halo-wrap { animation: hd-turn 80s linear infinite; }
+.spirit--idle.hood .hood__face {
+  animation:
+    hd-eyes-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+    hd-blink 4.6s 1.2s ease-in-out infinite;
+}
+.spirit--idle.hood .hood__gaze { animation: hd-gaze 7.5s ease-in-out infinite; }
+
+.spirit--listening.hood .hood__figure { animation: hd-attend 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--listening.hood .hood__face {
+  animation:
+    hd-eyes-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+    hd-blink 3.8s 0.9s ease-in-out infinite;
+}
+.spirit--listening.hood .hood__gaze { animation: hd-gaze-attend 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--listening.hood .hood__ring-dot { animation: hd-dot-pulse 1.2s ease-in-out infinite alternate; }
+
+.spirit--thinking.hood .hood__badge--think { animation: hd-badge 2.8s ease-in-out infinite; }
+.spirit--thinking.hood .hood__ring { animation: hd-turn-back 26s linear infinite; }
+.spirit--thinking.hood .hood__halo-wrap { opacity: 0.45; animation: hd-turn-back 34s linear infinite; }
+.spirit--thinking.hood .hood__ring-line { stroke-dasharray: 4 7; }
+.spirit--thinking.hood .hood__face { animation: hd-eyes-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.spirit--thinking.hood .hood__eye-dot--left { animation: hd-bob 1.1s ease-in-out infinite alternate; }
+.spirit--thinking.hood .hood__eye-dot--right { animation: hd-bob 1.1s ease-in-out infinite alternate-reverse; }
+
+.spirit--working.hood .hood__ring { animation: hd-turn 2.4s linear infinite; }
+.spirit--working.hood .hood__halo-wrap { opacity: 0.5; animation: hd-turn 16s linear infinite; }
+.spirit--working.hood .hood__figure { animation: hd-toil 0.9s ease-in-out infinite; }
+.spirit--working.hood .hood__face {
+  animation:
+    hd-eyes-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+    hd-focus 0.9s 0.5s ease-in-out infinite alternate;
+}
+
+.spirit--waiting.hood .hood__face {
+  animation:
+    hd-eyes-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+    hd-slow-blink 3.6s 1s ease-in-out infinite;
+}
+.spirit--waiting.hood .hood__figure { animation: hd-sway 4s ease-in-out infinite; }
+.spirit--waiting.hood .hood__ring-line { opacity: 0.45; }
+.spirit--waiting.hood .hood__halo-wrap { opacity: 0.18; }
+
+.spirit--success.hood .hood__figure { animation: hd-pop 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--success.hood .hood__face { animation: hd-eyes-bounce 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.spirit--success.hood .hood__spark { animation: hd-spark 0.9s ease-out both; }
+.spirit--success.hood .hood__ring-line { animation: hd-ring-flare 0.9s ease-out both; }
+.spirit--success.hood .hood__halo-wrap { animation: hd-halo-flare 1.1s ease-out both; }
+
+.spirit--failure.hood .hood__figure { animation: hd-shake 0.55s ease-in-out both; }
+.spirit--failure.hood .hood__face { animation: hd-eyes-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.spirit--failure.hood .hood__alert { opacity: 1; animation: hd-alert 1.4s ease-in-out infinite alternate; }
+.spirit--failure.hood .hood__ring-line { opacity: 0.4; }
+.spirit--failure.hood .hood__halo-wrap { opacity: 0.14; }
+
+.spirit--sleeping.hood .hood__figure { animation: hd-sink 5.5s ease-in-out infinite alternate; }
+.spirit--sleeping.hood .hood__ring { opacity: 0.25; }
+.spirit--sleeping.hood .hood__halo-wrap { opacity: 0.08; }
+.spirit--sleeping.hood .hood__face { opacity: 0.55; animation: hd-fade-dim 0.9s ease-out both; }
+
+@keyframes hd-breathe { 50% { transform: translateY(-1.5px); } }
+@keyframes hd-turn { to { transform: rotate(360deg); } }
+@keyframes hd-turn-back { to { transform: rotate(-360deg); } }
+@keyframes hd-glow { from { opacity: 0.82; } to { opacity: 1; } }
+@keyframes hd-attend { from { transform: none; } to { transform: scale(1.04) translateY(-1px); } }
+@keyframes hd-blink { 0%, 90%, 100% { transform: scaleY(1); } 94% { transform: scaleY(0.12); } 98% { transform: scaleY(1); } }
+@keyframes hd-dot-pulse { from { opacity: 0.55; } to { opacity: 1; } }
+@keyframes hd-badge { 0%, 12% { opacity: 0; transform: scale(0.85); } 30%, 78% { opacity: 1; transform: scale(1); } 95%, 100% { opacity: 0; transform: scale(0.92); } }
+@keyframes hd-bob { from { transform: translateY(-1.6px); } to { transform: translateY(1.6px); } }
+@keyframes hd-toil { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(1.4px); } }
+@keyframes hd-focus { from { opacity: 0.85; } to { opacity: 1; } }
+@keyframes hd-slow-blink { 0%, 82%, 100% { transform: scaleY(1); } 88% { transform: scaleY(0.15); } 94% { transform: scaleY(1); } }
+@keyframes hd-sway { 0%, 100% { transform: rotate(-1.2deg); } 50% { transform: rotate(1.2deg); } }
+@keyframes hd-pop { 0% { transform: scale(0.94); } 55% { transform: scale(1.06); } 100% { transform: scale(1); } }
+@keyframes hd-spark { 0% { opacity: 0; transform: scale(0.4) rotate(-20deg); } 40% { opacity: 1; } 100% { opacity: 0; transform: scale(1.15) rotate(10deg); } }
+@keyframes hd-ring-flare { 0% { opacity: 0.75; } 35% { opacity: 1; stroke-width: 2.4; } 100% { opacity: 0.75; } }
+@keyframes hd-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-2.5px) rotate(-1deg); }
+  45% { transform: translateX(2.2px) rotate(1deg); }
+  70% { transform: translateX(-1.2px); }
+}
+@keyframes hd-alert { from { opacity: 0.5; transform: scale(0.92); } to { opacity: 1; transform: scale(1.08); } }
+@keyframes hd-halo-flare { 0% { opacity: 0.38; } 35% { opacity: 0.8; } 100% { opacity: 0.38; } }
+@keyframes hd-eyes-in { from { transform: scale(0.55); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes hd-eyes-bounce {
+  0% { transform: scale(0.6) translateY(2.5px); opacity: 0; }
+  45% { transform: scale(1.14) translateY(-2px); opacity: 1; }
+  72% { transform: scale(0.97) translateY(0.6px); }
+  100% { transform: scale(1) translateY(0); }
+}
+@keyframes hd-gaze {
+  0%, 44%, 100% { transform: translate(0, 0); }
+  50%, 66% { transform: translate(-2px, -0.8px); }
+  72%, 88% { transform: translate(1.7px, 0); }
+}
+@keyframes hd-gaze-attend { to { transform: translate(-1.8px, -1.2px); } }
+@keyframes hd-fade-dim { from { opacity: 0; } to { opacity: 0.55; } }
+@keyframes hd-sink { from { transform: translateY(2.5px); } to { transform: translateY(4px); } }
+
+/* ============================================== stillness & reduced motion */
+
+/* With animation disabled, keep each state legible by revealing the
+ * signature one-shot elements that animation would otherwise deliver. */
+.spirit--still *,
+.spirit--still { animation: none !important; }
+
+.spirit--still.spirit--success .wormhole__branches,
+.spirit--still.spirit--success .wormhole__branches path,
+.spirit--still.spirit--success .sensei__stroke,
+.spirit--still.spirit--success .mailman__salute,
+.spirit--still.spirit--success .mailman__seal-burst,
+.spirit--still.spirit--success .ganga__crest,
+.spirit--still.spirit--success .signal__pings,
+.spirit--still.spirit--success .forge__gleam,
+.spirit--still.spirit--success .hood__spark,
+.spirit--still.spirit--thinking .hood__badge--think,
+.spirit--still.spirit--failure .hood__alert,
+.spirit--still.spirit--failure .mailman__jam,
+.spirit--still.spirit--failure .wormhole__knot,
+.spirit--still.spirit--failure .forge__crack,
+.spirit--still.spirit--failure .signal__flatline {
+  opacity: 1;
+  stroke-dashoffset: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spirit *,
+  .spirit { animation: none !important; transition: none !important; }
+
+  .spirit--success .wormhole__branches,
+  .spirit--success .wormhole__branches path,
+  .spirit--success .sensei__stroke,
+  .spirit--success .mailman__salute,
+  .spirit--success .mailman__seal-burst,
+  .spirit--success .ganga__crest,
+  .spirit--success .signal__pings,
+  .spirit--success .forge__gleam,
+  .spirit--success .hood__spark,
+  .spirit--thinking .hood__badge--think,
+  .spirit--failure .hood__alert,
+  .spirit--failure .mailman__jam,
+  .spirit--failure .wormhole__knot,
+  .spirit--failure .forge__crack,
+  .spirit--failure .signal__flatline {
+    opacity: 1;
+    stroke-dashoffset: 0;
+  }
+}
