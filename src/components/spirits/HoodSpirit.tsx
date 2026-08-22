@@ -423,19 +423,19 @@ export function HoodSpirit({
               <path
                 className="hood__cowl"
                 fill={`url(#${uid}-cowl)`}
-                d="M60 5.5c-2.5 0-4.5 1.5-6.2 4C46.5 19.5 38.5 31.5 34 44c-4 10-3 19 4 25 7 5.5 14.5 8 22 8s15-2.5 22-8c7-6 8-15 4-25-4.5-12.5-12.5-24.5-19.8-34.5C64.5 7 62.5 5.5 60 5.5Z"
+                d="M60 5.5c-2.5 0-4.5 1.5-6.2 4C46.5 19.5 38.5 31.5 34 44c-5 11-4 21.5 4 28 8 6.5 15.5 8.5 22 8.5s14-2 22-8.5c8-6.5 9-17 4-28-4.5-12.5-12.5-24.5-19.8-34.5C64.5 7 62.5 5.5 60 5.5Z"
               />
               {/* right panel, split clean from the peak */}
               <path
                 className="hood__facet"
                 fill={`url(#${uid}-facet)`}
-                d="M60 5.5c2.5 0 4.5 1.5 6.2 4C73.5 19.5 81.5 31.5 86 44c4 10 3 19-4 25-7 5.5-14.5 8-22 8Z"
+                d="M60 5.5c2.5 0 4.5 1.5 6.2 4C73.5 19.5 81.5 31.5 86 44c5 11 4 21.5-4 28-8 6.5-15.5 8.5-22 8.5Z"
               />
               {/* left outer edge catching the light */}
               <path
                 className="hood__edge"
                 stroke={look.hi}
-                d="M56.5 9C49.5 18.5 40 31.5 35.5 44.5c-3.3 8.5-2.5 16 3 21.5"
+                d="M56.5 9C49.5 18.5 40 31.5 35.5 44.5c-3.8 9.5-2.8 17.5 3.2 23.5"
               />
               {/* the face void: a big soft diamond, chin point reaching into the neck */}
               <path
