@@ -299,6 +299,12 @@ section { margin-bottom: 80px; }
   justify-content: center;
 }
 
+/* Bench-side guard: Codex's expression-crossfade layer stacks all eye
+ * sets in the DOM; until its own visibility rules land in the family
+ * stylesheet, keep only the active expression visible here. */
+.hood__expression { opacity: 0; }
+.hood__expression--active { opacity: 1; }
+
 /* -------------------------------------------------------------- head pad */
 
 .headpad {

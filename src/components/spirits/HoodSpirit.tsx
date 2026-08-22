@@ -412,10 +412,10 @@ export function HoodSpirit({
             <path
               className="hood__cape"
               fill={`url(#${uid}-cape)`}
-              d="M60 34C46 40 33.5 52 26 66c-5 9-7.5 16-8 22 14-4 28-6 42-6s28 2 42 6c-.5-6-3-13-8-22C86.5 52 74 40 60 34Z"
+              d="M60 34C47 40 35.5 52 28.5 66c-4.5 8.5-6.5 15-7 20.5 13-3.5 26-5.5 38.5-5.5s25.5 2 38.5 5.5c-.5-5.5-2.5-12-7-20.5C84.5 52 73 40 60 34Z"
             />
             {/* chest fading out below the face */}
-            <path className="hood__chest" fill={`url(#${uid}-chest)`} d="M60 60 85 76 60 95 35 76Z" />
+            <path className="hood__chest" fill={`url(#${uid}-chest)`} d="M60 58 88 76 60 100 32 76Z" />
 
             {/* the head: everything that turns together */}
             <g className="hood__head">
@@ -440,7 +440,7 @@ export function HoodSpirit({
               {/* the face void: a big soft diamond, chin point reaching into the neck */}
               <path
                 className="hood__void"
-                d="M60 28c3.7 1 10.3 6.5 15 13.5 3.2 4.6 6 8.2 6 10.5 0 3.3-2.8 7.8-6 12.8-4.4 6.8-9.6 12.2-15 16.2-5.4-4-10.6-9.4-15-16.2-3.2-5-6-9.5-6-12.8 0-2.3 2.8-5.9 6-10.5C49.7 34.5 56.3 29 60 28Z"
+                d="M60 28c3.7 1 10.3 6.5 15 13.5 3.2 4.6 6 8.2 6 10.5 0 3.3-2.8 7.8-6 12.8-4.4 5.5-9.6 9.9-15 13.2-5.4-3.3-10.6-7.7-15-13.2-3.2-5-6-9.5-6-12.8 0-2.3 2.8-5.9 6-10.5C49.7 34.5 56.3 29 60 28Z"
               />
               {/* the hood rim's shadowed underside, overhanging the face */}
               <path
@@ -456,7 +456,7 @@ export function HoodSpirit({
               <path
                 className="hood__rim"
                 stroke={look.hi}
-                d="M60 28c-3.7 1-10.3 6.5-15 13.5-3.2 4.6-6 8.2-6 10.5 0 3.3 2.8 7.8 6 12.8 4.4 6.8 9.6 12.2 15 16.2"
+                d="M60 28c-3.7 1-10.3 6.5-15 13.5-3.2 4.6-6 8.2-6 10.5 0 3.3 2.8 7.8 6 12.8 4.4 5.5 9.6 9.9 15 13.2"
               />
               {/* peak facet, rounded like the tip it sits on */}
               <path className="hood__peak" fill={look.hi} d="M60 6.5c1.8 0 3.3 1.1 4.5 3l-4.5 8-4.5-8c1.2-1.9 2.7-3 4.5-3Z" />
