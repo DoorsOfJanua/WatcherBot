@@ -1,0 +1,146 @@
+/* Alien Spirits — "the Visitors" stylesheet.
+ *
+ * Standalone motion system for AlienSpirit. Base .spirit plumbing
+ * (contain, transform-box, still/reduced-motion kill switches) comes from
+ * agent-spirits.css, which AlienSpirit also imports. The pupils are the
+ * expressive layer: they drift, attend, wander, and scan per state, and
+ * they parallax with the head poses.
+ */
+
+/* Elements using SVG attribute rotate(a cx cy) must escape the family's
+ * global transform-origin:center, which would compose with the attribute
+ * and double the rotation origin. */
+.alien .alien__rot { transform-box: view-box; transform-origin: 0 0; }
+
+.alien__underglow { opacity: 0.2; }
+.alien__facet { fill: #000; opacity: 0.14; }
+.alien__sheen { fill: none; stroke-width: 2; stroke-linecap: round; opacity: 0.5; }
+.alien__glint { fill: #fff; opacity: 0.95; }
+.alien__arcs path { fill: none; stroke-width: 4.5; stroke-linecap: round; }
+.alien__arcs--dim { opacity: 0.55; }
+.alien__orbit-path { fill: none; stroke-width: 1.3; opacity: 0.55; }
+.alien__crest { fill: none; stroke-width: 2.5; stroke-linecap: round; opacity: 0.85; }
+.alien__antennae path { fill: none; stroke-width: 2.5; stroke-linecap: round; }
+.alien__spark { opacity: 0; }
+.alien__alert { opacity: 0; }
+
+/* Head poses — the skull shifts, the pupils shift further (parallax). */
+.alien__head-wrap { transform-origin: 50% 80%; transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.alien__pupilpose { transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.alien--look-left .alien__head-wrap { transform: translateX(-3px) rotate(-4deg); }
+.alien--look-left .alien__pupilpose { transform: translateX(-4.5px); }
+.alien--look-right .alien__head-wrap { transform: translateX(3px) rotate(4deg); }
+.alien--look-right .alien__pupilpose { transform: translateX(4.5px); }
+.alien--look-up .alien__head-wrap { transform: translateY(-2.6px); }
+.alien--look-up .alien__pupilpose { transform: translateY(-4px); }
+.alien--look-down .alien__head-wrap { transform: translateY(2.6px) scaleY(0.98); }
+.alien--look-down .alien__pupilpose { transform: translateY(4px); }
+
+/* ------------------------------------------------------------------ states */
+
+.spirit--idle.alien .alien__figure { animation: al-float 4.4s ease-in-out infinite; }
+.spirit--idle.alien .alien__face {
+  animation:
+    al-eyes-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+    al-blink 4.4s 1.2s ease-in-out infinite;
+}
+.spirit--idle.alien .alien__pupil { animation: al-drift 7s ease-in-out infinite; }
+.spirit--idle.alien .alien__tip { animation: al-tip 2.6s ease-in-out infinite alternate; }
+.spirit--idle.alien .alien__orbit-moon { animation: al-moon 5.5s ease-in-out infinite alternate; }
+
+.spirit--listening.alien .alien__figure { animation: al-attend 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--listening.alien .alien__face {
+  animation:
+    al-eyes-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+    al-blink 3.6s 0.9s ease-in-out infinite;
+}
+.spirit--listening.alien .alien__pupil { animation: al-attend-pupil 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--listening.alien .alien__tip { animation: al-tip 0.9s ease-in-out infinite alternate; }
+
+.spirit--thinking.alien .alien__figure { animation: al-ponder 3.6s ease-in-out infinite; }
+.spirit--thinking.alien .alien__face { animation: al-eyes-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.spirit--thinking.alien .alien__pupil--left { animation: al-wander 2.8s ease-in-out infinite; }
+.spirit--thinking.alien .alien__pupil--right { animation: al-wander 2.8s -1.4s ease-in-out infinite; }
+.spirit--thinking.alien .alien__accessory { animation: al-shimmer 2s ease-in-out infinite alternate; }
+
+.spirit--working.alien .alien__figure { animation: al-toil 1s ease-in-out infinite; }
+.spirit--working.alien .alien__face {
+  animation:
+    al-eyes-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+    al-focus 0.9s 0.5s ease-in-out infinite alternate;
+}
+.spirit--working.alien .alien__pupil { animation: al-scan 0.75s ease-in-out infinite alternate; }
+
+.spirit--waiting.alien .alien__figure { animation: al-sway 4.2s ease-in-out infinite; }
+.spirit--waiting.alien .alien__face {
+  animation:
+    al-eyes-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+    al-slow-blink 3.8s 1s ease-in-out infinite;
+}
+
+.spirit--success.alien .alien__figure { animation: al-pop 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.spirit--success.alien .alien__face { animation: al-eyes-bounce 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.spirit--success.alien .alien__spark { animation: al-spark 0.9s ease-out both; }
+
+.spirit--failure.alien .alien__figure { animation: al-shake 0.55s ease-in-out both; }
+.spirit--failure.alien .alien__face { animation: al-eyes-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.spirit--failure.alien .alien__alert { opacity: 1; animation: al-alert 1.4s ease-in-out infinite alternate; }
+
+.spirit--sleeping.alien .alien__figure { animation: al-sink 5.5s ease-in-out infinite alternate; }
+.spirit--sleeping.alien .alien__face { opacity: 0.5; animation: al-fade-dim 0.9s ease-out both; }
+.spirit--sleeping.alien .alien__underglow { opacity: 0.08; }
+.spirit--sleeping.alien .alien__accessory { opacity: 0.3; }
+
+@keyframes al-float { 50% { transform: translateY(-2px); } }
+@keyframes al-blink { 0%, 90%, 100% { transform: scaleY(1); } 94% { transform: scaleY(0.1); } 98% { transform: scaleY(1); } }
+@keyframes al-slow-blink { 0%, 80%, 100% { transform: scaleY(1); } 87% { transform: scaleY(0.12); } 94% { transform: scaleY(1); } }
+@keyframes al-eyes-in { from { transform: scale(0.55); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes al-eyes-bounce {
+  0% { transform: scale(0.6) translateY(2.5px); opacity: 0; }
+  45% { transform: scale(1.14) translateY(-2px); opacity: 1; }
+  72% { transform: scale(0.97) translateY(0.6px); }
+  100% { transform: scale(1) translateY(0); }
+}
+@keyframes al-drift {
+  0%, 100% { transform: translate(0, 0); }
+  30% { transform: translate(2px, -1.5px); }
+  55% { transform: translate(-2px, -1px); }
+  80% { transform: translate(1px, 1.5px); }
+}
+@keyframes al-attend { from { transform: none; } to { transform: translateY(-1.5px) rotate(-3deg); } }
+@keyframes al-attend-pupil { from { transform: none; } to { transform: translate(-3.5px, -2px); } }
+@keyframes al-wander {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(3px, -2px); }
+  50% { transform: translate(-3px, -1.5px); }
+  75% { transform: translate(2px, 2px); }
+}
+@keyframes al-ponder { 0%, 100% { transform: rotate(-1.6deg); } 50% { transform: rotate(1.6deg); } }
+@keyframes al-shimmer { from { opacity: 0.6; } to { opacity: 1; } }
+@keyframes al-toil { 50% { transform: translateY(1.2px); } }
+@keyframes al-focus { from { opacity: 0.85; } to { opacity: 1; } }
+@keyframes al-scan { from { transform: translateX(-3px); } to { transform: translateX(3px); } }
+@keyframes al-sway { 0%, 100% { transform: rotate(-1.2deg); } 50% { transform: rotate(1.2deg); } }
+@keyframes al-pop { 0% { transform: scale(0.94); } 55% { transform: scale(1.06); } 100% { transform: scale(1); } }
+@keyframes al-spark { 0% { opacity: 0; transform: scale(0.4) rotate(-20deg); } 40% { opacity: 1; } 100% { opacity: 0; transform: scale(1.15) rotate(10deg); } }
+@keyframes al-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-2.5px) rotate(-1deg); }
+  45% { transform: translateX(2.2px) rotate(1deg); }
+  70% { transform: translateX(-1.2px); }
+}
+@keyframes al-alert { from { opacity: 0.5; transform: scale(0.92); } to { opacity: 1; transform: scale(1.08); } }
+@keyframes al-sink { from { transform: translateY(2.5px); } to { transform: translateY(4.5px); } }
+@keyframes al-fade-dim { from { opacity: 0; } to { opacity: 0.5; } }
+@keyframes al-tip { from { opacity: 0.5; } to { opacity: 1; } }
+@keyframes al-moon { from { transform: translateX(0); } to { transform: translateX(-7px); } }
+
+/* --------------------------------------------- stillness & reduced motion */
+
+.spirit--still.spirit--success .alien__spark,
+.spirit--still.spirit--failure .alien__alert { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .spirit--success .alien__spark,
+  .spirit--failure .alien__alert { opacity: 1; }
+}

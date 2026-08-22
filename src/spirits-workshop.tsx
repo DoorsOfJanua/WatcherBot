@@ -13,6 +13,7 @@ import {
   type AgentSpiritState,
 } from "@/components/spirits/AgentSpirit";
 import { HOOD_MOODS, HoodSpirit, type HoodHeading } from "@/components/spirits/HoodSpirit";
+import { AlienSpirit } from "@/components/spirits/AlienSpirit";
 import { BOT_AVATAR_STATES } from "../shared/bot-avatar";
 import "./spirits-workshop.css";
 
@@ -27,7 +28,29 @@ const STATE_NOTES = {
   sleeping: "peaceful economy",
 } satisfies Record<AgentSpiritState, string>;
 
-type Direction = "hood" | "folded";
+type Direction = "hood" | "alien" | "folded";
+
+const DIRECTION_LABEL = {
+  hood: "hooded",
+  alien: "alien",
+  folded: "folded ink",
+} satisfies Record<Direction, string>;
+
+const NEXT_DIRECTION = {
+  hood: "alien",
+  alien: "folded",
+  folded: "hood",
+} satisfies Record<Direction, Direction>;
+
+/** What marks each agent apart in the alien direction, at a glance. */
+const ALIEN_MATERIAL = {
+  wormhole: "Tall violet dome · orbiting moon",
+  sensei: "Slim jade skull · third eye",
+  mailman: "Round rose head · arriving letter",
+  ganga: "Teal visitor · wave crest",
+  signal: "Blue scout · glowing antennae",
+  forge: "Broad amber jaw · rivet studs",
+} satisfies Record<AgentSpiritName, string>;
 
 /** What marks each agent apart in the hood direction, at a glance. */
 const HOOD_MATERIAL = {
@@ -64,7 +87,7 @@ function SurfaceChip({
   animated: boolean;
   sizes: number[];
 }) {
-  const Spirit = direction === "hood" ? HoodSpirit : AgentSpirit;
+  const Spirit = direction === "hood" ? HoodSpirit : direction === "alien" ? AlienSpirit : AgentSpirit;
   return (
     <span className={`chip chip--${tone}`}>
       {sizes.map((size) => (
@@ -90,7 +113,7 @@ function Workshop() {
     setReplay((n) => n + 1);
   };
 
-  const Spirit = direction === "hood" ? HoodSpirit : AgentSpirit;
+  const Spirit = direction === "hood" ? HoodSpirit : direction === "alien" ? AlienSpirit : AgentSpirit;
 
   return (
     <main className={`bench bench--${direction}`}>
@@ -100,8 +123,10 @@ function Workshop() {
           <h1>Agent Spirits</h1>
           <p className="bench-lede">
             {direction === "hood"
-              ? "Direction B, after Janua's reference: gradient cowls, luminous eyes, one orbit ring. The eyes carry the state; the ring carries the labor; one accessory per agent carries identity at 24 px."
-              : "Direction A, folded ink: bold silhouette, warm inked outline, one luminous aperture, restrained two-tone material. Same family, six bodies, six ways of moving."}{" "}
+              ? "Direction B, after Janua's reference: gradient cowls, luminous eyes, sacred-geometry halos. The eyes carry the state; the halo carries the labor and identity."
+              : direction === "alien"
+                ? "Direction C, the Visitors: classic alien heads with huge slanted eyes. The pupils are the soul — they drift, attend, wander and scan; skull shape and one accessory carry each personality."
+                : "Direction A, folded ink: bold silhouette, warm inked outline, one luminous aperture, restrained two-tone material. Same family, six bodies, six ways of moving."}{" "}
             Nothing here replaces production avatars yet.
           </p>
         </div>
@@ -109,9 +134,9 @@ function Workshop() {
           <button
             type="button"
             className="control on"
-            onClick={() => setDirection((d) => (d === "hood" ? "folded" : "hood"))}
+            onClick={() => setDirection((d) => NEXT_DIRECTION[d])}
           >
-            Direction: {direction === "hood" ? "hooded" : "folded ink"}
+            Direction: {DIRECTION_LABEL[direction]}
           </button>
           <button
             type="button"
@@ -161,7 +186,11 @@ function Workshop() {
                   {meta.role}
                 </p>
                 <p className="plate-material">
-                  {direction === "hood" ? HOOD_MATERIAL[name] : meta.material}
+                  {direction === "hood"
+                    ? HOOD_MATERIAL[name]
+                    : direction === "alien"
+                      ? ALIEN_MATERIAL[name]
+                      : meta.material}
                 </p>
                 <div className="plate-chips">
                   <SurfaceChip tone="dark" direction={direction} spirit={name} state={pose} animated={animated} sizes={[44, 24]} />
@@ -222,15 +251,20 @@ function Workshop() {
           <div className="stage-pair">
             {(["dark", "light"] as const).map((tone) => (
               <div className={`stage-well stage-well--${tone}`} key={`${tone}-${replay}`}>
-                {direction === "hood" ? (
-                  <>
-                    <HoodSpirit spirit={stageSpirit} state={stageState} heading={heading} size={112} animated={animated} />
-                    <HoodSpirit spirit={stageSpirit} state={stageState} heading={heading} size={24} animated={animated} />
-                  </>
-                ) : (
+                {direction === "folded" ? (
                   <>
                     <AgentSpirit spirit={stageSpirit} state={stageState} size={112} animated={animated} />
                     <AgentSpirit spirit={stageSpirit} state={stageState} size={24} animated={animated} />
+                  </>
+                ) : direction === "alien" ? (
+                  <>
+                    <AlienSpirit spirit={stageSpirit} state={stageState} heading={heading} size={112} animated={animated} />
+                    <AlienSpirit spirit={stageSpirit} state={stageState} heading={heading} size={24} animated={animated} />
+                  </>
+                ) : (
+                  <>
+                    <HoodSpirit spirit={stageSpirit} state={stageState} heading={heading} size={112} animated={animated} />
+                    <HoodSpirit spirit={stageSpirit} state={stageState} heading={heading} size={24} animated={animated} />
                   </>
                 )}
               </div>
@@ -263,7 +297,7 @@ function Workshop() {
                 </button>
               ))}
             </div>
-            {direction === "hood" && (
+            {direction !== "folded" && (
               <div className="headpad" role="group" aria-label="Turn the head">
                 <button type="button" className={heading === "up" ? "pose on" : "pose"} style={{ gridArea: "up" }} onClick={() => setHeading("up")}>↑</button>
                 <button type="button" className={heading === "left" ? "pose on" : "pose"} style={{ gridArea: "left" }} onClick={() => setHeading("left")}>←</button>
@@ -280,7 +314,7 @@ function Workshop() {
         </div>
       </section>
 
-      {direction === "hood" && (
+      {direction !== "folded" && (
         <section className="moods-section" aria-labelledby="moods-heading">
           <div className="section-title">
             <h2 id="moods-heading">Expression library</h2>
@@ -292,7 +326,11 @@ function Workshop() {
           <div className="moods-row">
             {HOOD_MOODS.map((mood) => (
               <figure className="mood-card" key={mood}>
-                <HoodSpirit spirit={stageSpirit} state="idle" mood={mood} size={76} animated={animated} />
+                {direction === "hood" ? (
+                  <HoodSpirit spirit={stageSpirit} state="idle" mood={mood} size={76} animated={animated} />
+                ) : (
+                  <AlienSpirit spirit={stageSpirit} state="idle" mood={mood} size={76} animated={animated} />
+                )}
                 <figcaption>{mood}</figcaption>
               </figure>
             ))}
