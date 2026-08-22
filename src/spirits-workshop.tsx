@@ -44,12 +44,12 @@ const NEXT_DIRECTION = {
 
 /** What marks each agent apart in the alien direction, at a glance. */
 const ALIEN_MATERIAL = {
-  wormhole: "Tall violet dome · orbiting moon",
-  sensei: "Slim jade skull · third eye",
-  mailman: "Round rose head · arriving letter",
-  ganga: "Teal visitor · wave crest",
-  signal: "Blue scout · glowing antennae",
-  forge: "Broad amber jaw · rivet studs",
+  wormhole: "Tall violet dome · ring stalk",
+  sensei: "Slim jade skull · balanced diamond",
+  mailman: "Round rose head · mail pennant",
+  ganga: "Teal visitor · single drop",
+  signal: "Blue scout · twin antennae",
+  forge: "Broad amber jaw · flat horns",
 } satisfies Record<AgentSpiritName, string>;
 
 /** What marks each agent apart in the hood direction, at a glance. */

@@ -327,68 +327,89 @@ function AlienEyes({
   }
 }
 
-/** Each agent's one identity accessory, worn on or near the head. */
+/**
+ * Each agent's crown appendage — the one thing worn on top of the head.
+ * Same vibe across the family (little stalks and shapes at the crown),
+ * a different twist each. Faces stay clean.
+ */
 function Accessory({ spirit, look }: { spirit: AgentSpiritName; look: AlienLook }) {
   switch (spirit) {
     case "wormhole":
-      // a small moon orbiting the cranium
+      // one center stalk carrying a small open ring — the portal, miniature
       return (
-        <g className="alien__accessory alien__orbit">
-          <ellipse
-            className="alien__orbit-path alien__rot"
-            stroke={look.hi}
-            cx="60"
-            cy="33"
-            rx="34"
-            ry="8.5"
-            transform="rotate(-10 60 33)"
-          />
-          <circle className="alien__orbit-moon" fill={look.hi} cx="88" cy="27" r="3" />
+        <g className="alien__accessory alien__stalks">
+          <path stroke={look.mid} d="M60 12V5" />
+          <circle className="alien__tip" fill="none" stroke={look.hi} strokeWidth="2.2" cx="60" cy="1.5" r="3.2" />
         </g>
       );
     case "sensei":
-      // the third eye
+      // one still stalk, a diamond balanced at the tip
       return (
-        <path
-          className="alien__accessory alien__third-eye"
-          fill={look.eye}
-          d="m60 24 3.4 5-3.4 5-3.4-5Z"
-        />
+        <g className="alien__accessory alien__stalks">
+          <path stroke={look.mid} d="M60 12V6" />
+          <path className="alien__tip" fill={look.hi} d="m60 0 3 4-3 4-3-4Z" />
+        </g>
       );
     case "mailman":
-      // a letter arriving at the temple
+      // a swept-back stalk flying a little pennant
       return (
-        <g className="alien__accessory alien__letter">
-          <path fill={look.eye} stroke={look.deep} strokeWidth="1.4" d="m92 26 8 5.5-8 5.5-8-5.5Z" />
-          <path fill="none" stroke={look.deep} strokeWidth="1.2" d="m85 29.5 7 4 7-4" />
+        <g className="alien__accessory alien__stalks">
+          <path stroke={look.mid} d="M62 12c3-3 6-5.5 10-7.5" />
+          <path className="alien__tip" fill={look.hi} d="m72 4.5 7-2-3.5 6Z" />
         </g>
       );
     case "ganga":
-      // the current across the cranium
+      // one stalk holding a single drop
       return (
-        <path
-          className="alien__accessory alien__crest"
-          stroke={look.hi}
-          d="M44 27q5.5-4.5 11 0t11 0"
-        />
+        <g className="alien__accessory alien__stalks">
+          <path stroke={look.mid} d="M60 12V6.5" />
+          <path className="alien__tip" fill={look.hi} d="M60 0c1.9 2.4 2.9 4 2.9 5.4a2.9 2.9 0 1 1-5.8 0C57.1 4 58.1 2.4 60 0Z" />
+        </g>
       );
     case "signal":
-      // antennae with glowing tips
+      // the twin ball antennae
       return (
-        <g className="alien__accessory alien__antennae">
+        <g className="alien__accessory alien__stalks">
           <path stroke={look.mid} d="M48 16C45 12 43 9 41.5 6.5M72 16c3-4 5-7 6.5-9.5" />
           <circle className="alien__tip alien__tip--left" fill={look.hi} cx="41" cy="5.5" r="2.8" />
           <circle className="alien__tip alien__tip--right" fill={look.hi} cx="79" cy="5.5" r="2.8" />
         </g>
       );
     case "forge":
-      // jaw studs, riveted
+      // two stout flat-topped horns
       return (
-        <g className="alien__accessory alien__studs" fill={look.deep}>
-          <circle cx="46" cy="78" r="2.2" />
-          <circle cx="74" cy="78" r="2.2" />
+        <g className="alien__accessory alien__stalks">
+          <path className="alien__tip" fill={look.mid} d="M47 14.5 48.5 5h6l-1 7.5Z" />
+          <path className="alien__tip" fill={look.mid} d="M73 14.5 71.5 5h-6l1 7.5Z" />
         </g>
       );
+  }
+}
+
+/** A small mouth, one per mood. Sits low on the face, quiet by design. */
+function Mouth({ mood }: { mood: HoodMood }) {
+  switch (mood) {
+    case "happy":
+    case "love":
+    case "wink":
+      return <path className="alien__mouth" d="M55 70q5 4.5 10 0" />;
+    case "angry":
+      return <path className="alien__mouth" d="M55.5 72.5q4.5-3.5 9 0" />;
+    case "wide":
+    case "surprised":
+      return <ellipse className="alien__mouth alien__mouth--o" cx="60" cy="71.5" rx="3.2" ry="4" />;
+    case "stoned":
+      return <ellipse className="alien__mouth alien__mouth--o" cx="60" cy="72" rx="2.4" ry="2.8" />;
+    case "suspicious":
+      return <path className="alien__mouth" d="M56.5 71.5h8" transform="rotate(-6 60 71.5)" />;
+    case "dots":
+      return <path className="alien__mouth" d="M57 71.5h6" transform="rotate(8 60 71.5)" />;
+    case "focused":
+      return <path className="alien__mouth" d="M56 71.5h8" />;
+    case "closed":
+      return <path className="alien__mouth" d="M56.5 71q3.5 2.5 7 0" />;
+    default:
+      return <path className="alien__mouth" d="M56.5 71.5h7" />;
   }
 }
 
@@ -468,22 +489,16 @@ export function AlienSpirit({
 
           <g className="alien__head-wrap">
             <g transform={`translate(${60 - 60 * sx} ${52 - 52 * sy}) scale(${sx} ${sy})`}>
-              {/* the skull: broad domed cranium tapering to a narrow chin */}
+              {/* the skull: broad domed cranium, one smooth taper to the chin */}
               <path
                 className="alien__skull"
                 fill={`url(#${uid}-skin)`}
-                d="M60 10c21 0 35 14 35 33 0 19-16 33-29.5 47-3.2 3-7.8 3-11 0C41 76 25 62 25 43c0-19 14-33 35-33Z"
+                d="M60 10c21 0 35 14 35 33 0 18-13 31-26 44-5 5-13 5-18 0C38 74 25 61 25 43c0-19 14-33 35-33Z"
               />
               {/* right-side shading facet */}
               <path
                 className="alien__facet"
-                d="M60 10c21 0 35 14 35 33 0 19-16 33-29.5 47-1.6 1.5-3.4 2.25-5.5 2.25V10Z"
-              />
-              {/* light along the left cranium */}
-              <path
-                className="alien__sheen"
-                stroke={look.hi}
-                d="M54 12.5C42 14.5 28.5 26.5 28 42.5c-.3 9 3.5 18 10 26.5"
+                d="M60 10c21 0 35 14 35 33 0 18-13 31-26 44-2.5 2.5-5.75 3.75-9 3.75V10Z"
               />
 
               <Accessory spirit={spirit} look={look} />
@@ -493,6 +508,7 @@ export function AlienSpirit({
                   <AlienEyes mood={worn} look={look} clipL={clipL} clipR={clipR} />
                 </g>
               </g>
+              <Mouth mood={worn} />
             </g>
           </g>
         </g>
