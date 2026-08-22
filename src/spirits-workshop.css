@@ -1,0 +1,407 @@
+/* Agent Spirits Workshop — review bench chrome.
+ * A warm inked-walnut workshop: the spirits are the color; the bench stays
+ * quiet, tinted toward the family's warm ink so both dark and light specimen
+ * surfaces read true. */
+
+:root {
+  --bench-bg: oklch(0.18 0.012 70);
+  --bench-bg-deep: oklch(0.15 0.012 70);
+  --bench-panel: oklch(0.22 0.014 70);
+  --bench-line: oklch(0.32 0.016 70);
+  --bench-ink: oklch(0.93 0.012 80);
+  --bench-ink-dim: oklch(0.68 0.018 75);
+  --bench-accent: oklch(0.78 0.13 75);
+  --paper: oklch(0.95 0.016 85);
+  --paper-ink: oklch(0.26 0.02 70);
+  --dark-well: oklch(0.21 0.014 70);
+  font-family: "Familjen Grotesk", ui-sans-serif, system-ui, sans-serif;
+  color: var(--bench-ink);
+  background: var(--bench-bg);
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { min-height: 100%; }
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    radial-gradient(ellipse at 88% -4%, oklch(0.24 0.03 75 / 55%), transparent 34rem),
+    radial-gradient(ellipse at 4% 30%, oklch(0.2 0.02 60 / 60%), transparent 28rem),
+    var(--bench-bg);
+}
+
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+
+/* Hood direction reviews on the reference's own ground: deep space navy. */
+.bench--hood {
+  --bench-bg: oklch(0.16 0.03 275);
+  --bench-bg-deep: oklch(0.13 0.03 275);
+  --bench-panel: oklch(0.2 0.035 275);
+  --bench-line: oklch(0.3 0.04 275);
+  --bench-ink: oklch(0.94 0.01 275);
+  --bench-ink-dim: oklch(0.66 0.03 275);
+  --bench-accent: oklch(0.72 0.16 290);
+  --dark-well: oklch(0.18 0.032 275);
+}
+
+.bench--hood { background: var(--bench-bg); }
+
+body:has(.bench--hood) {
+  background:
+    radial-gradient(ellipse at 85% -6%, oklch(0.24 0.08 290 / 45%), transparent 36rem),
+    radial-gradient(ellipse at 6% 32%, oklch(0.2 0.06 250 / 50%), transparent 30rem),
+    oklch(0.16 0.03 275);
+}
+
+.bench {
+  width: min(100%, 1480px);
+  margin: 0 auto;
+  padding: 56px 32px 96px;
+}
+
+/* --------------------------------------------------------------- header */
+
+.bench-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 32px;
+  flex-wrap: wrap;
+  margin-bottom: 64px;
+}
+
+.bench-eyebrow {
+  margin: 0 0 10px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--bench-accent);
+}
+
+.bench-title h1 {
+  margin: 0;
+  font-family: "Bricolage Grotesque", "Familjen Grotesk", sans-serif;
+  font-size: clamp(2.4rem, 5vw, 4rem);
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.bench-lede {
+  margin: 16px 0 0;
+  max-width: 62ch;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--bench-ink-dim);
+}
+
+.bench-controls { display: flex; gap: 10px; padding-bottom: 6px; }
+
+.control {
+  padding: 9px 16px;
+  border: 1px solid var(--bench-line);
+  border-radius: 999px;
+  font-size: 13.5px;
+  color: var(--bench-ink);
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.control:hover { background: var(--bench-panel); }
+.control.on { border-color: var(--bench-accent); color: var(--bench-accent); }
+
+/* ------------------------------------------------------------- sections */
+
+section { margin-bottom: 80px; }
+
+.section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.section-title h2 {
+  margin: 0;
+  font-family: "Bricolage Grotesque", "Familjen Grotesk", sans-serif;
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.section-hint { margin: 0; font-size: 13.5px; color: var(--bench-ink-dim); }
+
+/* --------------------------------------------------------------- family */
+
+.pose-row, .stage-picker { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.pose {
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--bench-ink-dim);
+  transition: color 140ms ease, border-color 140ms ease;
+}
+
+.pose:hover { color: var(--bench-ink); }
+.pose.on { border-color: var(--bench-accent); color: var(--bench-accent); }
+
+.family-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(196px, 1fr));
+  gap: 14px;
+}
+
+.plate {
+  padding: 20px 18px 18px;
+  background: var(--bench-panel);
+  border: 1px solid var(--bench-line);
+  border-radius: 18px;
+}
+
+.plate-stage {
+  display: flex;
+  justify-content: center;
+  padding: 14px 0 18px;
+}
+
+.plate h3 {
+  margin: 0;
+  font-family: "Bricolage Grotesque", "Familjen Grotesk", sans-serif;
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.plate-role {
+  margin: 2px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.plate-material {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--bench-ink-dim);
+  min-height: 3em;
+}
+
+.plate-chips { display: flex; gap: 8px; }
+
+.chip {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px 6px;
+  border-radius: 12px;
+}
+
+.chip--dark { background: var(--dark-well); border: 1px solid var(--bench-line); }
+.chip--light { background: var(--paper); }
+
+/* --------------------------------------------------------------- matrix */
+
+.matrix-section .matrix {
+  display: grid;
+  grid-template-columns: 150px repeat(8, minmax(76px, 1fr));
+  gap: 4px;
+  padding: 18px;
+  border-radius: 18px;
+  overflow-x: auto;
+}
+
+.matrix--dark { background: var(--bench-bg-deep); border: 1px solid var(--bench-line); }
+.matrix--light { background: var(--paper); }
+.matrix--light .matrix-colhead strong,
+.matrix--light .matrix-rowhead strong { color: var(--paper-ink); }
+.matrix--light .matrix-colhead span,
+.matrix--light .matrix-rowhead span { color: oklch(0.48 0.02 70); }
+
+.matrix-row { display: contents; }
+
+.matrix-corner { min-width: 0; }
+
+.matrix-colhead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 4px 10px;
+  text-align: center;
+}
+
+.matrix-colhead strong { font-size: 13px; font-weight: 650; }
+.matrix-colhead span { font-size: 10.5px; color: var(--bench-ink-dim); line-height: 1.3; }
+
+.matrix-rowhead {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 0 10px;
+}
+
+.matrix-rowhead strong { font-size: 14px; font-weight: 650; }
+.matrix-rowhead span { font-size: 11px; color: var(--bench-ink-dim); }
+
+.matrix-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 4px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  transition: border-color 140ms ease;
+}
+
+.matrix-cell:hover { border-color: var(--bench-line); }
+.matrix-cell.on { border-color: var(--bench-accent); }
+
+/* ---------------------------------------------------------------- stage */
+
+.stage {
+  display: flex;
+  gap: 28px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
+.stage-pair { display: flex; gap: 14px; flex: 1 1 460px; }
+
+.stage-well {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  min-height: 220px;
+  border-radius: 18px;
+}
+
+.stage-well--dark { background: var(--bench-bg-deep); border: 1px solid var(--bench-line); }
+.stage-well--light { background: var(--paper); }
+
+.stage-side {
+  flex: 0 1 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  justify-content: center;
+}
+
+/* -------------------------------------------------------------- head pad */
+
+.headpad {
+  display: grid;
+  grid-template-areas: ". up label" "left mid right" ". down .";
+  grid-template-columns: 40px 40px 40px;
+  gap: 4px;
+  align-items: center;
+  justify-items: center;
+}
+
+.headpad .pose { width: 40px; padding: 6px 0; text-align: center; }
+.headpad-label { grid-area: label; font-size: 11px; color: var(--bench-ink-dim); justify-self: start; padding-left: 6px; }
+
+/* ----------------------------------------------------------- expressions */
+
+.moods-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 10px;
+}
+
+.mood-card {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 8px 10px;
+  border-radius: 14px;
+  background: var(--bench-bg-deep);
+  border: 1px solid var(--bench-line);
+}
+
+.mood-card figcaption { font-size: 12px; color: var(--bench-ink-dim); }
+
+/* --------------------------------------------------------------- sidebar */
+
+.sidebars { display: flex; gap: 20px; flex-wrap: wrap; }
+
+.sidebar {
+  width: 272px;
+  padding: 14px 10px 18px;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar--dark { background: var(--bench-bg-deep); border: 1px solid var(--bench-line); }
+.sidebar--light { background: var(--paper); color: var(--paper-ink); }
+.sidebar--light .sidebar-row-text em,
+.sidebar--light .sidebar-active-text em,
+.sidebar--light .sidebar-label { color: oklch(0.48 0.02 70); }
+
+.sidebar-label {
+  padding: 2px 10px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--bench-ink-dim);
+}
+
+.sidebar-active,
+.sidebar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 10px;
+}
+
+.sidebar-active { background: oklch(0.5 0.03 75 / 14%); }
+.sidebar--light .sidebar-active { background: oklch(0.5 0.04 75 / 12%); }
+
+.sidebar-active-text,
+.sidebar-row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.sidebar-active-text strong { font-size: 14px; font-weight: 650; }
+.sidebar-row-text strong { font-size: 13.5px; font-weight: 600; }
+
+.sidebar-active-text em,
+.sidebar-row-text em {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--bench-ink-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------------------------------------------------------------- phone */
+
+@media (max-width: 720px) {
+  .bench { padding: 36px 16px 72px; }
+  .bench-head { margin-bottom: 44px; }
+  section { margin-bottom: 56px; }
+  .matrix-section .matrix {
+    grid-template-columns: 118px repeat(8, 68px);
+  }
+  .stage-pair { flex-direction: column; }
+  .sidebar { width: 100%; }
+}
