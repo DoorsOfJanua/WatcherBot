@@ -38,6 +38,20 @@
   connected yet.
 - Added the Threshold Spirits identity direction and the Rive animation contract under `docs/`.
 
+## Shared relationship memory wave
+
+- Added explicit canonical memory identities for the six core agents. Sensei maps to `coach` and
+  Mailman maps to `mailroom`; names and Telegram transport IDs are no longer treated as memory IDs.
+- MyAgent Room now loads a bounded relevant AgentHQ/Telegram relationship window before every
+  private or room turn. Old agent answers remain context only; Janua's newest correction wins.
+- Ordinary MyAgent Room user and assistant turns mirror back to AgentHQ over loopback with stable,
+  idempotent source references. AgentHQ supplies an agent-wide context window to future Telegram and
+  desktop tasks while visible topic threads remain separate.
+- Backfilled 22 existing MyAgent Room text turns. A second run produced no additional ledger rows,
+  confirming idempotence.
+- Sensei's live bridge reports 32 cross-surface turns and successfully retrieves the existing
+  kettlebell, bench-press, and 32-pushup-max evidence for a broad equipment/strength question.
+
 ## Verification
 
 - Untouched upstream `pnpm typecheck`: passed.

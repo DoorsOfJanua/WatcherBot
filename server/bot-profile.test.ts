@@ -9,7 +9,7 @@ import { normalizeBotContact } from "../shared/bot-profile.ts";
 
 describe("parseBotProfilePatch (strict — the paired boundary)", () => {
   it("refuses every privilege-bearing bot field by name", () => {
-    for (const field of ["autoApprove", "alwaysAllow", "computer", "cwd", "composio", "chiefOfStaff", "acknowledgeLocalAuto"]) {
+    for (const field of ["autoApprove", "alwaysAllow", "computer", "cwd", "composio", "chiefOfStaff", "acknowledgeLocalAuto", "sharedMemoryId"]) {
       const result = parseBotProfilePatch({ name: "Mira", [field]: true } as never, true);
       expect(result.ok, field).toBe(false);
       if (!result.ok) expect(result.error).toContain(field);
@@ -88,6 +88,18 @@ describe("parseBotProfilePatch (both modes)", () => {
   it("rejects a blank or oversized name", () => {
     expect(parseBotProfilePatch({ name: "   " }, true).ok).toBe(false);
     expect(parseBotProfilePatch({ name: "x".repeat(101) }, true).ok).toBe(false);
+  });
+
+  it("accepts a bounded shared memory identity only on the local desktop boundary", () => {
+    expect(parseBotProfilePatch({ sharedMemoryId: "coach" }, false)).toEqual({
+      ok: true,
+      patch: { sharedMemoryId: "coach" },
+    });
+    expect(parseBotProfilePatch({ sharedMemoryId: "Coach Memory" }, false).ok).toBe(false);
+    expect(parseBotProfilePatch({ sharedMemoryId: "coach" }, true)).toEqual({
+      ok: false,
+      error: "unsupported profile field: sharedMemoryId",
+    });
   });
 
   it("only stored-attachment avatar URLs pass; clears normalize to undefined", () => {

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { botAvatarCropSchema, botAvatarUrlSchema, botSpiritSchema } from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS, normalizeBotContact } from "../shared/bot-profile.ts";
+import { SHARED_MEMORY_ID } from "./shared-agent-memory.ts";
 
 import type { BotRecord } from "./store.ts";
 
@@ -54,7 +55,22 @@ const profilePatchSchema = z.object({
   email: contactFieldSchema,
   phone: contactFieldSchema,
   whatsapp: contactFieldSchema,
+  sharedMemoryId: z
+    .union([
+      z.string({ error: "sharedMemoryId must be a string" })
+        .max(BOT_PROFILE_LIMITS.sharedMemoryId, { error: "sharedMemoryId must be at most 64 characters" })
+        .refine((value) => !value.trim() || SHARED_MEMORY_ID.test(value.trim()), {
+          error: "sharedMemoryId must use lowercase letters, numbers, and hyphens",
+        }),
+      z.null(),
+    ])
+    .optional(),
 });
+
+// A paired/mobile profile may edit appearance and public labels, but changing
+// the canonical memory identity changes what private history reaches a model.
+// Keep that routing decision on the local desktop's broader bot PATCH only.
+const pairedProfilePatchSchema = profilePatchSchema.omit({ sharedMemoryId: true });
 
 export type BotProfilePatchInput = z.input<typeof profilePatchSchema>;
 
@@ -73,6 +89,7 @@ export type BotProfilePatch = Partial<
     | "email"
     | "phone"
     | "whatsapp"
+    | "sharedMemoryId"
   >
 >;
 
@@ -90,7 +107,7 @@ export type BotProfilePatchResult =
  * back to clients so Codable and object-spread clients both clear stale data.
  */
 export function parseBotProfilePatch(input: BotProfilePatchInput, strict = false): BotProfilePatchResult {
-  const parsed = (strict ? profilePatchSchema.strict() : profilePatchSchema).safeParse(input);
+  const parsed = (strict ? pairedProfilePatchSchema.strict() : profilePatchSchema).safeParse(input);
   if (!parsed.success) {
     const unsupported = parsed.error.issues.find((issue) => issue.code === "unrecognized_keys");
     if (unsupported?.code === "unrecognized_keys") {
@@ -103,7 +120,10 @@ export function parseBotProfilePatch(input: BotProfilePatchInput, strict = false
     return { ok: false, error: issue?.message ?? "invalid profile patch" };
   }
 
-  const { avatarUrl, spirit, email, phone, whatsapp, ...fields } = parsed.data;
+  // The strict schema is a security-narrowed subset of the desktop schema;
+  // after validation both safely normalize through the broader output type.
+  const data = parsed.data as z.output<typeof profilePatchSchema>;
+  const { avatarUrl, spirit, email, phone, whatsapp, sharedMemoryId, ...fields } = data;
   const patch: BotProfilePatch = fields;
   if (avatarUrl !== undefined) patch.avatarUrl = avatarUrl || undefined;
   if (spirit !== undefined) patch.spirit = spirit || undefined;
@@ -114,5 +134,6 @@ export function parseBotProfilePatch(input: BotProfilePatchInput, strict = false
     if (!normalized.ok) return { ok: false, error: normalized.error };
     patch[field] = normalized.value;
   }
+  if (sharedMemoryId !== undefined) patch.sharedMemoryId = sharedMemoryId?.trim() || undefined;
   return { ok: true, patch };
 }

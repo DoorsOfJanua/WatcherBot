@@ -161,6 +161,15 @@ interface MemoryTopic {
   bytes: number;
 }
 
+interface SharedMemoryStatus {
+  configured: boolean;
+  connected: boolean;
+  sharedMemoryId?: string;
+  turns?: number;
+  newestAt?: string;
+  problem?: string;
+}
+
 const formatBytes = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${Math.round(bytes / 102.4) / 10} KB`);
 
 /** MEMORY.md + memory/ topic files, surfaced so the user can read and fix
@@ -175,6 +184,7 @@ function MemoryCard({ bot }: { bot: Bot }) {
   const [dirty, setDirty] = useState(false);
   const [truncated, setTruncated] = useState(false);
   const [topics, setTopics] = useState<MemoryTopic[]>([]);
+  const [shared, setShared] = useState<SharedMemoryStatus | null>(null);
   const [saving, setSaving] = useState(false);
   const [topic, setTopic] = useState<{ name: string; text: string } | null>(null);
 
@@ -183,12 +193,13 @@ function MemoryCard({ bot }: { bot: Bot }) {
     setError(null);
     setTopic(null);
     try {
-      const result: { text: string; truncated: boolean; topics: MemoryTopic[] } = await api(
+      const result: { text: string; truncated: boolean; topics: MemoryTopic[]; shared: SharedMemoryStatus } = await api(
         `/api/bots/${bot.id}/memory`,
       );
       setText(result.text);
       setTruncated(result.truncated);
       setTopics(result.topics);
+      setShared(result.shared);
       setDirty(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -264,6 +275,21 @@ function MemoryCard({ bot }: { bot: Bot }) {
 
       {open && !loading && !topic && (
         <div className="mt-3">
+          {shared?.configured && (
+            <div className="mb-3 flex items-start justify-between gap-3 rounded-lg border border-hairline/40 bg-inset px-3 py-2.5">
+              <div>
+                <div className="text-[12.5px] font-medium text-ink">Telegram + AgentHQ memory</div>
+                <div className="mt-0.5 text-[11.5px] text-ink-secondary">
+                  Canonical identity <span className="font-mono">{shared.sharedMemoryId}</span>
+                  {shared.connected ? ` · ${shared.turns ?? 0} shared turns available` : " · bridge unavailable"}
+                </div>
+              </div>
+              <span className={cn(
+                "mt-0.5 size-2 shrink-0 rounded-full",
+                shared.connected ? "bg-success" : "bg-danger",
+              )} />
+            </div>
+          )}
           <textarea
             className={cn(inputCls, "min-h-[160px] resize-y font-mono text-[12.5px] leading-relaxed")}
             value={text}

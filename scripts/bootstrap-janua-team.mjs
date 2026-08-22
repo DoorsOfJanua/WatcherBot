@@ -40,25 +40,30 @@ for (const name of names) {
 }
 
 const profiles = {
-  Wormhole: { chiefOfStaff: true, pinned: true, section: "Command" },
+  Wormhole: { chiefOfStaff: true, pinned: true, section: "Command", sharedMemoryId: "wormhole" },
   Forge: {
     section: "Build",
+    sharedMemoryId: "forge",
     modelSelection: { instanceId: "codex", model: "gpt-5.6-sol", effort: "high" },
   },
   Signal: {
     section: "Research",
+    sharedMemoryId: "signal",
     modelSelection: { instanceId: "claude", model: "claude-sonnet-5", effort: "high" },
   },
   Ganga: {
     section: "Creative",
+    sharedMemoryId: "ganga",
     modelSelection: { instanceId: "claude", model: "claude-sonnet-5", effort: "high" },
   },
   Mailman: {
     section: "Operations",
+    sharedMemoryId: "mailroom",
     modelSelection: { instanceId: "codex", model: "gpt-5.6-sol", effort: "high" },
   },
   Sensei: {
     section: "Life",
+    sharedMemoryId: "coach",
     modelSelection: { instanceId: "claude", model: "claude-sonnet-5", effort: "high" },
   },
 };

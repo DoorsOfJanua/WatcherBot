@@ -154,6 +154,8 @@ export interface Bot {
   email?: string;
   phone?: string;
   whatsapp?: string;
+  /** Canonical nonsecret identity shared with Telegram/AgentHQ memory. */
+  sharedMemoryId?: string;
   notifications: boolean;
   color: MausColor;
   mascotExpression?: string | null;
