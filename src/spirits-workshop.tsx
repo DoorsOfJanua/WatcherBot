@@ -57,7 +57,7 @@ const HOOD_MATERIAL = {
   wormhole: "Violet cowl · Flower of Life",
   sensei: "Jade cowl · Merkaba",
   mailman: "Rose cowl · Vesica Piscis",
-  ganga: "Teal cowl · Golden spiral",
+  ganga: "Teal cowl · Sri Yantra",
   signal: "Blue cowl · Seed of Life",
   forge: "Amber cowl · Metatron's Cube",
 } satisfies Record<AgentSpiritName, string>;

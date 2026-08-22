@@ -2,6 +2,7 @@ import { useId } from "react";
 import type { BotAvatarState } from "../../../shared/bot-avatar";
 import type { AgentSpiritName } from "./AgentSpirit";
 import "./agent-spirits.css";
+import "./hood-ring.css";
 
 /**
  * Hood direction — Janua's reference: a hooded spirit with a gradient cowl,
@@ -30,7 +31,7 @@ const HOOD_LOOKS = {
   { hi: string; mid: string; lo: string; deep: string; ring: string }
 >;
 
-type HoodLook = (typeof HOOD_LOOKS)[HoodSpiritName];
+export type HoodLook = (typeof HOOD_LOOKS)[HoodSpiritName];
 
 /* ---------------------------------------------------------------- moods */
 
@@ -222,11 +223,14 @@ function Halo({ spirit }: { spirit: HoodSpiritName }) {
         </g>
       );
     case "ganga":
-      // Golden spiral — the current that gathers everything
+      // Sri Yantra (simplified) — interlocking triangles around the bindu
       return (
         <g className="hood__halo">
-          <path d="M92 60A32 32 0 0 1 60 92A20 20 0 0 1 40 72A12 12 0 0 1 52 60A7 7 0 0 1 59 67A4 4 0 0 1 55 71" />
-          <path d="M28 60A32 32 0 0 1 60 28" opacity="0.5" />
+          <path d="M60 20 27 82h66Z" />
+          <path d="M60 33 38 74h44Z" />
+          <path d="M60 98 28 41h64Z" />
+          <path d="M60 82 39 46h42Z" />
+          <circle cx="60" cy="60" r="1.6" strokeWidth="3.2" />
         </g>
       );
     case "signal":
@@ -262,26 +266,6 @@ function Halo({ spirit }: { spirit: HoodSpiritName }) {
           <path d="M60 18v25M60 77v25M18 60h25M77 60h25" opacity="0.55" />
         </g>
       );
-  }
-}
-
-/** Accessories that belong to the body and must never orbit. */
-function FigureAccessory({ spirit, look }: { spirit: HoodSpiritName; look: HoodLook }) {
-  switch (spirit) {
-    case "mailman":
-      // satchel strap across the chest
-      return <path className="hood__accessory hood__strap" stroke={look.lo} d="M46 70 72 88" />;
-    case "ganga":
-      // current flowing beneath the cloak
-      return (
-        <path
-          className="hood__accessory hood__wave"
-          stroke={look.ring}
-          d="M40 92q5-4 10 0t10 0t10 0t10 0"
-        />
-      );
-    default:
-      return null;
   }
 }
 
@@ -341,15 +325,20 @@ export function HoodSpirit({
 
         <g className="hood__ring" stroke={look.ring}>
           <circle className="hood__ring-line" stroke={`url(#${uid}-ring)`} cx="60" cy="60" r="52" />
-          <circle className="hood__ring-dot" fill={look.ring} stroke="none" cx="60" cy="8" r="3.2" />
-          <circle
-            className="hood__ring-dot hood__ring-dot--minor"
-            fill={look.ring}
-            stroke="none"
-            cx="112"
-            cy="60"
-            r="2.4"
-          />
+          {/* The comet: exists only for the moments that matter — orbits the
+              ring while working, one full sweep on success, peeks while
+              listening. Invisible otherwise. */}
+          <g className="hood__comet">
+            <path
+              className="hood__comet-tail"
+              fill="none"
+              stroke={look.hi}
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              d="M60 8A52 52 0 0 0 42 11.1"
+            />
+            <circle className="hood__comet-head" fill={look.hi} stroke="none" cx="60" cy="8" r="3.4" />
+          </g>
         </g>
       </svg>
 
@@ -477,7 +466,6 @@ export function HoodSpirit({
               </g>
             </g>
 
-            <FigureAccessory spirit={spirit} look={look} />
           </g>
         </g>
 
