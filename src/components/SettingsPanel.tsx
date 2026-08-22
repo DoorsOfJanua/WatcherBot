@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronLeft, Crown, FolderOpen, X } from "lucide-react";
 import { useState } from "react";
 import { api, useStore, type Bot } from "@/state/store";
+import type { BotSpirit } from "../../shared/bot-avatar";
 import { stateForBot } from "@/lib/mascot";
 import { CloudBackendPicker } from "./CloudBackendPicker";
 import { ModelPicker } from "./ModelPicker";
@@ -13,7 +14,7 @@ import { instanceSupportsLocalComputer, localComputerDisabledReason, localComput
 import { BotProfileAvatarCard } from "./BotProfileAvatarCard";
 import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 import { VoiceSettings } from "./VoiceSettings";
-import { BOT_PROFILE_LIMITS } from "../../shared/bot-profile";
+import { BOT_PROFILE_LIMITS, normalizeBotContact, type BotContactField } from "../../shared/bot-profile";
 
 function Field({
   label,
@@ -314,6 +315,74 @@ function MemoryCard({ bot }: { bot: Bot }) {
   );
 }
 
+/** Optional public labels used by people or routing layers to identify an
+ * agent. This is deliberately not a messaging integration: no credentials,
+ * delivery, or sending controls belong in the agent profile. */
+function ContactChannels({
+  bot,
+  onPatch,
+}: {
+  bot: Bot;
+  onPatch: (patch: Partial<Pick<Bot, "email" | "phone" | "whatsapp">>) => void;
+}) {
+  const [draft, setDraft] = useState({ email: bot.email ?? "", phone: bot.phone ?? "", whatsapp: bot.whatsapp ?? "" });
+  const [errors, setErrors] = useState<Partial<Record<BotContactField, string>>>({});
+
+  const commit = (field: BotContactField) => {
+    const result = normalizeBotContact(field, draft[field]);
+    if (!result.ok) {
+      setErrors((previous) => ({ ...previous, [field]: result.error }));
+      return;
+    }
+    const value = result.value ?? "";
+    setErrors((previous) => ({ ...previous, [field]: undefined }));
+    setDraft((previous) => ({ ...previous, [field]: value }));
+    if (field === "email") onPatch({ email: result.value });
+    if (field === "phone") onPatch({ phone: result.value });
+    if (field === "whatsapp") onPatch({ whatsapp: result.value });
+  };
+
+  const fields: Array<{ field: BotContactField; label: string; placeholder: string; type?: string }> = [
+    { field: "email", label: "Email", placeholder: "agent@example.com", type: "email" },
+    { field: "phone", label: "Phone", placeholder: "+1 555 123 4567", type: "tel" },
+    { field: "whatsapp", label: "WhatsApp", placeholder: "+1 555… or @handle" },
+  ];
+
+  return (
+    <div className="rounded-xl bg-card p-4">
+      <div className="text-[15px] font-medium text-ink">Contact &amp; channels</div>
+      <div className="mt-0.5 text-[13px] text-ink-secondary">
+        Public labels for finding or routing to this agent. Nothing is sent from here.
+      </div>
+      <div className="mt-3 grid gap-3">
+        {fields.map(({ field, label, placeholder, type }) => (
+          <label key={field} className="block">
+            <div className="mb-1 text-[12px] text-ink-secondary">{label}</div>
+            <input
+              className={cn(inputCls, "py-2 text-[14px]")}
+              type={type}
+              maxLength={BOT_PROFILE_LIMITS[field]}
+              placeholder={placeholder}
+              value={draft[field]}
+              onChange={(event) => setDraft((previous) => ({ ...previous, [field]: event.target.value }))}
+              onBlur={() => commit(field)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  commit(field);
+                  event.currentTarget.blur();
+                }
+              }}
+              aria-invalid={Boolean(errors[field])}
+            />
+            {errors[field] && <div className="mt-1 text-[11.5px] text-danger">{errors[field]}</div>}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsPanel({ bot }: { bot: Bot }) {
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
@@ -323,11 +392,13 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
   const localDisabledReason = localComputerDisabledReason({ capabilities, providerSupportsLocal });
   const patch = (
     p: Partial<
-      Pick<
-        Bot,
+      Omit<Pick<Bot,
         | "name"
         | "title"
         | "description"
+        | "email"
+        | "phone"
+        | "whatsapp"
         | "notifications"
         | "computer"
         | "cloudBackend"
@@ -342,8 +413,8 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
         | "approvePeerComms"
         | "composio"
         | "modelSelection"
-      >
-    > & { acknowledgeLocalAuto?: boolean },
+      >, "spirit">
+    > & { acknowledgeLocalAuto?: boolean; spirit?: BotSpirit | null },
   ) => dispatch({ type: "updateBot", botId: bot.id, patch: p });
   const activeState = stateForBot(bot);
   const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
@@ -414,6 +485,8 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
               onChange={(e) => patch({ description: e.target.value })}
             />
           </Field>
+
+          <ContactChannels bot={bot} onPatch={patch} />
 
           <div className={cn(
             "rounded-xl border p-4",

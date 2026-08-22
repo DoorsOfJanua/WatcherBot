@@ -78,8 +78,11 @@ const appConfigSchema = z.object({
   vps: vpsConfigSchema.optional(),
   /** OpenCode Go key; persisted write-only and passed only to its child. */
   opencodeGo: z.object({ apiKey: optionalText }).optional(),
-  /** Voice credentials and the selected voice id. */
-  tts: z.object({ key: optionalText, voice: optionalText }).optional(),
+  /** Voice provider, ElevenLabs credential, and the selected voice id. xAI
+   * voice uses the workspace xai.key credential rather than duplicating it. */
+  tts: z
+    .object({ provider: z.enum(["elevenlabs", "xai"]).optional(), key: optionalText, voice: optionalText })
+    .optional(),
   /** OpenAI key used only by the in-process avatar image generator. */
   imageGen: z.object({ key: optionalText }).optional(),
   /** Non-secret profile details shown in the sidebar. */
@@ -98,7 +101,7 @@ export interface AppConfig {
   /** A named host from the user's SSH config. Authentication stays with SSH. */
   vps?: { sshAlias?: string };
   opencodeGo?: { apiKey?: string };
-  tts?: { key?: string; voice?: string };
+  tts?: { provider?: "elevenlabs" | "xai"; key?: string; voice?: string };
   imageGen?: { key?: string };
   profile?: { name?: string; email?: string };
   rooms?: { turnTimeoutMinutes: number };

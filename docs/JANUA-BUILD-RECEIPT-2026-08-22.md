@@ -21,6 +21,23 @@
 - Farmada critical-state and failed-search protection.
 - Janua specification, runbook, attribution notice, and project registry example.
 
+## Identity and action-safety wave
+
+- Added an original code-drawn Mailman character: a running folded-letter spirit with a red
+  satchel, its own silhouette, and idle/listening/thinking/working/waiting/success/failure/sleeping
+  motion states. Mailman's live profile now selects it.
+- Added a per-agent character picker plus optional `.riv` upload. Rive's runtime and WASM are
+  lazy-loaded only for agents that actually use a Rive asset.
+- Added the provider-neutral voice layer with ElevenLabs and xAI Text to Speech. Switching providers
+  clears provider-specific voice selections instead of silently reusing an invalid voice id.
+- Added optional per-agent email, phone, and WhatsApp identity fields. These are routing labels only;
+  they do not grant sending authority or store provider credentials.
+- Added durable, exact external-action receipts: an approval is bound to the SHA-256 hash of one
+  payload, expires, records the approving identity and time, can be claimed once, and preserves the
+  first provider receipt idempotently. Provider send adapters and the review UI are deliberately not
+  connected yet.
+- Added the Threshold Spirits identity direction and the Rive animation contract under `docs/`.
+
 ## Verification
 
 - Untouched upstream `pnpm typecheck`: passed.
@@ -36,6 +53,10 @@
 - Idempotent bootstrap rerun: passed without duplicate agents or rooms.
 - Headless Chrome visual acceptance at 1440×1000: title, six-agent sidebar, Chief of Staff,
   MyAgent Room, and Farmada conversation visible; zero console/page errors.
+- Identity-wave focused tests: 136 passed across 8 files; focused HTTP integration tests: 5 passed.
+- Identity-wave typecheck, production build, and `git diff --check`: passed.
+- Headless Chrome visual acceptance: Mailman's original animated character renders in the live
+  Agent profile and can be selected independently of the inherited mascot.
 
 ## Live vertical proof
 
@@ -53,8 +74,9 @@
 
 ## Honest blockers before cutover
 
-- Exact hash-bound external action receipt and one-shot email execution are specified but not yet
-  enforced inside MyAgent Room. Do not approve or send from this fork yet.
+- Exact hash-bound external action receipts and the one-shot claim gate now exist inside MyAgent
+  Room. The human review card and real email/WhatsApp/phone provider adapters are not wired to that
+  gate yet, so do not treat an in-chat “approved” message as permission to transmit from this fork.
 - The live test proved Codex user plugins can remain available even when the OpenMaus Composio flag
   is off. Provider-native plugin/MCP isolation or an explicit allowlist is required before
   unattended operation.

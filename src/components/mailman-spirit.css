@@ -1,0 +1,84 @@
+.mailman-spirit {
+  --mailman-ink: #171717;
+  --mailman-red: #b94236;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  contain: layout paint;
+  vertical-align: middle;
+}
+
+.mailman-spirit > svg {
+  display: block;
+  overflow: visible;
+}
+
+.mailman-spirit__figure,
+.mailman-spirit__body,
+.mailman-spirit__legs,
+.mailman-spirit__satchel,
+.mailman-spirit__cards,
+.mailman-spirit__loose-letters,
+.mailman-spirit__seal-burst,
+.mailman-spirit__salute,
+.mailman-spirit__jam,
+.mailman-spirit__aperture {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.mailman-spirit__shadow { fill: #171717; opacity: .12; }
+.mailman-spirit__cards path,
+.mailman-spirit__loose-letters path { fill: #f2ead7; stroke: #171717; stroke-width: 1.5; stroke-linejoin: round; }
+.mailman-spirit__loose-letters { opacity: .75; }
+.mailman-spirit__seal-burst,
+.mailman-spirit__salute,
+.mailman-spirit__jam { opacity: 0; }
+
+.mailman-spirit--idle .mailman-spirit__body { animation: mailman-breathe 3.8s ease-in-out infinite; }
+.mailman-spirit--idle .mailman-spirit__foot--left { animation: mailman-tap 2.4s ease-in-out infinite; transform-origin: right center; }
+.mailman-spirit--listening .mailman-spirit__figure { animation: mailman-attend .7s cubic-bezier(.22,1,.36,1) both; }
+.mailman-spirit--listening .mailman-spirit__aperture { animation: mailman-glow 1.3s ease-in-out infinite alternate; }
+.mailman-spirit--thinking .mailman-spirit__cards { animation: mailman-sort 1.5s cubic-bezier(.22,1,.36,1) infinite; }
+.mailman-spirit--thinking .mailman-spirit__body { animation: mailman-think .9s ease-in-out infinite alternate; }
+.mailman-spirit--working .mailman-spirit__body { animation: mailman-sprint .48s ease-in-out infinite alternate; transform-origin: 60% 80%; }
+.mailman-spirit--working .mailman-spirit__legs { animation: mailman-legs .24s linear infinite alternate; }
+.mailman-spirit--working .mailman-spirit__shadow { animation: mailman-skid .48s ease-in-out infinite alternate; transform-origin: center; }
+.mailman-spirit--working .mailman-spirit__loose-letters { animation: mailman-trail .6s linear infinite; }
+.mailman-spirit--waiting .mailman-spirit__figure { animation: mailman-sit .75s cubic-bezier(.22,1,.36,1) both; transform-origin: 55% 85%; }
+.mailman-spirit--waiting .mailman-spirit__cards { animation: mailman-check 2.2s ease-in-out infinite; }
+.mailman-spirit--success .mailman-spirit__figure { animation: mailman-leap .72s cubic-bezier(.22,1,.36,1) both; }
+.mailman-spirit--success .mailman-spirit__salute,
+.mailman-spirit--success .mailman-spirit__seal-burst { opacity: 1; animation: mailman-seal .9s ease-out both; }
+.mailman-spirit--failure .mailman-spirit__figure { animation: mailman-jam-fold .8s cubic-bezier(.22,1,.36,1) both; transform-origin: 52% 78%; }
+.mailman-spirit--failure .mailman-spirit__jam { opacity: 1; animation: mailman-jam-card .75s ease-in-out infinite alternate; }
+.mailman-spirit--sleeping .mailman-spirit__figure { animation: mailman-curl 3.6s ease-in-out infinite alternate; transform-origin: 62% 80%; }
+.mailman-spirit--sleeping .mailman-spirit__aperture { opacity: .35; }
+
+.mailman-spirit--still * { animation: none !important; }
+
+@keyframes mailman-breathe { 50% { transform: translateY(-2px) rotate(-1deg); } }
+@keyframes mailman-tap { 0%, 72%, 100% { transform: rotate(0); } 78% { transform: rotate(-10deg); } 84% { transform: rotate(2deg); } }
+@keyframes mailman-attend { from { transform: translateY(4px) rotate(4deg); } to { transform: translateY(0) rotate(-6deg); } }
+@keyframes mailman-glow { from { opacity: .72; } to { opacity: 1; } }
+@keyframes mailman-sort { 0%, 100% { transform: translateX(0) rotate(0); } 35% { transform: translateX(-4px) rotate(-6deg); } 70% { transform: translateX(4px) rotate(5deg); } }
+@keyframes mailman-think { to { transform: rotate(-3deg) translateY(-1px); } }
+@keyframes mailman-sprint { from { transform: translateX(-2px) rotate(-4deg); } to { transform: translateX(3px) rotate(5deg); } }
+@keyframes mailman-legs { from { transform: translateX(-1px) rotate(-3deg); } to { transform: translateX(2px) rotate(4deg); } }
+@keyframes mailman-skid { from { transform: scaleX(.85); opacity: .08; } to { transform: scaleX(1.15); opacity: .18; } }
+@keyframes mailman-trail { from { transform: translateX(3px); opacity: .2; } to { transform: translateX(-5px); opacity: .8; } }
+@keyframes mailman-sit { from { transform: translateY(-4px) rotate(-2deg); } to { transform: translateY(6px) rotate(8deg); } }
+@keyframes mailman-check { 0%, 100% { transform: translateY(0) rotate(0); } 45% { transform: translateY(2px) rotate(8deg); } 65% { transform: translateY(-2px) rotate(-3deg); } }
+@keyframes mailman-leap { 0% { transform: translateY(8px) rotate(2deg); } 55% { transform: translateY(-10px) rotate(-5deg); } 100% { transform: translateY(0) rotate(0); } }
+@keyframes mailman-seal { from { transform: scale(.55); opacity: 0; } 45% { opacity: 1; } to { transform: scale(1.12); opacity: 0; } }
+@keyframes mailman-jam-fold { from { transform: rotate(0); } 40% { transform: rotate(-9deg) scale(.96, 1.04); } to { transform: rotate(5deg) scale(.98, 1); } }
+@keyframes mailman-jam-card { from { transform: translateX(-2px) rotate(-5deg); } to { transform: translateX(4px) rotate(8deg); } }
+@keyframes mailman-curl { from { transform: rotate(0) translateY(2px); } to { transform: rotate(8deg) translateY(5px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .mailman-spirit * { animation: none !important; transition: none !important; }
+  .mailman-spirit--success .mailman-spirit__salute,
+  .mailman-spirit--success .mailman-spirit__seal-burst,
+  .mailman-spirit--failure .mailman-spirit__jam { opacity: 1; }
+}

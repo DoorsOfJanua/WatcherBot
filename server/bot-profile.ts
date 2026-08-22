@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-import { botAvatarCropSchema, botAvatarUrlSchema } from "../shared/bot-avatar.ts";
-import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
+import { botAvatarCropSchema, botAvatarUrlSchema, botSpiritSchema } from "../shared/bot-avatar.ts";
+import { BOT_PROFILE_LIMITS, normalizeBotContact } from "../shared/bot-profile.ts";
 
 import type { BotRecord } from "./store.ts";
 
@@ -12,9 +12,17 @@ export const BOT_PROFILE_PATCH_FIELDS = [
   "notifications",
   "avatarUrl",
   "avatarCrop",
+  "spirit",
   "voice",
   "speakReplies",
+  "email",
+  "phone",
+  "whatsapp",
 ] as const;
+
+const contactFieldSchema = z
+  .union([z.string(), z.null()])
+  .optional();
 
 const profilePatchSchema = z.object({
   name: z
@@ -33,15 +41,19 @@ const profilePatchSchema = z.object({
   notifications: z.boolean({ error: "notifications must be true or false" }).optional(),
   avatarUrl: z
     .union([botAvatarUrlSchema, z.literal(""), z.null()], {
-      error: "avatarUrl must be a stored PNG, JPEG, GIF, or WebP attachment",
+      error: "avatarUrl must be a stored PNG, JPEG, GIF, WebP, or Rive attachment",
     })
     .optional(),
   avatarCrop: botAvatarCropSchema.optional(),
+  spirit: z.union([botSpiritSchema, z.null()]).optional(),
   voice: z
     .string({ error: "voice must be a string" })
     .max(BOT_PROFILE_LIMITS.voice, { error: "voice must be at most 200 characters" })
     .optional(),
   speakReplies: z.boolean({ error: "speakReplies must be true or false" }).optional(),
+  email: contactFieldSchema,
+  phone: contactFieldSchema,
+  whatsapp: contactFieldSchema,
 });
 
 export type BotProfilePatchInput = z.input<typeof profilePatchSchema>;
@@ -49,7 +61,18 @@ export type BotProfilePatchInput = z.input<typeof profilePatchSchema>;
 export type BotProfilePatch = Partial<
   Pick<
     BotRecord,
-    "name" | "title" | "description" | "notifications" | "avatarUrl" | "avatarCrop" | "voice" | "speakReplies"
+    | "name"
+    | "title"
+    | "description"
+    | "notifications"
+    | "avatarUrl"
+    | "avatarCrop"
+    | "spirit"
+    | "voice"
+    | "speakReplies"
+    | "email"
+    | "phone"
+    | "whatsapp"
   >
 >;
 
@@ -80,8 +103,16 @@ export function parseBotProfilePatch(input: BotProfilePatchInput, strict = false
     return { ok: false, error: issue?.message ?? "invalid profile patch" };
   }
 
-  const { avatarUrl, ...fields } = parsed.data;
+  const { avatarUrl, spirit, email, phone, whatsapp, ...fields } = parsed.data;
   const patch: BotProfilePatch = fields;
   if (avatarUrl !== undefined) patch.avatarUrl = avatarUrl || undefined;
+  if (spirit !== undefined) patch.spirit = spirit || undefined;
+  for (const field of ["email", "phone", "whatsapp"] as const) {
+    const input = { email, phone, whatsapp }[field];
+    if (input === undefined) continue;
+    const normalized = normalizeBotContact(field, input);
+    if (!normalized.ok) return { ok: false, error: normalized.error };
+    patch[field] = normalized.value;
+  }
   return { ok: true, patch };
 }

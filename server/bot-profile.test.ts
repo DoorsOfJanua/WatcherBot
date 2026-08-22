@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseBotProfilePatch } from "./bot-profile.ts";
+import { normalizeBotContact } from "../shared/bot-profile.ts";
 
 describe("parseBotProfilePatch (strict — the paired boundary)", () => {
   it("refuses every privilege-bearing bot field by name", () => {
@@ -29,6 +30,52 @@ describe("parseBotProfilePatch (strict — the paired boundary)", () => {
       ok: true,
       patch: { name: "Mira", title: "Lead", description: "plans", notifications: true, voice: "vx", speakReplies: false },
     });
+  });
+
+  it("accepts the validated original spirit and supports clearing it", () => {
+    expect(parseBotProfilePatch({ spirit: "mailman" }, true)).toEqual({
+      ok: true,
+      patch: { spirit: "mailman" },
+    });
+    expect(parseBotProfilePatch({ spirit: null }, true)).toEqual({
+      ok: true,
+      patch: { spirit: undefined },
+    });
+    expect(parseBotProfilePatch({ spirit: "cursor" } as never, true).ok).toBe(false);
+  });
+
+  it("accepts, normalizes, and clears public contact labels", () => {
+    expect(parseBotProfilePatch({
+      email: "  Agent@Example.COM ",
+      phone: " +1 (555) 123-4567 ",
+      whatsapp: "  @agent_room ",
+    }, true)).toEqual({
+      ok: true,
+      patch: { email: "agent@example.com", phone: "+15551234567", whatsapp: "@agent_room" },
+    });
+    expect(parseBotProfilePatch({ email: null, phone: "", whatsapp: null }, true)).toEqual({
+      ok: true,
+      patch: { email: undefined, phone: undefined, whatsapp: undefined },
+    });
+  });
+
+  it("rejects malformed or oversized public contact labels", () => {
+    for (const [field, value] of [
+      ["email", "not-an-email"],
+      ["phone", "555-12"],
+      ["whatsapp", "https://example.com"],
+      ["email", `${"a".repeat(245)}@example.com`],
+    ] as const) {
+      const result = parseBotProfilePatch({ [field]: value } as never, true);
+      expect(result.ok, `${field}: ${value}`).toBe(false);
+    }
+  });
+});
+
+describe("normalizeBotContact", () => {
+  it("does not treat arbitrary strings as routing identities", () => {
+    expect(normalizeBotContact("phone", "call me").ok).toBe(false);
+    expect(normalizeBotContact("whatsapp", "  team room  ").ok).toBe(false);
   });
 });
 

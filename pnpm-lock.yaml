@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@rive-app/react-canvas':
+        specifier: 4.32.1
+        version: 4.32.1(react@19.2.8)
       '@trycua/cua-driver':
         specifier: 0.20.0
         version: 0.20.0
@@ -1318,6 +1321,14 @@ packages:
 
   '@posthog/types@1.402.3':
     resolution: {integrity: sha512-nnqKIGUqggeNbCZg6of/hYN+4shYZUoPFkILIIpYq0p9HDX8PgOrnrtBAUH8kr1MOmDh2nm+fY5Ceks7A5y6BQ==}
+
+  '@rive-app/canvas@2.40.1':
+    resolution: {integrity: sha512-ea9oHIoeijZOAafE6bx6+PkiiAGjL43ZeLmhJ3bRMTsvedFvWeO0x/uCx5CY36Biu75S7Xw8hI4PryYy2b1utA==}
+
+  '@rive-app/react-canvas@4.32.1':
+    resolution: {integrity: sha512-L3uk3aYx9CWc/CCTBrURHN40MQPw9sPKWxJtHRIhc5dsvgIbBbJ+rL/cKbfgMooZdu3OqxsDkhtzIDw1LWR2Zg==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0
 
   '@rolldown/pluginutils@1.0.0-beta.27':
     resolution: {integrity: sha512-+d0F4MKMCbeVUJwG96uQ4SgAznZNSq93I3V+9NHA4OpvqG8mRCpGdKmK8l/dl02h2CCDHwW2FqilnTyDcAnqjA==}
@@ -4905,6 +4916,13 @@ snapshots:
       '@posthog/types': 1.402.3
 
   '@posthog/types@1.402.3': {}
+
+  '@rive-app/canvas@2.40.1': {}
+
+  '@rive-app/react-canvas@4.32.1(react@19.2.8)':
+    dependencies:
+      '@rive-app/canvas': 2.40.1
+      react: 19.2.8
 
   '@rolldown/pluginutils@1.0.0-beta.27': {}
 

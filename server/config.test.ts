@@ -41,6 +41,14 @@ describe("configuration boundaries", () => {
     expect(() => parseConfigPatch({ profile: [] })).toThrow("profile");
   });
 
+  it("accepts only the supported voice providers", () => {
+    expect(parseConfigPatch({ tts: { provider: "xai" } })).toEqual({ tts: { provider: "xai" } });
+    expect(parseConfigPatch({ tts: { provider: "elevenlabs" } })).toEqual({
+      tts: { provider: "elevenlabs" },
+    });
+    expect(() => parseConfigPatch({ tts: { provider: "unknown" } })).toThrow("tts.provider");
+  });
+
   it("accepts only a simple VPS SSH config alias and exposes no credentials", () => {
     expect(isValidSshAlias("production-vps")).toBe(true);
     expect(isValidSshAlias("prod; reboot")).toBe(false);

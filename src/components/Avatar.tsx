@@ -6,7 +6,9 @@
 // CursorAvatar owns morphing, blinking, drift, body motion and effects.
 import {
   forwardRef,
+  lazy,
   memo,
+  Suspense,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -14,13 +16,22 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { MAUS_COLORS, type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
+import { MailmanSpirit } from "./MailmanSpirit";
 import {
   CursorAvatar,
   DEFAULT_SILHOUETTE,
   type CursorAvatarHandle,
   type CursorSilhouette,
 } from "./CursorAvatar";
-import { botAvatarProfile, type BotAvatarCrop } from "../../shared/bot-avatar";
+import {
+  botAvatarProfile,
+  isRiveAvatarUrl,
+  type BotAvatarCrop,
+  type BotAvatarState,
+  type BotSpirit,
+} from "../../shared/bot-avatar";
+
+const RiveAvatar = lazy(() => import("./RiveAvatar").then((module) => ({ default: module.RiveAvatar })));
 
 /**
  * The pack's baked-in silhouette was exported with the body fill hardcoded
@@ -226,21 +237,71 @@ export type BotAvatarProps = Omit<MausAvatarProps, "color"> & {
     color: MausColor;
     avatarUrl?: string | null;
     avatarCrop?: BotAvatarCrop;
+    spirit?: BotSpirit | null;
+    activity?: "working" | "waiting-on-you" | "idle" | "no-signal" | "dead";
   };
+  /** Optional explicit state for a Rive asset; otherwise bot activity/state is mapped. */
+  riveState?: BotAvatarState;
 };
+
+function riveStateFor(
+  bot: BotAvatarProps["bot"],
+  state: MausState,
+  explicit?: BotAvatarState,
+): BotAvatarState {
+  if (explicit) return explicit;
+  switch (bot.activity) {
+    case "working":
+      return "working";
+    case "waiting-on-you":
+      return "waiting";
+    case "no-signal":
+    case "dead":
+      return "failure";
+    case "idle":
+      return "idle";
+  }
+  if (state === "listening") return "listening";
+  if (["thinking", "searching"].includes(state)) return "thinking";
+  if (["working", "writing", "progress", "loading", "humming"].includes(state)) return "working";
+  if (["happy", "excited", "celebrate", "proud"].includes(state)) return "success";
+  if (["sad", "scared", "angry", "alerting"].includes(state)) return "failure";
+  if (["sleeping", "drowsy", "bored"].includes(state)) return "sleeping";
+  return "idle";
+}
 
 /**
  * The one renderer for a bot's chosen profile image. Malformed persisted
  * values and images that fail to load both fall back to the animated mascot,
  * so an old/corrupt profile can never leave a broken-image icon in the app.
  */
-export function BotAvatar({ bot, size = 44, label, ...mascotProps }: BotAvatarProps) {
+export function BotAvatar({ bot, size = 44, label, riveState, ...mascotProps }: BotAvatarProps) {
   const profile = botAvatarProfile(bot);
   const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => setImageFailed(false), [profile.avatarUrl]);
 
   if (profile.avatarCrop === "mascot" || !profile.avatarUrl || imageFailed) {
+    if (profile.spirit === "mailman") {
+      const spiritState =
+        bot.activity === "working"
+          ? "working"
+          : bot.activity === "waiting-on-you"
+            ? "waiting"
+            : bot.activity === "no-signal" || bot.activity === "dead"
+              ? "failure"
+              : mascotProps.state;
+      return (
+        <MailmanSpirit
+          state={spiritState}
+          size={size}
+          label={label ?? bot.name}
+          motion={mascotProps.motion}
+          motionKey={mascotProps.motionKey}
+          animated={mascotProps.animated ?? true}
+        />
+      );
+    }
     return (
       <MausAvatar
         {...mascotProps}
@@ -257,6 +318,23 @@ export function BotAvatar({ bot, size = 44, label, ...mascotProps }: BotAvatarPr
       : profile.avatarCrop === "rounded"
         ? "22%"
         : "0";
+  if (isRiveAvatarUrl(profile.avatarUrl)) {
+    return (
+      <Suspense
+        fallback={<span className="block shrink-0 bg-raised" style={{ width: size, height: size, borderRadius: radius }} />}
+      >
+        <RiveAvatar
+          key={profile.avatarUrl}
+          url={profile.avatarUrl}
+          size={size}
+          radius={radius}
+          label={label ?? (bot.name ? `${bot.name} avatar` : "Bot avatar")}
+          state={riveStateFor(bot, mascotProps.state ?? "idle", riveState)}
+          onError={() => setImageFailed(true)}
+        />
+      </Suspense>
+    );
+  }
   return (
     <img
       src={profile.avatarUrl}

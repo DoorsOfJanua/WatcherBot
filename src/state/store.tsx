@@ -15,7 +15,7 @@ import {
 } from "react";
 import type { CloudBackend, EffortLevel } from "../../server/contracts.ts";
 import type { MausColor, MausMotion } from "@/lib/mascot";
-import type { BotAvatarCrop } from "../../shared/bot-avatar";
+import type { BotAvatarCrop, BotSpirit } from "../../shared/bot-avatar";
 import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
 import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib/webhooks";
 import { currentCall } from "@/lib/call";
@@ -150,6 +150,10 @@ export interface Bot {
   name: string;
   title: string;
   description: string;
+  /** Optional public routing labels; never credentials and never used to send. */
+  email?: string;
+  phone?: string;
+  whatsapp?: string;
   notifications: boolean;
   color: MausColor;
   mascotExpression?: string | null;
@@ -157,6 +161,8 @@ export interface Bot {
   avatarUrl?: string | null;
   /** Mascot, or the crop applied to avatarUrl. */
   avatarCrop?: BotAvatarCrop;
+  /** Optional original code-drawn spirit; custom image assets still win. */
+  spirit?: BotSpirit | null;
   unread: boolean;
   busy?: boolean;
   /** what the bot is doing, as the harness sees it; busy is derived from it */
@@ -231,10 +237,10 @@ export interface ConfigStatus {
   rooms: { turnTimeoutMinutes: number };
   localVm: { mode: "shared" | "per-bot"; maxInstances: number };
   opencodeGo?: { configured: boolean };
-  /** Voice (ElevenLabs). `configured` = a key is saved; `ready` = a key AND
-   * a voice, which is what it takes to actually speak. The key itself is
-   * never echoed back. */
-  tts?: { configured: boolean; ready: boolean; voice: string };
+  /** Voice. `configured` = the selected provider's key is saved; `ready` =
+   * a key AND a voice, which is what it takes to actually speak. The key
+   * itself is never echoed back. */
+  tts?: { provider?: "elevenlabs" | "xai"; configured: boolean; ready: boolean; voice: string };
   /** Shared write-only credential for on-demand GPT Image avatars. */
   imageGen?: { configured: boolean };
   /** who's using the app — collected in onboarding, shown in the sidebar */
@@ -844,8 +850,9 @@ export function reducer(state: AppState, action: Action): AppState {
             ),
           }
         : animated;
-      const { acknowledgeLocalAuto: _ack, ...botPatch } = action.patch;
-      return updateBot(next, action.botId, (b) => ({ ...b, ...botPatch }));
+      const { acknowledgeLocalAuto: _ack, spirit, ...botPatch } = action.patch;
+      const safeBotPatch = { ...botPatch, spirit: spirit === null ? undefined : spirit };
+      return updateBot(next, action.botId, (b) => ({ ...b, ...safeBotPatch }));
     }
     case "threadActive": {
       const bot = state.bots.find((b) => b.threadId === action.threadId);
@@ -1209,6 +1216,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             cloudBackend: source.cloudBackend,
             avatarUrl: source.avatarUrl,
             avatarCrop: source.avatarCrop,
+            spirit: source.spirit,
           };
           api("/api/bots", { method: "POST" })
             .then(({ bot }) =>

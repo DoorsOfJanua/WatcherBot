@@ -14,13 +14,16 @@ import {
 import {
   BOT_AVATAR_CROPS,
   botAvatarUrlFromStoredPath,
+  BOT_SPIRITS,
+  type BotSpirit,
   type BotAvatarCrop,
 } from "../../shared/bot-avatar";
 import { BotAvatar, MausAvatar } from "./Avatar";
+import { MailmanSpirit } from "./MailmanSpirit";
 
 type AvatarPatch = Partial<
-  Pick<Bot, "avatarCrop" | "avatarUrl" | "color" | "mascotExpression">
->;
+  Omit<Pick<Bot, "avatarCrop" | "avatarUrl" | "color" | "mascotExpression" | "spirit">, "spirit">
+> & { spirit?: BotSpirit | null };
 
 const CROP_LABEL = {
   mascot: "Mascot",
@@ -28,6 +31,26 @@ const CROP_LABEL = {
   rounded: "Rounded",
   square: "Square",
 } satisfies Record<BotAvatarCrop, string>;
+
+const AVATAR_MAX_BYTES = 10 * 1024 * 1024;
+
+async function uploadRiveAvatar(file: File): Promise<{ path: string; mime: string; bytes: number }> {
+  if (!file.name.toLowerCase().endsWith(".riv")) throw new Error("Choose a .riv Rive avatar");
+  if (file.size > AVATAR_MAX_BYTES) throw new Error(`${file.name} exceeds 10 MB`);
+  const response = await fetch("/api/avatars", {
+    method: "POST",
+    headers: {
+      "content-type": file.type || "application/octet-stream",
+      "x-avatar-filename": file.name,
+    },
+    body: new Uint8Array(await file.arrayBuffer()),
+  });
+  if (!response.ok) {
+    const detail = (await response.json().catch(() => ({ error: response.statusText }))) as { error?: string };
+    throw new Error(detail.error ?? "Rive avatar upload failed");
+  }
+  return (await response.json()) as { path: string; mime: string; bytes: number };
+}
 
 export function BotProfileAvatarCard({
   bot,
@@ -52,18 +75,22 @@ export function BotProfileAvatarCard({
   const cropRef = useRef(crop);
   cropRef.current = crop;
   const imageConfigured = state.config?.imageGen?.configured === true;
+  const spirit = bot.spirit ?? null;
 
   const upload = async (file: File | undefined) => {
     if (!file) return;
     setUploading(true);
     setError(null);
     try {
-      const saved = await imageAttachmentFromFile(file);
-      if (!saved) throw new Error("Choose a PNG, JPEG, GIF, or WebP image");
+      const isRive = file.name.toLowerCase().endsWith(".riv");
+      const saved = isRive
+        ? await uploadRiveAvatar(file)
+        : await imageAttachmentFromFile(file);
+      if (!saved) throw new Error("Choose a PNG, JPEG, GIF, WebP image, or Rive file");
       const avatarUrl = botAvatarUrlFromStoredPath(saved.path);
       if (!avatarUrl) throw new Error("The uploaded image could not be used as an avatar");
       const latestCrop = cropRef.current;
-      onPatch({ avatarUrl, avatarCrop: latestCrop === "mascot" ? "circle" : latestCrop });
+      onPatch({ spirit: null, avatarUrl, avatarCrop: latestCrop === "mascot" ? "circle" : latestCrop });
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : String(uploadError));
     } finally {
@@ -113,6 +140,7 @@ export function BotProfileAvatarCard({
       });
       const latestCrop = cropRef.current;
       onPatch({
+        spirit: null,
         avatarUrl: result.avatarUrl,
         avatarCrop:
           latestCrop === cropAtStart
@@ -131,7 +159,7 @@ export function BotProfileAvatarCard({
       <div className="flex items-center justify-between border-b border-hairline/40 px-3 py-2.5">
         <span className="rounded-lg bg-raised px-3 py-1.5 text-[14px] font-medium text-ink">Avatar</span>
         <button
-          onClick={() => onPatch({ avatarCrop: "mascot", color: "green", mascotExpression: null })}
+          onClick={() => onPatch({ spirit: null, avatarCrop: "mascot", color: "green", mascotExpression: null })}
           className="rounded-md px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
           Reset mascot
@@ -149,11 +177,50 @@ export function BotProfileAvatarCard({
           />
         </div>
 
+        <div className="mb-2 mt-1 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
+          Character
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            aria-pressed={spirit === null}
+            onClick={() => onPatch({ spirit: null, avatarCrop: "mascot" })}
+            className={cn(
+              "flex items-center gap-2 rounded-xl bg-inset px-2.5 py-2 text-left transition-colors hover:bg-raised",
+              spirit === null && "ring-2 ring-accent-border",
+            )}
+          >
+            <MausAvatar color={bot.color} state={activeState} size={40} animated={false} />
+            <span className="min-w-0">
+              <span className="block text-[12px] font-medium text-ink">Mascot</span>
+              <span className="block text-[10px] text-ink-secondary">Classic</span>
+            </span>
+          </button>
+          {BOT_SPIRITS.map((candidate) => (
+            <button
+              key={candidate}
+              type="button"
+              aria-pressed={spirit === candidate}
+              onClick={() => onPatch({ spirit: candidate, avatarUrl: null, avatarCrop: "mascot", mascotExpression: null })}
+              className={cn(
+                "flex items-center gap-2 rounded-xl bg-inset px-2.5 py-2 text-left transition-colors hover:bg-raised",
+                spirit === candidate && "ring-2 ring-accent-border",
+              )}
+            >
+              <MailmanSpirit state={activeState} size={40} animated={false} />
+              <span className="min-w-0">
+                <span className="block text-[12px] font-medium text-ink">Mailman</span>
+                <span className="block text-[10px] text-ink-secondary">Folded ink</span>
+              </span>
+            </button>
+          ))}
+        </div>
+
         <div className="mt-2 flex gap-2">
           <input
             ref={fileRef}
             type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp"
+            accept="image/png,image/jpeg,image/gif,image/webp,.riv,application/octet-stream"
             className="sr-only"
             onChange={(event) => void upload(event.target.files?.[0])}
           />
@@ -179,7 +246,7 @@ export function BotProfileAvatarCard({
             </button>
           )}
         </div>
-        <div className="mt-1.5 text-[11.5px] text-ink-secondary">PNG, JPEG, GIF, or WebP · up to 10 MB</div>
+        <div className="mt-1.5 text-[11.5px] text-ink-secondary">PNG, JPEG, GIF, WebP, or Rive · up to 10 MB</div>
 
         <div className="mb-2 mt-4 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
           Shape
@@ -202,7 +269,7 @@ export function BotProfileAvatarCard({
           ))}
         </div>
 
-        {crop === "mascot" && (
+        {crop === "mascot" && spirit === null && (
           <>
             <div className="mb-2 mt-4 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
               Expression

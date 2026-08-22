@@ -95,6 +95,11 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   // the harness; GET is a single bare generated filename, never a path.
   { method: "POST", path: /^\/api\/attachments$/ },
   { method: "GET", path: /^\/api\/attachments\/[\w-]+\.(?:png|jpe?g|gif|webp)$/i },
+  // Bot avatars share the app-owned attachment store. Rive is isolated to
+  // this route and carries the original filename in X-Avatar-Filename.
+  { method: "POST", path: /^\/api\/avatars$/ },
+  { method: "GET", path: /^\/api\/attachments\/[\w-]+\.riv$/i },
+  { method: "HEAD", path: /^\/api\/attachments\/[\w-]+\.riv$/i },
 
   // Renderer-neutral voice operations. Neither route reads or writes the
   // workspace ElevenLabs key; the phone receives labels or audio only.

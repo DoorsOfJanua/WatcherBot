@@ -13,7 +13,7 @@ import { workspaceDir } from "./workspace.ts";
 import { newId, type CloudBackend, type ModelSelection, type ThreadId } from "./contracts.ts";
 import { pickBotName } from "./names.ts";
 import { redactSecretsInText } from "./redact.ts";
-import { botAvatarProfile, type BotAvatarCrop } from "../shared/bot-avatar.ts";
+import { botAvatarProfile, type BotAvatarCrop, type BotSpirit } from "../shared/bot-avatar.ts";
 
 export type MausColor =
   | "green"
@@ -246,6 +246,10 @@ export interface BotRecord {
   name: string;
   title: string;
   description: string;
+  /** Optional public routing labels; never credentials and never used to send. */
+  email?: string;
+  phone?: string;
+  whatsapp?: string;
   notifications: boolean;
   color: MausColor;
   mascotExpression?: MausExpression | null;
@@ -253,6 +257,8 @@ export interface BotRecord {
   avatarUrl?: string;
   /** Mascot, or the crop applied to avatarUrl. */
   avatarCrop?: BotAvatarCrop;
+  /** Optional original code-drawn spirit; custom image assets still win. */
+  spirit?: BotSpirit;
   unread: boolean;
   modelSelection: ModelSelection;
   /** provider-native continuation per instance (e.g. claude session id) */
@@ -456,6 +462,10 @@ export class Store {
       }
       if (b.avatarCrop !== undefined && avatar.avatarCrop !== b.avatarCrop) {
         delete b.avatarCrop;
+        botsMigrated = true;
+      }
+      if (b.spirit !== undefined && avatar.spirit !== b.spirit) {
+        delete b.spirit;
         botsMigrated = true;
       }
     }
