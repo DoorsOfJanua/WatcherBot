@@ -419,28 +419,28 @@ export function HoodSpirit({
 
             {/* the head: everything that turns together */}
             <g className="hood__head">
-              {/* the cowl: tall peak, deep fabric over the brow */}
+              {/* the cowl: tall peak with a rounded tip, deep fabric over the brow */}
               <path
                 className="hood__cowl"
                 fill={`url(#${uid}-cowl)`}
-                d="M60 5C52 14 40 29 34 44c-4 10-3 19 4 25 7 5.5 14.5 8 22 8s15-2.5 22-8c7-6 8-15 4-25C80 29 68 14 60 5Z"
+                d="M60 5.5c-2.5 0-4.5 1.5-6.2 4C46.5 19.5 38.5 31.5 34 44c-4 10-3 19 4 25 7 5.5 14.5 8 22 8s15-2.5 22-8c7-6 8-15 4-25-4.5-12.5-12.5-24.5-19.8-34.5C64.5 7 62.5 5.5 60 5.5Z"
               />
               {/* right panel, split clean from the peak */}
               <path
                 className="hood__facet"
                 fill={`url(#${uid}-facet)`}
-                d="M60 5c8 9 20 24 26 39 4 10 3 19-4 25-7 5.5-14.5 8-22 8Z"
+                d="M60 5.5c2.5 0 4.5 1.5 6.2 4C73.5 19.5 81.5 31.5 86 44c4 10 3 19-4 25-7 5.5-14.5 8-22 8Z"
               />
               {/* left outer edge catching the light */}
               <path
                 className="hood__edge"
                 stroke={look.hi}
-                d="M57.5 8C50 17 40.5 31 35.5 44.5c-3.3 8.5-2.5 16 3 21.5"
+                d="M56.5 9C49.5 18.5 40 31.5 35.5 44.5c-3.3 8.5-2.5 16 3 21.5"
               />
-              {/* the face void: soft diamond, sunk deep under the brow */}
+              {/* the face void: a big soft diamond, chin point reaching into the neck */}
               <path
                 className="hood__void"
-                d="M60 31c3.5 1 9 6 13.5 12.5 2.9 4.3 4.5 7.7 4.5 10.5 0 2.8-1.6 6-4.5 9.2-4 4.5-8.5 7.5-13.5 8.8-5-1.3-9.5-4.3-13.5-8.8-2.9-3.2-4.5-6.4-4.5-9.2 0-2.8 1.6-6.2 4.5-10.5C51 37 56.5 32 60 31Z"
+                d="M60 29c3.5 1 9.5 6.5 14 13 3 4.4 5 8 5 10.5 0 3.2-1.8 7.5-5 12.5-4.2 6.5-9 11.5-14 15-5-3.5-9.8-8.5-14-15-3.2-5-5-9.3-5-12.5 0-2.5 2-6.1 5-10.5C50.5 35.5 56.5 30 60 29Z"
               />
               {/* the hood rim's shadowed underside, overhanging the face */}
               <path
@@ -450,16 +450,16 @@ export function HoodSpirit({
                 strokeWidth="4.5"
                 strokeLinecap="round"
                 opacity="0.85"
-                d="M47.5 42.5C51 36.5 55.5 33 60 33s9 3.5 12.5 9.5"
+                d="M46.5 41.5C50.5 35 55 31.5 60 31.5s9.5 3.5 13.5 10"
               />
               {/* rim light where the cowl's inner edge catches the face glow */}
               <path
                 className="hood__rim"
                 stroke={look.hi}
-                d="M60 31c-3.5 1-9 6-13.5 12.5-2.9 4.3-4.5 7.7-4.5 10.5 0 2.8 1.6 6 4.5 9.2 4 4.5 8.5 7.5 13.5 8.8"
+                d="M60 29c-3.5 1-9.5 6.5-14 13-3 4.4-5 8-5 10.5 0 3.2 1.8 7.5 5 12.5 4.2 6.5 9 11.5 14 15"
               />
-              {/* peak facet */}
-              <path className="hood__peak" fill={look.hi} d="m60 5 4 9-4 9-4-9Z" />
+              {/* peak facet, rounded like the tip it sits on */}
+              <path className="hood__peak" fill={look.hi} d="M60 6.5c1.8 0 3.3 1.1 4.5 3l-4.5 8-4.5-8c1.2-1.9 2.7-3 4.5-3Z" />
 
               <g className="hood__face" filter={`url(#${uid}-glow)`}>
                 <g className="hood__gaze">
