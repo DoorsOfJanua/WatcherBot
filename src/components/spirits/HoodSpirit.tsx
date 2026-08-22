@@ -10,8 +10,12 @@ import "./agent-spirits.css";
  * geometry (Flower of Life, Merkaba, Vesica Piscis, golden spiral, Seed of
  * Life, Metatron's Cube) plus its gradient carries identity.
  *
- * Static SVG, state-class CSS animation, no per-frame React work.
+ * Two stable SVG planes, state-class CSS animation, no per-frame React work.
+ * The sacred geometry never remounts with the character, and every expression
+ * remains mounted so faces can cross-fade instead of popping between paths.
  */
+
+export type HoodSpiritName = AgentSpiritName | "watcher";
 
 const HOOD_LOOKS = {
   wormhole: { hi: "#b8a1fb", mid: "#8b5cf6", lo: "#6d28d9", deep: "#3b1878", ring: "#8b5cf6" },
@@ -20,12 +24,13 @@ const HOOD_LOOKS = {
   ganga: { hi: "#7ceee0", mid: "#2dd4bf", lo: "#0d9488", deep: "#0c4f4a", ring: "#2dd4bf" },
   signal: { hi: "#a3cdfd", mid: "#3b82f6", lo: "#2563eb", deep: "#173a8a", ring: "#3b82f6" },
   forge: { hi: "#fddc84", mid: "#f59e0b", lo: "#d97706", deep: "#7c3d0a", ring: "#f59e0b" },
+  watcher: { hi: "#f1eadf", mid: "#b7a99a", lo: "#71665e", deep: "#211d1b", ring: "#d7c7b5" },
 } satisfies Record<
-  AgentSpiritName,
+  HoodSpiritName,
   { hi: string; mid: string; lo: string; deep: string; ring: string }
 >;
 
-type HoodLook = (typeof HOOD_LOOKS)[AgentSpiritName];
+type HoodLook = (typeof HOOD_LOOKS)[HoodSpiritName];
 
 /* ---------------------------------------------------------------- moods */
 
@@ -185,7 +190,7 @@ const METATRON_CENTERS: [number, number][] = [[60, 60], ...METATRON_INNER, ...ME
  * Famous forms, one per spirit: coordination, balance, exchange, flow,
  * resonance, and the builder's blueprint.
  */
-function Halo({ spirit }: { spirit: AgentSpiritName }) {
+function Halo({ spirit }: { spirit: HoodSpiritName }) {
   switch (spirit) {
     case "wormhole":
       // Flower of Life — everything connected through the coordinator
@@ -247,11 +252,21 @@ function Halo({ spirit }: { spirit: AgentSpiritName }) {
           <path d="M28 60H92M44 32.3 76 87.7M76 32.3 44 87.7" />
         </g>
       );
+    case "watcher":
+      // The witnessing lens — an eye held inside two quiet, intersecting arcs.
+      return (
+        <g className="hood__halo">
+          <path d="M18 60q42-38 84 0-42 38-84 0Z" />
+          <circle cx="60" cy="60" r="17" />
+          <circle cx="60" cy="60" r="5" />
+          <path d="M60 18v25M60 77v25M18 60h25M77 60h25" opacity="0.55" />
+        </g>
+      );
   }
 }
 
 /** Accessories that belong to the body and must never orbit. */
-function FigureAccessory({ spirit, look }: { spirit: AgentSpiritName; look: HoodLook }) {
+function FigureAccessory({ spirit, look }: { spirit: HoodSpiritName; look: HoodLook }) {
   switch (spirit) {
     case "mailman":
       // satchel strap across the chest
@@ -283,7 +298,7 @@ export function HoodSpirit({
   animated = true,
   label,
 }: {
-  spirit: AgentSpiritName;
+  spirit: HoodSpiritName;
   state?: BotAvatarState;
   /** Pin an expression from the library; otherwise the state picks one. */
   mood?: HoodMood;
@@ -299,43 +314,25 @@ export function HoodSpirit({
 
   return (
     <span
-      key={`${state}-${worn}`}
       className={`spirit hood hood-${spirit} spirit--${state} hood--look-${heading}${animated ? "" : " spirit--still"}`}
       style={{ width: size, height: size }}
       role="img"
-      aria-label={label ?? `${spirit} spirit`}
+      aria-label={label ?? (spirit === "watcher" ? "The Watcher" : `${spirit} spirit`)}
     >
-      <svg viewBox="0 0 120 120" width={size} height={size} aria-hidden="true" focusable="false">
+      {/* Stable environment plane: geometry and orbit never remount with a face. */}
+      <svg
+        className="hood__environment"
+        viewBox="0 0 120 120"
+        width={size}
+        height={size}
+        aria-hidden="true"
+        focusable="false"
+      >
         <defs>
-          <linearGradient id={`${uid}-cowl`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor={look.hi} />
-            <stop offset="0.45" stopColor={look.mid} />
-            <stop offset="1" stopColor={look.lo} />
-          </linearGradient>
-          <linearGradient id={`${uid}-facet`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor={look.mid} />
-            <stop offset="1" stopColor={look.deep} />
-          </linearGradient>
-          <linearGradient id={`${uid}-chest`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor={look.deep} />
-            <stop offset="1" stopColor={look.deep} stopOpacity="0" />
-          </linearGradient>
           <linearGradient id={`${uid}-ring`} x1="0" y1="0" x2="1" y2="1">
             <stop offset="0" stopColor={look.hi} />
             <stop offset="1" stopColor={look.ring} />
           </linearGradient>
-          <filter id={`${uid}-glow`} x="-120%" y="-120%" width="340%" height="340%">
-            <feGaussianBlur stdDeviation="1.1" result="core" />
-            <feGaussianBlur stdDeviation="4.6" result="halo" />
-            <feMerge>
-              <feMergeNode in="halo" />
-              <feMergeNode in="core" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-          <filter id={`${uid}-soft`} x="-120%" y="-120%" width="340%" height="340%">
-            <feGaussianBlur stdDeviation="6" />
-          </filter>
         </defs>
 
         <g className="hood__halo-wrap" stroke={look.ring}>
@@ -354,6 +351,49 @@ export function HoodSpirit({
             r="2.4"
           />
         </g>
+      </svg>
+
+      {/* Character plane: body, head, face and state ornaments. */}
+      <svg
+        className="hood__character"
+        viewBox="0 0 120 120"
+        width={size}
+        height={size}
+        aria-hidden="true"
+        focusable="false"
+      >
+        <defs>
+          <linearGradient id={`${uid}-cowl`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor={look.hi} />
+            <stop offset="0.45" stopColor={look.mid} />
+            <stop offset="1" stopColor={look.lo} />
+          </linearGradient>
+          <linearGradient id={`${uid}-facet`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor={look.mid} />
+            <stop offset="1" stopColor={look.deep} />
+          </linearGradient>
+          <linearGradient id={`${uid}-chest`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor={look.deep} />
+            <stop offset="1" stopColor={look.deep} stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id={`${uid}-cape`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor={look.lo} />
+            <stop offset="0.55" stopColor={look.deep} />
+            <stop offset="1" stopColor={look.deep} stopOpacity="0" />
+          </linearGradient>
+          <filter id={`${uid}-glow`} x="-120%" y="-120%" width="340%" height="340%">
+            <feGaussianBlur stdDeviation="1.1" result="core" />
+            <feGaussianBlur stdDeviation="4.6" result="halo" />
+            <feMerge>
+              <feMergeNode in="halo" />
+              <feMergeNode in="core" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+          <filter id={`${uid}-soft`} x="-120%" y="-120%" width="340%" height="340%">
+            <feGaussianBlur stdDeviation="6" />
+          </filter>
+        </defs>
 
         {/* the figure: centered, large in its halo */}
         <g className="hood__fit" transform="translate(6 6) scale(0.9)">
@@ -368,53 +408,60 @@ export function HoodSpirit({
               rx="20"
               ry="7"
             />
-            {/* chest fading out beneath the hem */}
-            <path className="hood__chest" fill={`url(#${uid}-chest)`} d="M60 62 88 78 60 98 32 78Z" />
+            {/* the cape: spreads wider than the hood, dissolving downward */}
+            <path
+              className="hood__cape"
+              fill={`url(#${uid}-cape)`}
+              d="M60 34C46 40 33.5 52 26 66c-5 9-7.5 16-8 22 14-4 28-6 42-6s28 2 42 6c-.5-6-3-13-8-22C86.5 52 74 40 60 34Z"
+            />
+            {/* chest fading out below the face */}
+            <path className="hood__chest" fill={`url(#${uid}-chest)`} d="M60 60 85 76 60 95 35 76Z" />
 
             {/* the head: everything that turns together */}
             <g className="hood__head">
-              {/* the cowl: hooked peak, blade edges, pointed shoulders, fanged hem */}
+              {/* the cowl: tall symmetric peak, smooth shield around the face */}
               <path
                 className="hood__cowl"
                 fill={`url(#${uid}-cowl)`}
-                d="M64 11C58 16.5 47 29 39 44c-7.5 13.5-12 25.5-10.5 34 .5 2.9 1.5 4 3 4.5L46 71.5l6.5 5.5 7.5-8.5 7.5 8.5 6.5-5.5 14.5 11c1.5-.5 2.5-1.6 3-4.5 1.5-8.5-3-20.5-10.5-34-8-15-17.5-27.5-17-33Z"
+                d="M60 8C52 16 40 30 34 44c-4 10-3 19 4 25 7 5.5 14.5 8 22 8s15-2.5 22-8c7-6 8-15 4-25C80 30 68 16 60 8Z"
               />
-              {/* right-side fold facet, ridge running slightly off-axis */}
+              {/* right panel, split clean from the peak */}
               <path
                 className="hood__facet"
                 fill={`url(#${uid}-facet)`}
-                d="M64 11c-1.5 15-3 36.5-4 57.5l7.5 8.5 6.5-5.5 14.5 11c1.5-.5 2.5-1.6 3-4.5 1.5-8.5-3-20.5-10.5-34-8-15-15.5-27.5-17-33Z"
+                d="M60 8c8 8 20 22 26 36 4 10 3 19-4 25-7 5.5-14.5 8-22 8Z"
               />
               {/* left outer edge catching the light */}
               <path
                 className="hood__edge"
                 stroke={look.hi}
-                d="M61.5 14C56 20 47.5 31.5 40.5 45c-6.5 12.6-10.7 24-9.7 32.5"
+                d="M57.5 11C50 19 40.5 31.5 35.5 44.5c-3.3 8.5-2.5 16 3 21.5"
               />
-              {/* the face void: a sharpened diamond */}
+              {/* the face void: a diamond with soft corners, never sharp */}
               <path
                 className="hood__void"
-                d="M60 30c-5.5 7.5-12.5 17-12.5 26 0 8.8 5.5 14.8 12.5 18.2 7-3.4 12.5-9.4 12.5-18.2 0-9-7-18.5-12.5-26Z"
+                d="M60 26c3.5 1 9 7 13.5 14.5 2.9 4.8 4.5 8.6 4.5 11.5 0 3-1.6 6.5-4.5 10-4 5-8.5 8.5-13.5 10-5-1.5-9.5-5-13.5-10-2.9-3.5-4.5-7-4.5-10 0-2.9 1.6-6.7 4.5-11.5C51 33 56.5 27 60 26Z"
               />
               {/* rim light where the cowl's inner edge catches the face glow */}
               <path
                 className="hood__rim"
                 stroke={look.hi}
-                d="M60 30c-5.5 7.5-12.5 17-12.5 26 0 8.8 5.5 14.8 12.5 18.2"
+                d="M60 26c-3.5 1-9 7-13.5 14.5-2.9 4.8-4.5 8.6-4.5 11.5 0 3 1.6 6.5 4.5 10 4 5 8.5 8.5 13.5 10"
               />
-              {/* the fanged hem edge, crisp against the chest */}
-              <path
-                className="hood__hem"
-                stroke={look.lo}
-                d="M31.5 82.5 46 71.5l6.5 5.5 7.5-8.5 7.5 8.5 6.5-5.5 14.5 11"
-              />
-              {/* hooked peak facet */}
-              <path className="hood__peak" fill={look.hi} d="m64 11 4.6 7.4-5.6 6.4-2.8-7.6Z" />
+              {/* peak facet */}
+              <path className="hood__peak" fill={look.hi} d="m60 8 4 8.5-4 8.5-4-8.5Z" />
 
               <g className="hood__face" filter={`url(#${uid}-glow)`}>
                 <g className="hood__gaze">
                   <g className="hood__eyepose">
-                    <Eyes mood={worn} />
+                    {HOOD_MOODS.map((expression) => (
+                      <g
+                        key={expression}
+                        className={`hood__expression${expression === worn ? " hood__expression--active" : ""}`}
+                      >
+                        <Eyes mood={expression} />
+                      </g>
+                    ))}
                   </g>
                 </g>
               </g>
