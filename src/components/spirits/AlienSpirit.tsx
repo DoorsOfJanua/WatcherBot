@@ -57,36 +57,43 @@ const STATE_MOOD = {
   sleeping: "closed",
 } satisfies Record<BotAvatarState, HoodMood>;
 
-function Pupil({
+/**
+ * The light living inside the black eye. These carry the gaze: state
+ * animations (drift, attend, wander, scan) target `.alien__pupil`, and the
+ * head poses parallax `.alien__pupilpose` — class names kept from the
+ * pupil era, the glints simply took over the job.
+ */
+function Glints({
   side,
-  cx,
-  cy,
-  r = 5,
-  slit = false,
+  y = 48,
+  dim = false,
 }: {
   side: "left" | "right";
-  cx: number;
-  cy: number;
-  r?: number;
-  slit?: boolean;
+  y?: number;
+  dim?: boolean;
 }) {
+  const cx = side === "left" ? 44.5 : 75.5;
+  const out = side === "left" ? -1 : 1;
   return (
     <g className="alien__pupilpose">
-      <g className={`alien__pupil alien__pupil--${side}`}>
-        {slit ? (
-          <ellipse cx={cx} cy={cy} rx="2.6" ry="5.6" fill={PUPIL} />
-        ) : (
-          <circle cx={cx} cy={cy} r={r} fill={PUPIL} />
-        )}
-        <circle cx={cx + 2} cy={cy - 2.2} r={r > 4 ? 1.7 : 1.2} className="alien__glint" />
+      <g className={`alien__pupil alien__pupil--${side}`} opacity={dim ? 0.45 : 1}>
+        <ellipse
+          className="alien__glint alien__rot"
+          cx={cx + out * 4}
+          cy={y}
+          rx="2.9"
+          ry="4.3"
+          transform={`rotate(${out * 18} ${cx + out * 4} ${y})`}
+        />
+        <circle className="alien__glint alien__glint--minor" cx={cx - out * 3.5} cy={y + 7} r="1.7" />
       </g>
     </g>
   );
 }
 
 /**
- * One eye: glow white clipped inside the almond, then lids, then the pupil.
- * `children` are mood-specific lids/pupils, all clipped to the almond.
+ * One eye: the void-black almond, a glossy lower reflection, then
+ * mood-specific lids and glints — everything clipped to the almond.
  */
 function Eye({
   side,
@@ -102,17 +109,26 @@ function Eye({
   children: React.ReactNode;
 }) {
   const cx = side === "left" ? 44.5 : 75.5;
-  const rot = side === "left" ? 12 : -12;
+  const rot = side === "left" ? 16 : -16;
   return (
     <g clipPath={`url(#${clipId})`}>
       <ellipse
-        className="alien__white alien__rot"
+        className="alien__black alien__rot"
         cx={cx}
         cy="51"
-        rx={13 * scale}
-        ry={8.3 * scale}
+        rx={13.5 * scale}
+        ry={8.6 * scale}
         transform={`rotate(${rot} ${cx} 51)`}
-        fill={look.eye}
+        fill={PUPIL}
+      />
+      <ellipse
+        className="alien__gloss alien__rot"
+        cx={cx}
+        cy="56"
+        rx={9 * scale}
+        ry={3.6 * scale}
+        transform={`rotate(${rot} ${cx} 56)`}
+        fill={look.mid}
       />
       {children}
     </g>
@@ -133,156 +149,179 @@ function AlienEyes({
   const lid = { fill: look.mid, stroke: "none" } as const;
   switch (mood) {
     case "open":
+      // the canonical void-black almonds
       return (
         <>
           <Eye side="left" clipId={clipL} look={look}>
-            <Pupil side="left" cx={44.5} cy={52} />
+            <Glints side="left" />
           </Eye>
           <Eye side="right" clipId={clipR} look={look}>
-            <Pupil side="right" cx={75.5} cy={52} />
+            <Glints side="right" />
           </Eye>
         </>
       );
     case "calm":
+      // upper lids halfway down: serene black crescents
       return (
         <>
           <Eye side="left" clipId={clipL} look={look}>
-            <ellipse {...lid} className="alien__rot" cx="44.5" cy="43" rx="15" ry="8.5" transform="rotate(12 44.5 43)" />
-            <Pupil side="left" cx={44.5} cy={54} r={4.4} />
+            <ellipse {...lid} className="alien__rot" cx="44.5" cy="42.5" rx="15.5" ry="8.8" transform="rotate(16 44.5 42.5)" />
+            <Glints side="left" y={53} dim />
           </Eye>
           <Eye side="right" clipId={clipR} look={look}>
-            <ellipse {...lid} className="alien__rot" cx="75.5" cy="43" rx="15" ry="8.5" transform="rotate(-12 75.5 43)" />
-            <Pupil side="right" cx={75.5} cy={54} r={4.4} />
+            <ellipse {...lid} className="alien__rot" cx="75.5" cy="42.5" rx="15.5" ry="8.8" transform="rotate(-16 75.5 42.5)" />
+            <Glints side="right" y={53} dim />
           </Eye>
         </>
       );
     case "wide":
+      // fully dilated black, bright high glints
       return (
         <>
-          <Eye side="left" clipId={clipL} look={look} scale={1.1}>
-            <Pupil side="left" cx={44.5} cy={51.5} r={3.4} />
+          <Eye side="left" clipId={clipL} look={look} scale={1.12}>
+            <Glints side="left" y={46.5} />
           </Eye>
-          <Eye side="right" clipId={clipR} look={look} scale={1.1}>
-            <Pupil side="right" cx={75.5} cy={51.5} r={3.4} />
+          <Eye side="right" clipId={clipR} look={look} scale={1.12}>
+            <Glints side="right" y={46.5} />
           </Eye>
         </>
       );
     case "happy":
+      // the black eyes curve into smiles
       return (
-        <g className="alien__arcs" stroke={look.eye}>
-          <path d="M33.5 53q11-11 22 0" />
-          <path d="M64.5 53q11-11 22 0" />
+        <g className="alien__arcs" stroke={PUPIL}>
+          <path d="M33.5 53q11-11.5 22 0" />
+          <path d="M64.5 53q11-11.5 22 0" />
         </g>
       );
     case "angry":
+      // lids slash inward: fierce black blades
       return (
         <>
           <Eye side="left" clipId={clipL} look={look}>
-            <path {...lid} d="M28 32h34v21L28 42Z" />
-            <Pupil side="left" cx={45.5} cy={53.5} r={4.2} />
+            <path {...lid} d="M28 30h36v22L28 41Z" />
+            <Glints side="left" y={53} dim />
           </Eye>
           <Eye side="right" clipId={clipR} look={look}>
-            <path {...lid} d="M92 32H58v21l34-11Z" />
-            <Pupil side="right" cx={74.5} cy={53.5} r={4.2} />
+            <path {...lid} d="M92 30H56v22l36-11Z" />
+            <Glints side="right" y={53} dim />
           </Eye>
         </>
       );
     case "suspicious":
+      // flat lids: unimpressed black slots
       return (
         <>
           <Eye side="left" clipId={clipL} look={look}>
-            <rect {...lid} x="28" y="34" width="34" height="16.5" />
-            <Pupil side="left" cx={44.5} cy={54} r={4} />
+            <rect {...lid} x="28" y="32" width="34" height="18" />
+            <Glints side="left" y={53.5} dim />
           </Eye>
           <Eye side="right" clipId={clipR} look={look}>
-            <rect {...lid} x="58" y="34" width="34" height="16.5" />
-            <Pupil side="right" cx={75.5} cy={54} r={4} />
+            <rect {...lid} x="58" y="32" width="34" height="18" />
+            <Glints side="right" y={53.5} dim />
           </Eye>
         </>
       );
     case "stoned":
+      // lids most of the way down, glints drowsy and low
       return (
         <>
           <Eye side="left" clipId={clipL} look={look}>
-            <rect {...lid} x="28" y="34" width="34" height="19" />
-            <Pupil side="left" cx={44.5} cy={55.5} r={6.4} />
+            <rect {...lid} x="28" y="32" width="34" height="21" />
+            <Glints side="left" y={55.5} dim />
           </Eye>
           <Eye side="right" clipId={clipR} look={look}>
-            <rect {...lid} x="58" y="34" width="34" height="19" />
-            <Pupil side="right" cx={75.5} cy={55.5} r={6.4} />
+            <rect {...lid} x="58" y="32" width="34" height="21" />
+            <Glints side="right" y={55.5} dim />
           </Eye>
         </>
       );
     case "wink":
       return (
         <>
-          <g className="alien__arcs" stroke={look.eye}>
-            <path d="M33.5 53q11-11 22 0" />
+          <g className="alien__arcs" stroke={PUPIL}>
+            <path d="M33.5 53q11-11.5 22 0" />
           </g>
           <Eye side="right" clipId={clipR} look={look}>
-            <Pupil side="right" cx={75.5} cy={52} />
+            <Glints side="right" />
           </Eye>
         </>
       );
     case "love":
+      // a pale heart glowing inside each black eye
       return (
         <>
           <Eye side="left" clipId={clipL} look={look}>
             <path
-              fill={PUPIL}
+              fill={look.eye}
               d="M44.5 58c-3.8-2.9-6.3-5.5-6.3-8.1 0-3.6 4-4.5 6.3-1.7 2.3-2.8 6.3-1.9 6.3 1.7 0 2.6-2.5 5.2-6.3 8.1Z"
             />
           </Eye>
           <Eye side="right" clipId={clipR} look={look}>
             <path
-              fill={PUPIL}
+              fill={look.eye}
               d="M75.5 58c-3.8-2.9-6.3-5.5-6.3-8.1 0-3.6 4-4.5 6.3-1.7 2.3-2.8 6.3-1.9 6.3 1.7 0 2.6-2.5 5.2-6.3 8.1Z"
             />
           </Eye>
         </>
       );
     case "dots":
+      // shrunk to quizzical black rounds
       return (
-        <>
-          <Eye side="left" clipId={clipL} look={look}>
-            <Pupil side="left" cx={44.5} cy={52} r={4.4} />
-          </Eye>
-          <Eye side="right" clipId={clipR} look={look}>
-            <Pupil side="right" cx={75.5} cy={52} r={4.4} />
-          </Eye>
-        </>
+        <g fill={PUPIL}>
+          <circle cx="44.5" cy="51.5" r="6" />
+          <circle cx="75.5" cy="51.5" r="6" />
+          <g className="alien__pupilpose">
+            <g className="alien__pupil alien__pupil--left">
+              <circle className="alien__glint" cx="46.5" cy="49.5" r="1.7" />
+            </g>
+          </g>
+          <g className="alien__pupilpose">
+            <g className="alien__pupil alien__pupil--right">
+              <circle className="alien__glint" cx="77.5" cy="49.5" r="1.7" />
+            </g>
+          </g>
+        </g>
       );
     case "focused":
+      // narrowed to blades, one streak of light
       return (
         <>
           <Eye side="left" clipId={clipL} look={look}>
-            <rect {...lid} x="28" y="32" width="34" height="14.5" />
-            <rect {...lid} x="28" y="57.5" width="34" height="12" />
-            <Pupil side="left" cx={44.5} cy={52} slit />
+            <rect {...lid} x="28" y="30" width="34" height="16" />
+            <rect {...lid} x="28" y="57" width="34" height="14" />
+            <Glints side="left" y={52} dim />
           </Eye>
           <Eye side="right" clipId={clipR} look={look}>
-            <rect {...lid} x="58" y="32" width="34" height="14.5" />
-            <rect {...lid} x="58" y="57.5" width="34" height="12" />
-            <Pupil side="right" cx={75.5} cy={52} slit />
+            <rect {...lid} x="58" y="30" width="34" height="16" />
+            <rect {...lid} x="58" y="57" width="34" height="14" />
+            <Glints side="right" y={52} dim />
           </Eye>
         </>
       );
     case "surprised":
+      // perfect startled black rounds
       return (
-        <>
-          <Eye side="left" clipId={clipL} look={look}>
-            <Pupil side="left" cx={44.5} cy={49.5} r={2.8} />
-          </Eye>
-          <Eye side="right" clipId={clipR} look={look}>
-            <Pupil side="right" cx={75.5} cy={49.5} r={2.8} />
-          </Eye>
-        </>
+        <g fill={PUPIL}>
+          <circle cx="44.5" cy="50" r="8.6" />
+          <circle cx="75.5" cy="50" r="8.6" />
+          <g className="alien__pupilpose">
+            <g className="alien__pupil alien__pupil--left">
+              <circle className="alien__glint" cx="47" cy="47" r="2" />
+            </g>
+          </g>
+          <g className="alien__pupilpose">
+            <g className="alien__pupil alien__pupil--right">
+              <circle className="alien__glint" cx="78" cy="47" r="2" />
+            </g>
+          </g>
+        </g>
       );
     case "closed":
       return (
-        <g className="alien__arcs alien__arcs--dim" stroke={look.eye}>
-          <path d="M33.5 51q11 9 22 0" />
-          <path d="M64.5 51q11 9 22 0" />
+        <g className="alien__arcs alien__arcs--dim" stroke={PUPIL}>
+          <path d="M33.5 51q11 9.5 22 0" />
+          <path d="M64.5 51q11 9.5 22 0" />
         </g>
       );
   }
@@ -397,10 +436,10 @@ export function AlienSpirit({
             <stop offset="1" stopColor={look.lo} />
           </linearGradient>
           <clipPath id={clipL}>
-            <ellipse className="alien__rot" cx="44.5" cy="51" rx="14.4" ry="9.2" transform="rotate(12 44.5 51)" />
+            <ellipse className="alien__rot" cx="44.5" cy="51" rx="15.2" ry="9.7" transform="rotate(16 44.5 51)" />
           </clipPath>
           <clipPath id={clipR}>
-            <ellipse className="alien__rot" cx="75.5" cy="51" rx="14.4" ry="9.2" transform="rotate(-12 75.5 51)" />
+            <ellipse className="alien__rot" cx="75.5" cy="51" rx="15.2" ry="9.7" transform="rotate(-16 75.5 51)" />
           </clipPath>
           <filter id={`${uid}-glow`} x="-120%" y="-120%" width="340%" height="340%">
             <feGaussianBlur stdDeviation="1.2" result="core" />
