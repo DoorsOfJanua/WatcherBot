@@ -4,8 +4,8 @@ import { AGENT_ROLE_TEMPLATES } from "../shared/agent-role-templates.ts";
 
 describe("agent role templates", () => {
   it("keeps every optional role unique and within the bot profile contract", () => {
-    expect(AGENT_ROLE_TEMPLATES).toHaveLength(21);
-    expect(new Set(AGENT_ROLE_TEMPLATES.map((template) => template.id)).size).toBe(21);
+    expect(AGENT_ROLE_TEMPLATES).toHaveLength(22);
+    expect(new Set(AGENT_ROLE_TEMPLATES.map((template) => template.id)).size).toBe(22);
     for (const template of AGENT_ROLE_TEMPLATES) {
       expect(template.title.length).toBeLessThanOrEqual(200);
       expect(template.description.length).toBeLessThanOrEqual(4_000);
@@ -21,6 +21,8 @@ describe("agent role templates", () => {
     const byId = Object.fromEntries(AGENT_ROLE_TEMPLATES.map((template) => [template.id, template.description]));
     expect(byId["inbox-triage"]).toContain("Never send");
     expect(byId["support-draft"]).toContain("Never send");
+    expect(byId.sota).toContain("Never confuse fashionable with superior");
+    expect(byId.sota).toContain("acceptance tests");
     expect(byId["reproduction-specialist"]).toContain("Never touch production");
     expect(byId["support-organizer"]).toContain("Never send a reply");
     expect(byId["analytics-investigator"]).toContain("Never change dashboards");
