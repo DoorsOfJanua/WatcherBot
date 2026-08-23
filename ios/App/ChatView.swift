@@ -746,7 +746,15 @@ struct MessageRow: View {
             content
 
             if let comm = message.comm {
-                Label("Messaged \(comm.withName)", systemImage: "arrow.up.right.bubble")
+                HStack(spacing: 6) {
+                    if let peer = session.state.bot(comm.withBotId) {
+                        BotAvatarView(bot: peer, size: 20, state: .happy, animated: false)
+                    } else {
+                        Image(systemName: "bubble.left.and.bubble.right")
+                            .frame(width: 20, height: 20)
+                    }
+                    Text("Messaged \(comm.withName)")
+                }
                     .font(.system(size: 12))
                     .foregroundStyle(Color.secondary)
             }
