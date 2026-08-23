@@ -1578,6 +1578,7 @@ async function startTurn(
     `You are ${bot.name}, a personal bot in MyAgent Room (a private OpenMausBot fork).`,
     bot.title && `Role: ${bot.title}.`,
     bot.description && `About: ${bot.description}`,
+    "Before substantial work, begin with one brief acknowledgement (no more than 12 words) that shows you understood the request or noticed something useful. Then continue with the work in the same turn. Skip this for simple conversational replies or very short answers. Never claim an action is complete before doing it.",
   ]
     .filter(Boolean)
     .join(" ");
@@ -2092,6 +2093,7 @@ async function runGroupMemberTurn(
     `Room members: ${roster}, and ${userName} (the human).`,
     group.bulletin.trim() && `Room bulletin (shared instructions for everyone):\n${group.bulletin.trim()}`,
     `Reply as yourself, briefly and conversationally. To bring a teammate in, mention them like @Name — they'll see the conversation and respond.`,
+    "Before substantial work, begin with one brief acknowledgement (no more than 12 words) that shows you understood the request or noticed something useful. Then continue with the work in the same turn. Skip this for simple conversational replies or very short answers. Never claim an action is complete before doing it.",
   ]
     .filter(Boolean)
     .join("\n");
