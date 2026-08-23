@@ -26,6 +26,8 @@ struct ChatView: View {
     @State private var showingPlus = false
     @State private var showingProfile = false
     @State private var shareFile: ShareFile?
+    @StateObject private var dictation = SpeechDictation()
+    @State private var dictationBase = ""
     @FocusState private var composerFocused: Bool
     /// The opening beat: the island grows with the bot's face in it, then
     /// shrinks away as the face settles into the header. `facePhase` is 1
@@ -172,7 +174,7 @@ struct ChatView: View {
                                 Color.clear
                             }
                         }
-                        ChatAvatarView(chat: current, size: faceSize, state: MausState.forChat(current, in: session.state), comets: islandExpanded)
+                        ChatAvatarView(chat: current, size: faceSize, state: WatcherState.forChat(current, in: session.state), comets: islandExpanded)
                             .offset(y: faceCentre - faceSize / 2)
                             .allowsHitTesting(false)
                     }
@@ -260,6 +262,7 @@ struct ChatView: View {
         .sheet(item: $shareFile) { file in
             ActivityShareSheet(items: [file.url])
         }
+        .onDisappear { dictation.stop() }
     }
 
     // MARK: - Header
@@ -512,8 +515,27 @@ struct ChatView: View {
     private func submit() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        dictation.stop()
         draft = ""
         Task { await session.send(text, to: current) }
+    }
+
+    private func toggleDictation() {
+        if dictation.isRecording {
+            dictation.stop()
+            return
+        }
+        dictationBase = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        composerFocused = true
+        Task {
+            do {
+                try await dictation.start { spoken in
+                    draft = dictationBase.isEmpty ? spoken : "\(dictationBase) \(spoken)"
+                }
+            } catch {
+                session.actionError = error.localizedDescription
+            }
+        }
     }
 
     // MARK: - Composer
@@ -558,6 +580,20 @@ struct ChatView: View {
                         // software keyboards have no Shift+Return, so their Return
                         // key is a send — which is what `.submitLabel(.send)` promises
                         .onSubmit(submit)
+
+                    Button(action: toggleDictation) {
+                        Image(systemName: dictation.isRecording ? "stop.fill" : "mic.fill")
+                            .font(.system(size: dictation.isRecording ? 13 : 16, weight: .semibold))
+                            .foregroundStyle(dictation.isRecording ? Color.white : Color.secondary)
+                            .frame(width: 32, height: 32)
+                            .background(
+                                Circle().fill(dictation.isRecording ? Color.red : Color.secondary.opacity(0.12))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(dictation.isRecording ? "Stop dictation" : "Start dictation")
+                    .padding(.bottom, 6)
+                    .animation(.easeOut(duration: 0.15), value: dictation.isRecording)
 
                     Button {
                         submit()
@@ -733,7 +769,7 @@ struct TextBubble: View {
                 if let speaker, !mine {
                     Text(speaker.name)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(MausPalette.color(speaker.color))
+                        .foregroundStyle(WatcherPalette.color(speaker.color))
                 }
                 // Bots get markdown, you do not — the same split the desktop
                 // makes. Markdown you did not intend is worse than markdown
@@ -814,7 +850,7 @@ struct CardView: View {
     /// choice above so the two cannot drift apart.
     private static func isRefusal(_ option: String) -> Bool { OptionCard.isRefusal(option) }
 
-    private var tint: Color { MausPalette.color(chat.color) }
+    private var tint: Color { WatcherPalette.color(chat.color) }
 
     private func canReviseEmail(_ card: OptionCard) -> Bool {
         card.tool == "email.send"

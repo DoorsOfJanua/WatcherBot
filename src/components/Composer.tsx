@@ -19,6 +19,7 @@ import { normalizeState } from "@/lib/mascot";
 import { groupComposerHint, roomRespondersForComposer } from "@/lib/group-routing";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
+import { joinDictation, mergeDictationTranscript } from "@/lib/dictation-transcript";
 
 /** The active @mention query at the caret: the text between an `@` that
  * starts a word and the caret. null = no mention being typed. */
@@ -89,6 +90,11 @@ export function Composer({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // what was typed before the mic went on — partials append after it
   const baseText = useRef("");
+  // Apple usually revises one cumulative hypothesis, but after a pause can
+  // restart with only the newest phrase. Keep the already-spoken portion so
+  // that restart cannot erase the front half of the user's message.
+  const spokenText = useRef("");
+  const renderedSpeech = useRef("");
 
   // image paste is offered only when every bot that will actually answer
   // can open one. sendGroup routes to mentions, else the room default —
@@ -205,8 +211,10 @@ export function Composer({
     setSpeechError(null);
     const offTranscript = bridge.onSpeechTranscript((line) => {
       if (typeof line.text === "string") {
-        const base = baseText.current;
-        setText(base ? `${base} ${line.text}` : line.text);
+        spokenText.current = mergeDictationTranscript(spokenText.current, line.text);
+        const rendered = joinDictation(baseText.current, spokenText.current);
+        renderedSpeech.current = rendered;
+        setText(rendered);
       }
     });
     const offEnd = bridge.onSpeechEnd(({ code }) => {
@@ -233,6 +241,8 @@ export function Composer({
       return;
     }
     baseText.current = text.trim();
+    spokenText.current = "";
+    renderedSpeech.current = text;
     setRecording((r) => !r);
   };
 
@@ -328,6 +338,14 @@ export function Composer({
           rows={1}
           value={text}
           onChange={(e) => {
+            // Manual edits while the microphone is live become the new fixed
+            // base. The next recognition callback appends to what the person
+            // actually left in the field instead of restoring an older copy.
+            if (recording && e.target.value !== renderedSpeech.current) {
+              baseText.current = e.target.value.trim();
+              spokenText.current = "";
+              renderedSpeech.current = e.target.value;
+            }
             setText(e.target.value);
             setCaret(e.target.selectionStart ?? e.target.value.length);
             setDismissedAt(null);

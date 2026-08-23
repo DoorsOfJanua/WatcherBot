@@ -87,6 +87,10 @@ targets:
         NSCameraUsageDescription: >-
           The WatcherBot uses the camera only to scan a pairing QR code shown by
           The WatcherBot on your computer.
+        NSMicrophoneUsageDescription: >-
+          The WatcherBot uses the microphone when you dictate a message to your agents.
+        NSSpeechRecognitionUsageDescription: >-
+          The WatcherBot turns your speech into editable message text on this iPhone.
         NSBonjourServices:
           - _watcherbot._tcp
         # The companion listener is plain HTTP on a local address. ATS has
