@@ -203,7 +203,7 @@ function AgentOverview({ groups, onChoose }: { groups: AgentGroup[]; onChoose: (
           key={group.bot.id}
           type="button"
           onClick={() => onChoose(group.bot.id)}
-          className="attention-tray-row group flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors hover:bg-raised/50"
+          className="attention-tray-row group flex w-full items-start gap-3 rounded-2xl px-3.5 py-3.5 text-left transition-colors hover:bg-raised/50"
           style={attentionDelay(index)}
         >
           <span className="relative flex size-10 shrink-0 items-center justify-center">
@@ -221,7 +221,12 @@ function AgentOverview({ groups, onChoose }: { groups: AgentGroup[]; onChoose: (
                 <span className="attention-tray-working size-1.5 rounded-full bg-success" aria-label="Working" />
               )}
             </span>
-            <span className="mt-0.5 block truncate text-[11.5px] text-ink-secondary">{group.items[0]?.title}</span>
+            <span className="mt-0.5 block truncate text-[11.5px] font-medium text-ink-secondary">
+              {group.bot.title || group.items[0]?.title || "Agent"}
+            </span>
+            <span className="mt-0.5 block line-clamp-2 text-[11px] leading-snug text-ink-secondary/75">
+              {group.bot.description || group.items[0]?.summary || "Watching for useful work and updates."}
+            </span>
           </span>
           <ChevronRight size={15} className="text-ink-secondary transition-transform group-hover:translate-x-0.5" />
         </button>
@@ -337,11 +342,11 @@ export function AttentionTray({ bot }: { bot: Bot }) {
       </button>
 
       {expanded && (
-        <div className="attention-tray-shell absolute top-12 right-0 w-[min(380px,calc(100vw-2rem))]">
+        <div className="attention-tray-shell absolute top-12 right-0 w-[min(460px,calc(100vw-2rem))]">
           <section
             id="attention-tray-panel"
             aria-label={isWatcher ? "All agents needing attention" : `${bot.name} attention`}
-            className="attention-tray-panel flex max-h-[min(68vh,620px)] flex-col overflow-hidden rounded-[26px] border border-hairline/45 bg-panel/95 backdrop-blur-2xl"
+            className="attention-tray-panel flex max-h-[min(72vh,700px)] flex-col overflow-hidden rounded-[28px] border border-hairline/45 bg-panel/95 backdrop-blur-2xl"
           >
             <header className="flex items-center gap-3 px-4 pt-4 pb-3">
               {isWatcher && selectedAgentId ? (
