@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Loader2, X } from "lucide-react";
+import { ArrowLeft, BookOpen, Loader2, RotateCcw, Search, X } from "lucide-react";
 
+import {
+  AGENT_ROLE_TEMPLATES,
+  type AgentRoleTemplate,
+} from "../../shared/agent-role-templates";
 import {
   BOT_SPIRIT_GEOMETRIES,
   BOT_SPIRIT_GEOMETRY_LABELS as GEOMETRY_LABELS,
@@ -36,12 +40,24 @@ const PALETTE_ACCENT = {
   oilchrome: "cyan",
 } satisfies Record<BotSpiritPalette, MausColor>;
 
+const ROLE_CATEGORY_LABELS = {
+  coordination: "Coordination",
+  communication: "Communication",
+  research: "Research",
+  creative: "Creative",
+  operations: "Operations",
+  personal: "Personal",
+} satisfies Record<AgentRoleTemplate["category"], string>;
+
 export function NewAgentDialog({ onClose }: { onClose: () => void }) {
   const { state, dispatch } = useStore();
   const nameRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [roleLibraryOpen, setRoleLibraryOpen] = useState(false);
+  const [roleQuery, setRoleQuery] = useState("");
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [spirit, setSpirit] = useState<BotSpirit>(() =>
     firstAvailableSpirit(state.bots.map((bot) => bot.spirit)),
   );
@@ -50,6 +66,25 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
   const [temperament, setTemperament] = useState<BotSpiritTemperament>("native");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
+
+  const selectedRole = AGENT_ROLE_TEMPLATES.find((template) => template.id === selectedRoleId) ?? null;
+  const roleWasEdited = selectedRole !== null &&
+    (title !== selectedRole.title || description !== selectedRole.description);
+  const normalizedRoleQuery = roleQuery.trim().toLowerCase();
+  const visibleRoles = normalizedRoleQuery
+    ? AGENT_ROLE_TEMPLATES.filter((template) =>
+        [template.name, template.title, template.summary, template.category]
+          .some((value) => value.toLowerCase().includes(normalizedRoleQuery)),
+      )
+    : AGENT_ROLE_TEMPLATES;
+
+  const chooseRole = (template: AgentRoleTemplate) => {
+    setTitle(template.title);
+    setDescription(template.description);
+    setSelectedRoleId(template.id);
+    setRoleLibraryOpen(false);
+    setRoleQuery("");
+  };
 
   useEffect(() => {
     // SAFETY: document.activeElement is either null or a DOM Element; only
@@ -133,7 +168,126 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
             </button>
           </div>
 
-          <div className="mt-6 flex flex-col gap-4">
+          {roleLibraryOpen ? (
+            <div className="mt-6">
+              <button
+                type="button"
+                onClick={() => setRoleLibraryOpen(false)}
+                className="flex min-h-11 items-center gap-2 rounded-lg px-2 text-[12px] font-medium text-ink-secondary hover:bg-raised hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              >
+                <ArrowLeft size={15} />
+                Back to identity
+              </button>
+              <div className="mt-3">
+                <h3 className="text-[18px] font-semibold tracking-[-0.015em] text-ink">Choose a proven role</h3>
+                <p className="mt-1 max-w-[54ch] text-[12px] leading-relaxed text-ink-secondary">
+                  A role seeds an editable charter. It does not grant tools, accounts, or permission to act.
+                </p>
+              </div>
+              <label className="relative mt-4 block">
+                <span className="sr-only">Search roles</span>
+                <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-secondary" size={15} />
+                <input
+                  value={roleQuery}
+                  onChange={(event) => setRoleQuery(event.target.value)}
+                  placeholder="Search roles"
+                  className={cn(FIELD, "min-h-11 pl-9")}
+                />
+              </label>
+              <div className="mt-3 flex flex-col gap-2" aria-live="polite">
+                {visibleRoles.map((template) => {
+                  const selected = template.id === selectedRoleId;
+                  return (
+                    <button
+                      key={template.id}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => chooseRole(template)}
+                      className={cn(
+                        "min-h-16 rounded-2xl border px-3.5 py-3 text-left transition-[border-color,background-color,transform] active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                        selected
+                          ? "border-accent-border bg-raised"
+                          : "border-hairline/45 bg-card/35 hover:border-hairline hover:bg-raised/60",
+                      )}
+                    >
+                      <span className="flex items-start justify-between gap-3">
+                        <span className="min-w-0">
+                          <span className="block text-[13px] font-semibold text-ink">{template.name}</span>
+                          <span className="mt-0.5 block text-[11.5px] leading-relaxed text-ink-secondary">{template.summary}</span>
+                        </span>
+                        <span className="shrink-0 rounded-full bg-inset px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">
+                          {ROLE_CATEGORY_LABELS[template.category]}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+                {visibleRoles.length === 0 && (
+                  <div className="rounded-2xl border border-hairline/45 px-4 py-6 text-center">
+                    <div className="text-[13px] font-medium text-ink">No role matches that search</div>
+                    <button
+                      type="button"
+                      onClick={() => setRoleQuery("")}
+                      className="mt-2 min-h-11 px-3 text-[12px] font-medium text-accent-text hover:text-ink"
+                    >
+                      Show every role
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+          <>
+          <div className="mt-6">
+            <button
+              type="button"
+              onClick={() => setRoleLibraryOpen(true)}
+              className="flex min-h-14 w-full items-center gap-3 rounded-2xl border border-hairline/50 bg-card/35 px-3.5 py-3 text-left transition-[border-color,background-color,transform] hover:border-accent-border hover:bg-raised/60 active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent-text">
+                <BookOpen size={16} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[12.5px] font-semibold text-ink">
+                  {selectedRole ? selectedRole.name : "Start with a proven role"}
+                </span>
+                <span className="mt-0.5 block text-[10.5px] leading-relaxed text-ink-secondary">
+                  {selectedRole ? selectedRole.summary : `${AGENT_ROLE_TEMPLATES.length} editable operating charters, or keep this agent custom.`}
+                </span>
+              </span>
+              {roleWasEdited && (
+                <span className="shrink-0 rounded-full bg-inset px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">
+                  Edited
+                </span>
+              )}
+            </button>
+            {selectedRole && (
+              <div className="mt-1.5 flex min-h-11 items-center justify-end gap-1">
+                {roleWasEdited && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTitle(selectedRole.title);
+                      setDescription(selectedRole.description);
+                    }}
+                    className="flex min-h-11 items-center gap-1.5 rounded-lg px-2.5 text-[10.5px] font-medium text-ink-secondary hover:bg-raised hover:text-ink"
+                  >
+                    <RotateCcw size={12} />
+                    Restore charter
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSelectedRoleId(null)}
+                  className="min-h-11 rounded-lg px-2.5 text-[10.5px] font-medium text-ink-secondary hover:bg-raised hover:text-ink"
+                >
+                  Keep as custom
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-4 flex flex-col gap-4">
             <label className="flex flex-col gap-2">
               <span className="text-[12px] font-medium text-ink">Name</span>
               <input
@@ -187,6 +341,8 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
               {creating ? "Creating…" : "Create agent"}
             </button>
           </div>
+          </>
+          )}
         </form>
 
         <section className="min-h-0 border-t border-hairline/40 bg-inset/45 p-5 sm:p-7 md:overflow-y-auto md:border-l md:border-t-0">

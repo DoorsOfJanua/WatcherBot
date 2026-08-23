@@ -58,6 +58,7 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "POST", path: /^\/api\/push\/register$/ },
   { method: "DELETE", path: /^\/api\/push\/register$/ },
   { method: "GET", path: /^\/api\/instances$/ },
+  { method: "GET", path: /^\/api\/agent-role-templates$/ },
 
   // the fleet, and making a bot
   { method: "GET", path: /^\/api\/bots$/ },

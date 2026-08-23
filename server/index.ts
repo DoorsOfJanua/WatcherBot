@@ -8,6 +8,7 @@ import { isIP } from "node:net";
 import { basename, extname, isAbsolute, join } from "node:path";
 
 import { z } from "zod";
+import { AGENT_ROLE_TEMPLATES } from "../shared/agent-role-templates.ts";
 import { botAvatarUrlFromStoredPath } from "../shared/bot-avatar.ts";
 import { botMessageSharesDocument, isLocalDocumentPath } from "../shared/shared-document.ts";
 
@@ -3095,6 +3096,12 @@ const server = createServer(async (req, res) => {
     }
 
     // ── bots ──
+    // One canonical library feeds desktop and phone. Templates are inert
+    // text until a person explicitly chooses one in the new-agent flow; this
+    // endpoint grants no tools, permissions, connectors, or runtime policy.
+    if (method === "GET" && path === "/api/agent-role-templates") {
+      return json(res, 200, { templates: AGENT_ROLE_TEMPLATES });
+    }
     if (method === "GET" && path === "/api/bots") {
       const limit = pageSize(url.searchParams.get("messages"));
       if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });

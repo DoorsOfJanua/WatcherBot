@@ -16,6 +16,9 @@ struct NewAgentSheet: View {
     @State private var name = ""
     @State private var title = ""
     @State private var brief = ""
+    @State private var roleTemplates: [AgentRoleTemplate] = []
+    @State private var selectedRoleId: String?
+    @State private var loadingRoles = true
     @State private var spirit: SpiritKind = .wormhole
     @State private var palette = "native"
     @State private var geometry = "native"
@@ -110,6 +113,52 @@ struct NewAgentSheet: View {
                 }
                 .listRowBackground(Color.clear)
 
+                Section {
+                    NavigationLink {
+                        AgentRoleLibraryView(
+                            templates: roleTemplates,
+                            selectedRoleId: selectedRoleId,
+                            choose: chooseRole
+                        )
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "books.vertical.fill")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(WatcherTheme.violet)
+                                .frame(width: 32, height: 32)
+                                .background(WatcherTheme.violet.opacity(0.14), in: Circle())
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(selectedRole?.name ?? "Choose a proven role")
+                                    .font(.system(size: 14, weight: .semibold))
+                                Text(selectedRole?.summary ?? roleLibrarySubtitle)
+                                    .font(.system(size: 11.5))
+                                    .foregroundStyle(Color.secondary)
+                                    .lineLimit(2)
+                            }
+                        }
+                        .padding(.vertical, 3)
+                    }
+                    .disabled(loadingRoles)
+
+                    if let role = selectedRole {
+                        if roleWasEdited {
+                            Button {
+                                title = role.title
+                                brief = role.description
+                            } label: {
+                                Label("Restore original charter", systemImage: "arrow.counterclockwise")
+                            }
+                        }
+                        Button("Keep this text as a custom role") {
+                            selectedRoleId = nil
+                        }
+                    }
+                } header: {
+                    Text("Start with a role")
+                } footer: {
+                    Text("A role copies an editable working charter. It grants no tools, accounts, or permission to act.")
+                }
+
                 Section("Identity") {
                     TextField("Name", text: $name)
                         .textInputAutocapitalization(.words)
@@ -187,6 +236,14 @@ struct NewAgentSheet: View {
             chooseFirstAvailableSpirit()
             nameFocused = true
         }
+        .task {
+            guard roleTemplates.isEmpty else {
+                loadingRoles = false
+                return
+            }
+            roleTemplates = await session.agentRoleTemplates()
+            loadingRoles = false
+        }
     }
 
     private func spiritButton(_ choice: SpiritChoice) -> some View {
@@ -256,6 +313,27 @@ struct NewAgentSheet: View {
         seededSpirit = true
     }
 
+    private var selectedRole: AgentRoleTemplate? {
+        roleTemplates.first { $0.id == selectedRoleId }
+    }
+
+    private var roleWasEdited: Bool {
+        guard let selectedRole else { return false }
+        return title != selectedRole.title || brief != selectedRole.description
+    }
+
+    private var roleLibrarySubtitle: String {
+        if loadingRoles { return "Loading operating charters…" }
+        if roleTemplates.isEmpty { return "Custom agent" }
+        return "\(roleTemplates.count) editable operating charters, or stay custom."
+    }
+
+    private func chooseRole(_ role: AgentRoleTemplate) {
+        title = role.title
+        brief = role.description
+        selectedRoleId = role.id
+    }
+
     private func create() {
         let chosenName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !chosenName.isEmpty, !creating else { return }
@@ -315,4 +393,87 @@ private struct LabeledValue: Identifiable {
     let value: String
     let label: String
     var id: String { value }
+}
+
+private struct AgentRoleLibraryView: View {
+    let templates: [AgentRoleTemplate]
+    let selectedRoleId: String?
+    let choose: (AgentRoleTemplate) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    private static let categories = [
+        "coordination", "communication", "research", "creative", "operations", "personal",
+    ]
+
+    var body: some View {
+        List {
+            if visibleTemplates.isEmpty {
+                ContentUnavailableView(
+                    "No matching role",
+                    systemImage: "person.crop.circle.badge.questionmark",
+                    description: Text("Try another word, or return and create a custom agent.")
+                )
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(Self.categories, id: \.self) { category in
+                    let roles = visibleTemplates.filter { $0.category == category }
+                    if !roles.isEmpty {
+                        Section(categoryLabel(category)) {
+                            ForEach(roles) { role in
+                                Button {
+                                    choose(role)
+                                    dismiss()
+                                } label: {
+                                    HStack(alignment: .top, spacing: 12) {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(role.name)
+                                                .font(.system(size: 15, weight: .semibold))
+                                                .foregroundStyle(Color.primary)
+                                            Text(role.summary)
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(Color.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                        Spacer(minLength: 8)
+                                        if role.id == selectedRoleId {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .foregroundStyle(WatcherTheme.violet)
+                                        }
+                                    }
+                                    .padding(.vertical, 4)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Role library")
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $query, prompt: "Search roles")
+    }
+
+    private var visibleTemplates: [AgentRoleTemplate] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return templates }
+        return templates.filter { role in
+            [role.name, role.title, role.summary, role.category]
+                .contains { $0.lowercased().contains(needle) }
+        }
+    }
+
+    private func categoryLabel(_ value: String) -> String {
+        switch value {
+        case "coordination": return "Coordination"
+        case "communication": return "Communication"
+        case "research": return "Research"
+        case "creative": return "Creative"
+        case "operations": return "Operations"
+        case "personal": return "Personal"
+        default: return value.capitalized
+        }
+    }
 }

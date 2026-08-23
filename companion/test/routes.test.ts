@@ -36,6 +36,7 @@ describe("what the app may do", () => {
     ["GET", "/api/config"],
     ["GET", "/api/events"],
     ["GET", "/api/instances"],
+    ["GET", "/api/agent-role-templates"],
     ["GET", "/api/bots"],
     ["POST", "/api/bots"],
     ["POST", "/api/bots/bot_123/messages"],

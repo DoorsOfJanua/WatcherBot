@@ -118,3 +118,77 @@ is allowed and expected; the point is to stop at review, not to prohibit useful 
 
 Specialists get narrow charters and separate memory. The Watcher delegates and synthesizes; it does
 not impersonate a specialist when one was explicitly addressed.
+
+## Roles, skills, routines, and approvals
+
+These are separate layers and must not be collapsed into one prompt:
+
+- A **role charter** defines who an agent is, what it owns, what good looks like, and where its
+  authority stops. Choosing a role copies editable text into a bot profile; it grants no access.
+- A **skill** defines one reusable process. “Save this process as a skill” drafts: when to use it,
+  required inputs and access, sequence of work, validation, return value, and approval points.
+- A **routine** defines when or on which event a proven skill runs. A routine is created only after
+  the underlying process has succeeded under observation.
+- An **approval receipt** binds an irreversible step to its exact payload and destination. Neither a
+  role nor a skill may weaken that boundary.
+
+The intended creation loop is: complete real work once, validate the result, save the method as a
+skill, review its six-part contract, enable it for selected agents, then optionally schedule it.
+
+### Teach a task
+
+When visual teaching is available, it runs inside a one-to-one agent conversation with the computer
+view. Janua first states the intended result, then demonstrates the visible workflow for at most ten
+minutes. The capture records interaction, not audio or intent, so the review step must explicitly add:
+
+- why an item is included or excluded;
+- which missing input stops the workflow;
+- what constitutes success and failure;
+- recovery behavior for missing or changed sources;
+- approval boundaries that cannot be inferred from clicks.
+
+The generated skill remains a draft until it passes a safe example. Only a validated skill may be
+offered for scheduling as a routine. In short: **skill = how; routine = when**.
+
+### Multi-agent sequences before coordinators
+
+New cross-agent work starts as an explicit pipeline, not autonomous orchestration:
+
+1. one named source agent reads defined inputs and writes to one draft location;
+2. one named review or communication agent reads that draft, changes only its owned layer, and
+   writes to a separate review location;
+3. one named human owner approves the final artifact or returns it with corrections.
+
+Agents receive one lane and no overlapping write authority. A coordinator may route and synthesize
+once the fixed sequence is proven, but it can never approve an external action proposed by itself or
+its specialists.
+
+### Routine freshness and evidence
+
+Every event-triggered or time-sensitive routine names its exact source and event type, allowed and
+prohibited actions, output schema, failure policy, and approval boundary. Before using current data,
+it records the source timestamp and compares it with the declared freshness threshold. Stale or
+missing data produces an explicit failure containing: source, expected timestamp, actual or last
+successful timestamp, impact, and action taken. It is never silently reused as current evidence.
+
+### Candidate workflow library
+
+Examples gathered from field guides are retained as workflow candidates without turning every
+example into another agent. The durable role owns the lane; the skill and routine hold the varying
+task details:
+
+- **Reproduce a staging bug** — Reproduction Specialist skill; ticket-triggered or manual; returns
+  a timestamped repro pack and stops before any external engineering message.
+- **Weekly marketing source brief** — Competitor Watch skill plus Monday routine; compares public
+  announcements, pricing, and documentation against the previous verified snapshot.
+- **Organize support without replying** — Support Organizer skill; event-triggered from a named
+  queue; classifies and drafts while every reply remains gated.
+- **Compare activation analytics** — Analytics Investigator skill; manual or scheduled; returns the
+  largest measured step change, chart evidence, hypotheses, and next discriminating check.
+- **Track documentation changes** — Documentation Tracker skill plus change or schedule routine;
+  stores dated snapshots and drafts a changelog without publishing it.
+- **Draft Gmail follow-ups** — Inbox Manager skill plus tag-specific event routine; reads the exact
+  threads and creates traceable drafts, while sending requires a payload-bound approval receipt.
+
+Each candidate must be completed successfully once with real inputs, reviewed, saved through the
+six-part skill contract, and tested on a safe example before its routine can be enabled.
