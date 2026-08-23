@@ -578,9 +578,9 @@ struct StatusBanner: View {
             case .live, .unpaired:
                 EmptyView()
             case .connecting:
-                banner("Connecting…", systemImage: "arrow.triangle.2.circlepath", tint: .secondary)
+                banner("Connecting…", systemImage: "arrow.triangle.2.circlepath", tint: .secondary, retry: true)
             case let .offline(reason):
-                banner(reason, systemImage: "wifi.slash", tint: .orange)
+                banner(reason, systemImage: "wifi.slash", tint: .orange, retry: true)
             case .unauthorized:
                 banner("This phone was unpaired on the computer.", systemImage: "lock.slash", tint: .red)
             }
@@ -588,14 +588,29 @@ struct StatusBanner: View {
         .animation(.default, value: session.status)
     }
 
-    private func banner(_ text: String, systemImage: String, tint: Color) -> some View {
-        Label(text, systemImage: systemImage)
-            .font(.footnote)
-            .foregroundStyle(tint)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .glassCapsule(interactive: false)
-            .padding(.bottom, 8)
+    private func banner(_ text: String, systemImage: String, tint: Color, retry: Bool = false) -> some View {
+        HStack(spacing: 8) {
+            Label(text, systemImage: systemImage)
+                .font(.footnote)
+                .foregroundStyle(tint)
+                .lineLimit(2)
+            if retry {
+                Button {
+                    Task { await session.refresh() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.primary)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Reconnect")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .glassCapsule(interactive: false)
+        .padding(.bottom, 8)
     }
 }
 
