@@ -29,8 +29,8 @@ public struct NotificationFrame: Codable, Hashable, Sendable {
     }
 }
 
-enum NotificationPresentation {
-    static func body(kind: String, raw: String) -> String {
+public enum NotificationPresentation {
+    public static func body(kind: String, raw: String) -> String {
         let normalized = raw
             .replacingOccurrences(of: "```[\\s\\S]*?```", with: " ", options: .regularExpression)
             .replacingOccurrences(of: "\n", with: " ")

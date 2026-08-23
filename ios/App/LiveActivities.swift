@@ -39,11 +39,18 @@ final class LiveActivityCoordinator {
             let face = WatcherState.forBot(bot, last: state.visibleTranscript(forThread: bot.threadId).last)
             let kind = update.kind == .needsYou ? "needsYou" : "working"
             if since[bot.id]?.kind != kind { since[bot.id] = (kind, Date()) }
+            let notificationKind = update.kind == .needsYou
+                ? (update.card?.isPermission == true ? "approval" : "question")
+                : "done"
+            let presentationLine = NotificationPresentation.body(
+                kind: notificationKind,
+                raw: update.line.isEmpty ? (update.card?.title ?? "") : update.line
+            )
             let content = BotActivityAttributes.ContentState(
                 face: face.rawValue,
                 kind: update.kind == .needsYou ? "needsYou" : "working",
                 headline: update.kind == .needsYou ? "\(bot.name) needs you" : "\(bot.name) is working",
-                line: update.line.isEmpty ? (update.card?.title ?? "") : update.line,
+                line: presentationLine,
                 requestId: update.card?.isPending == true ? update.card?.requestId : nil,
                 options: update.card?.isPending == true ? (update.card?.options ?? []) : [],
                 isPermission: update.card?.isPermission ?? false,
@@ -57,7 +64,7 @@ final class LiveActivityCoordinator {
             let alert: AlertConfiguration? = update.kind == .needsYou
                 ? AlertConfiguration(
                     title: LocalizedStringResource(stringLiteral: content.headline),
-                    body: LocalizedStringResource(stringLiteral: content.line),
+                    body: LocalizedStringResource(stringLiteral: presentationLine),
                     sound: .default
                 )
                 : nil
