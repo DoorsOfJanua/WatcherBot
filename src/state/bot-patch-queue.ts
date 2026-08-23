@@ -89,7 +89,16 @@ const hasFields = (patch: BotUpdatePatch): boolean => Object.keys(patch).length 
  * flag, which is wire-only. One strip point covers both overlay paths. */
 const stateOverlay = (patch: BotUpdatePatch): StateBotUpdatePatch => {
   const { acknowledgeLocalAuto: _ack, spirit, ...fields } = patch;
-  return { ...fields, spirit: spirit === null ? undefined : spirit };
+  // Preserve omission. An overlay is spread over an authoritative bot, so
+  // returning `spirit: undefined` for a palette/geometry/emotion-only edit
+  // erases the chosen character from the renderer even though the server
+  // still has it. Only an explicit spirit mutation may enter the overlay.
+  return {
+    ...fields,
+    ...(Object.prototype.hasOwnProperty.call(patch, "spirit")
+      ? { spirit: spirit === null ? undefined : spirit }
+      : {}),
+  };
 };
 
 /**

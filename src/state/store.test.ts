@@ -121,6 +121,46 @@ describe("cross-client bot creation", () => {
   });
 });
 
+describe("bot spirit persistence", () => {
+  const watcher = {
+    id: "watcher",
+    threadId: "watcher-thread",
+    name: "Custom Watcher",
+    title: "Inspector",
+    description: "Keeps watch.",
+    notifications: true,
+    color: "purple",
+    spirit: "wormhole",
+    unread: false,
+    modelSelection: { instanceId: "codex", model: "default" },
+    messages: [],
+  } satisfies Bot;
+
+  it("keeps the selected character through unrelated profile edits", () => {
+    const edited = reducer(
+      { ...initialState, bots: [watcher] },
+      { type: "updateBot", botId: watcher.id, patch: { description: "A sharper brief." } },
+    );
+
+    expect(edited.bots[0]?.spirit).toBe("wormhole");
+  });
+
+  it("changes or clears the character only when explicitly requested", () => {
+    const changed = reducer(
+      { ...initialState, bots: [watcher] },
+      { type: "updateBot", botId: watcher.id, patch: { spirit: "forge" } },
+    );
+    expect(changed.bots[0]?.spirit).toBe("forge");
+
+    const cleared = reducer(changed, {
+      type: "updateBot",
+      botId: watcher.id,
+      patch: { spirit: null },
+    });
+    expect(cleared.bots[0]?.spirit).toBeUndefined();
+  });
+});
+
 describe("spirit reactions", () => {
   const message = {
     id: "answer-1",

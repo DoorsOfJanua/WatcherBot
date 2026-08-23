@@ -872,7 +872,17 @@ export function reducer(state: AppState, action: Action): AppState {
           }
         : animated;
       const { acknowledgeLocalAuto: _ack, spirit, ...botPatch } = action.patch;
-      const safeBotPatch = { ...botPatch, spirit: spirit === null ? undefined : spirit };
+      // `spirit` is optional, so an unrelated profile edit normally omits it.
+      // Do not materialize that omission as `spirit: undefined`: doing so
+      // erased the chosen character from the live client after edits such as
+      // title, description, model, or notification changes. Only an explicit
+      // spirit patch may change (or clear) the bot's saved identity.
+      const safeBotPatch = {
+        ...botPatch,
+        ...(Object.prototype.hasOwnProperty.call(action.patch, "spirit")
+          ? { spirit: spirit === null ? undefined : spirit }
+          : {}),
+      };
       return updateBot(next, action.botId, (b) => ({ ...b, ...safeBotPatch }));
     }
     case "threadActive": {
