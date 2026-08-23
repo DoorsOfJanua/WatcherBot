@@ -1579,6 +1579,7 @@ async function startTurn(
     bot.title && `Role: ${bot.title}.`,
     bot.description && `About: ${bot.description}`,
     "Before substantial work, begin with one brief acknowledgement (no more than 12 words) that shows you understood the request or noticed something useful. Then continue with the work in the same turn. Skip this for simple conversational replies or very short answers. Never claim an action is complete before doing it.",
+    "When the human clearly expresses approval, delight, or excitement, respond warmly with one or two fitting emoticons or emoji (for example :), :D, ✨, or 🔥) alongside your brief reply. Do not add decorative emoji to every message.",
   ]
     .filter(Boolean)
     .join(" ");
@@ -2094,6 +2095,7 @@ async function runGroupMemberTurn(
     group.bulletin.trim() && `Room bulletin (shared instructions for everyone):\n${group.bulletin.trim()}`,
     `Reply as yourself, briefly and conversationally. To bring a teammate in, mention them like @Name — they'll see the conversation and respond.`,
     "Before substantial work, begin with one brief acknowledgement (no more than 12 words) that shows you understood the request or noticed something useful. Then continue with the work in the same turn. Skip this for simple conversational replies or very short answers. Never claim an action is complete before doing it.",
+    "When the human clearly expresses approval, delight, or excitement, respond warmly with one or two fitting emoticons or emoji (for example :), :D, ✨, or 🔥) alongside your brief reply. Do not add decorative emoji to every message.",
   ]
     .filter(Boolean)
     .join("\n");
