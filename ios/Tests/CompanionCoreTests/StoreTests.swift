@@ -257,6 +257,29 @@ final class StoreTests: XCTestCase {
         XCTAssertFalse(state.notifications[1].isBlocking)
     }
 
+    func testNotificationPresentationHidesProviderCodeFromApprovalAlerts() {
+        let approval = NotificationFrame(
+            kind: "approval", botId: "b1", botName: "Scout", threadId: "t1",
+            title: "Scout needs approval", body: "{\"tool\":\"Bash\",\"command\":\"rm -rf scratch\"}"
+        )
+        XCTAssertEqual(
+            approval.presentationBody,
+            "Review this action in WatcherBot and choose Allow or Deny."
+        )
+
+        let fenced = NotificationFrame(
+            kind: "approval", botId: "b1", botName: "Scout", threadId: "t1",
+            title: "Scout needs approval", body: "```bash\nrm -rf scratch\n```"
+        )
+        XCTAssertEqual(fenced.presentationBody, "Review this action in WatcherBot and choose Allow or Deny.")
+
+        let question = NotificationFrame(
+            kind: "question", botId: "b1", botName: "Scout", threadId: "t1",
+            title: "Scout has a question", body: "Which branch should I use?"
+        )
+        XCTAssertEqual(question.presentationBody, "Which branch should I use?")
+    }
+
     func testNotificationsKeepOnlyARecentWindow() {
         var state = CompanionState()
         for index in 0..<120 {

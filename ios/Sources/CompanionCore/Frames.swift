@@ -19,6 +19,61 @@ public struct NotificationFrame: Codable, Hashable, Sendable {
 
     /// A bot blocked on you, as opposed to one reporting in.
     public var isBlocking: Bool { kind == "approval" || kind == "question" }
+
+    /// Lock-screen copy is deliberately not the provider payload. Approval
+    /// summaries often contain shell commands, JSON, or tool protocol text;
+    /// those details remain available in the chat, while the phone receives
+    /// the human decision prompt only.
+    public var presentationBody: String {
+        NotificationPresentation.body(kind: kind, raw: body)
+    }
+}
+
+enum NotificationPresentation {
+    static func body(kind: String, raw: String) -> String {
+        let normalized = raw
+            .replacingOccurrences(of: "```[\\s\\S]*?```", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\\n", with: " ")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalized.isEmpty else {
+            switch kind {
+            case "approval": return "Review this action in WatcherBot and choose Allow or Deny."
+            case "question": return "Your answer is needed in WatcherBot."
+            default: return "WatcherBot has an update waiting for you."
+            }
+        }
+
+        // A raw command, tool envelope, or serialized request is useful in
+        // the transcript but is not readable lock-screen copy. Do not attempt
+        // to paraphrase it on-device; make the next action unambiguous.
+        if isProtocolOrCode(normalized) {
+            switch kind {
+            case "approval": return "Review this action in WatcherBot and choose Allow or Deny."
+            case "question": return "Your answer is needed in WatcherBot."
+            default: return "WatcherBot has an update waiting for you."
+            }
+        }
+
+        return normalized
+    }
+
+    private static func isProtocolOrCode(_ value: String) -> Bool {
+        let lower = value.lowercased()
+        if value.hasPrefix("{") || value.hasPrefix("[") { return true }
+        if lower.contains("\"command\"") || lower.contains("\"tool\"") || lower.contains("\"request\"") {
+            return true
+        }
+        let prefixes = [
+            "bash:", "shell:", "zsh:", "sh:", "python:", "javascript:",
+            "typescript:", "node:", "npm:", "pnpm:", "yarn:", "git:",
+            "curl ", "rm ", "sudo ", "chmod ", "chown ", "mkdir ",
+            "/bin/", "./", "../"
+        ]
+        return prefixes.contains(where: lower.hasPrefix)
+    }
 }
 
 /// A canonical runtime event. The server has already folded these into

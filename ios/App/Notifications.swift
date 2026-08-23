@@ -68,7 +68,7 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
     func deliver(_ notification: NotificationFrame, sequence: Int?) {
         let content = UNMutableNotificationContent()
         content.title = notification.title
-        content.body = notification.body
+        content.body = notification.presentationBody
         content.sound = .default
         content.categoryIdentifier = notification.isBlocking ? "WATCHERBOT_APPROVAL" : "WATCHERBOT_UPDATE"
         content.threadIdentifier = notification.threadId
