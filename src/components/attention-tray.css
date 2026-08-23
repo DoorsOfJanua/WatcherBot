@@ -1,0 +1,114 @@
+.attention-tray-trigger {
+  box-shadow:
+    0 12px 32px color-mix(in oklab, var(--color-app) 34%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--color-ink) 8%, transparent);
+}
+
+.attention-tray-shell {
+  isolation: isolate;
+  animation: attention-tray-arrive 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.attention-tray-shell::before,
+.attention-tray-shell::after {
+  position: absolute;
+  z-index: -1;
+  inset: 7px 13px -7px;
+  content: "";
+  border: 1px solid color-mix(in oklab, var(--color-hairline) 72%, transparent);
+  border-radius: 24px;
+  background: color-mix(in oklab, var(--color-panel) 92%, var(--color-raised));
+  transform: rotate(-0.8deg);
+  transform-origin: top center;
+}
+
+.attention-tray-shell::after {
+  inset: 12px 22px -12px;
+  transform: rotate(1.1deg);
+  opacity: 0.7;
+}
+
+.attention-tray-panel {
+  box-shadow:
+    0 24px 70px color-mix(in oklab, var(--color-app) 55%, transparent),
+    0 2px 8px color-mix(in oklab, var(--color-app) 28%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--color-ink) 8%, transparent);
+}
+
+.attention-tray-row {
+  animation: attention-row-arrive 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: min(calc(var(--attention-index, 0) * 32ms), 224ms);
+}
+
+.attention-tray-detail {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 280ms cubic-bezier(0.76, 0, 0.24, 1),
+    opacity 180ms ease;
+}
+
+.attention-tray-detail[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.attention-tray-detail > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.attention-tray-beacon {
+  animation: attention-beacon 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.attention-tray-working {
+  animation: attention-breathe 2.8s ease-in-out infinite;
+}
+
+@keyframes attention-tray-arrive {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -8px, 0) scale(0.965);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes attention-row-arrive {
+  from {
+    opacity: 0;
+    transform: translate3d(10px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes attention-beacon {
+  0% { transform: scale(0.72) rotate(-8deg); }
+  58% { transform: scale(1.1) rotate(2deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+
+@keyframes attention-breathe {
+  0%, 100% { opacity: 0.58; transform: scale(0.86); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attention-tray-shell,
+  .attention-tray-row,
+  .attention-tray-beacon,
+  .attention-tray-working {
+    animation: none;
+  }
+
+  .attention-tray-detail {
+    transition: none;
+  }
+}

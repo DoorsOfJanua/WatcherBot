@@ -49,6 +49,7 @@ import { TaskPicker } from "./TaskPicker";
 import { ReactionBar, ReactionChips } from "./Reactions";
 import { SpeakButton } from "./SpeakButton";
 import { CallButton, CallOverlay } from "./CallView";
+import { AttentionTray } from "./AttentionTray";
 import { cn } from "@/lib/cn";
 import { COMPACT_BUBBLE, COMPACT_SQUARE } from "@/lib/compact-chip";
 import { useFocusMessage } from "@/lib/focus-message";
@@ -1041,6 +1042,8 @@ export function ChatView({ bot }: { bot: Bot }) {
           </button>
         </div>
       </div>
+
+      <AttentionTray bot={bot} />
 
       {/* Error banner */}
       {state.error && (

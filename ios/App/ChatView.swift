@@ -196,6 +196,15 @@ struct ChatView: View {
                 // than the screen rests at the bottom, and opening a chat
                 // starts on the newest message rather than the oldest.
                 .defaultScrollAnchor(.bottom)
+                // Keep keyboard dismissal on the conversation surface rather
+                // than the whole screen: message controls and the composer
+                // retain their own taps, while a deliberate double-tap in the
+                // transcript puts the conversation back in reading mode.
+                .scrollDismissesKeyboard(.interactively)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    composerFocused = false
+                }
                 .onChange(of: transcript.last?.id) { _, _ in
                     guard let last = transcript.last else { return }
                     withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
