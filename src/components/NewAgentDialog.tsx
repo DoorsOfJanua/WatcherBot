@@ -52,6 +52,8 @@ const ROLE_CATEGORY_LABELS = {
 export function NewAgentDialog({ onClose }: { onClose: () => void }) {
   const { state, dispatch } = useStore();
   const nameRef = useRef<HTMLInputElement>(null);
+  const onCloseRef = useRef(onClose);
+  const creatingRef = useRef(false);
   const [name, setName] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -87,19 +89,27 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
   };
 
   useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    creatingRef.current = creating;
+  }, [creating]);
+
+  useEffect(() => {
     // SAFETY: document.activeElement is either null or a DOM Element; only
     // HTMLElement exposes the focus method we restore during cleanup.
     const previousFocus = document.activeElement as HTMLElement | null;
     nameRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !creating) onClose();
+      if (event.key === "Escape" && !creatingRef.current) onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
       previousFocus?.focus();
     };
-  }, [creating, onClose]);
+  }, []);
 
   const create = async () => {
     const chosenName = name.trim();
@@ -364,7 +374,7 @@ export function NewAgentDialog({ onClose }: { onClose: () => void }) {
             </button>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-2">
+          <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-2" role="group" aria-label="Agent spirit">
             {BOT_SPIRITS.map((candidate, index) => {
               const selected = candidate === spirit;
               const meta = AGENT_SPIRIT_META[candidate];

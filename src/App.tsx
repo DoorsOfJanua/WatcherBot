@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Menu } from "lucide-react";
 import { StoreProvider, useStore } from "@/state/store";
 import { Onboarding } from "@/components/Onboarding";
@@ -28,6 +28,7 @@ function Shell() {
   // Sidebar.tsx's className comment).
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [newAgentOpen, setNewAgentOpen] = useState(false);
+  const closeNewAgent = useCallback(() => setNewAgentOpen(false), []);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const group = state.groups.find((g) => g.id === state.selectedId);
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? state.bots[0]);
@@ -140,7 +141,7 @@ function Shell() {
       {/* mounted after the modals: same z-50 tier, so DOM order keeps the
           palette on top when one of them is open underneath */}
       <CommandPalette />
-      {newAgentOpen && <NewAgentDialog onClose={() => setNewAgentOpen(false)} />}
+      {newAgentOpen && <NewAgentDialog onClose={closeNewAgent} />}
       </div>
     </div>
     </AvatarAppearanceProvider>
