@@ -112,6 +112,48 @@ describe("Mailman exact-draft action", () => {
     expect(h.calls()).toBe(0);
   });
 
+  it("edits by creating a new frozen revision and invalidating the old receipt", async () => {
+    const h = harness();
+    const first = h.coordinator.stage({ botId: "mailman", threadId: "mail-thread", draft });
+    const revised = h.coordinator.revise(first.action.receiptId, {
+      ...draft,
+      subject: "Farmada — next step",
+      body: "Hi Charlie,\n\nCan you send the figures by Friday?\n\nNils",
+    });
+    expect(revised.changed).toBe(true);
+    expect(revised.action.receiptId).not.toBe(first.action.receiptId);
+    expect(revised.action.draft.subject).toBe("Farmada — next step");
+    expect(h.actions.get(first.action.receiptId)?.state).toBe("dismissed");
+    expect(h.receipts.get(first.action.receiptId).execution.state).toBe("invalidated");
+    expect(h.receipts.get(revised.action.receiptId).execution.state).toBe("pending");
+    await expect(h.coordinator.approveAndSend(first.action.receiptId, "identity:janua")).rejects.toThrow(/fresh draft/);
+  });
+
+  it("keeps the existing receipt when normalization produces no content change", () => {
+    const h = harness();
+    const first = h.coordinator.stage({ botId: "mailman", threadId: "mail-thread", draft });
+    const revised = h.coordinator.revise(first.action.receiptId, { ...draft, body: `${draft.body}\n` });
+    expect(revised.changed).toBe(false);
+    expect(revised.action.receiptId).toBe(first.action.receiptId);
+    expect(h.receipts.get(first.action.receiptId).execution.state).toBe("pending");
+  });
+
+  it("reopens a denied draft only as a separate frozen revision", () => {
+    const h = harness();
+    const first = h.coordinator.stage({ botId: "mailman", threadId: "mail-thread", draft });
+    h.coordinator.deny(first.action.receiptId);
+
+    const revised = h.coordinator.revise(first.action.receiptId, {
+      ...draft,
+      body: "Hi Charlie,\n\nHere is the warmer version.\n\nNils",
+    });
+
+    expect(revised.action.receiptId).not.toBe(first.action.receiptId);
+    expect(h.actions.get(first.action.receiptId)?.state).toBe("dismissed");
+    expect(h.receipts.get(first.action.receiptId).execution.state).toBe("invalidated");
+    expect(h.receipts.get(revised.action.receiptId).execution.state).toBe("pending");
+  });
+
   it("locks an ambiguous provider failure and never retries it", async () => {
     let calls = 0;
     const h = harness({
@@ -125,6 +167,7 @@ describe("Mailman exact-draft action", () => {
     expect(h.actions.get(action.receiptId)).toMatchObject({ state: "failed", failure: "SMTP connection closed after DATA" });
     expect(h.receipts.get(action.receiptId).execution.state).toBe("claimed");
     await expect(h.coordinator.approveAndSend(action.receiptId, "identity:janua")).rejects.toThrow(/fresh draft/);
+    expect(() => h.coordinator.revise(action.receiptId, { ...draft, body: "A retry" })).toThrow(/check Sent/);
     expect(calls).toBe(1);
   });
 

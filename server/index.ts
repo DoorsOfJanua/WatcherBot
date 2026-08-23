@@ -114,6 +114,7 @@ import { SPAWNED_PROXIES } from "./proxy-paths.ts";
 import { loadBundledSkills, renderSkillInstructions, selectBundledSkills } from "./skill-library.ts";
 import { shouldMountLocalComputer } from "./local-routing.ts";
 import { recordSharedMemoryTurn, sharedMemoryForTurn } from "./shared-agent-memory.ts";
+import { recordWritingStyleEdit, writingStyleSystemPrompt } from "./writing-style.ts";
 
 const PORT = Number(process.env.OMB_PORT || process.env.OGB_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.OMB_WEBHOOK_PORT || PORT + 1);
@@ -1846,6 +1847,7 @@ async function startTurn(
             : "") +
           (coordinationPrompt ? ` ${coordinationPrompt}` : "") +
           (privateWorkspace ? memorySystemPrompt(bot.id) : "") +
+          writingStyleSystemPrompt(bot.id) +
           sharedMemory +
           skillInstructions +
           (opts?.automationSource === "webhook"
@@ -2118,6 +2120,7 @@ async function runGroupMemberTurn(
     (workspace
       ? `${system}${projectContext.systemPrompt}\n${memorySystemPrompt(bot.id).trim()}`
       : `${system}${projectContext.systemPrompt}`) +
+    writingStyleSystemPrompt(bot.id) +
     sharedMemory +
     renderSkillInstructions(selectedSkills);
 
@@ -4491,6 +4494,62 @@ const server = createServer(async (req, res) => {
         return json(res, 200, { receipt });
       } catch (error) {
         return actionReceiptError(res, error);
+      }
+    }
+
+    // ── editable exact-email drafts ────────────────────────────────────
+    // A save never mutates an approved payload. It creates a new frozen
+    // mail action and receipt, then invalidates the previous one.
+    m = path.match(/^\/api\/mail-actions\/([\w-]+)\/draft$/);
+    if (m && method === "GET") {
+      const action = mailActions.get(m[1]);
+      if (!action) return json(res, 404, { error: "No email draft exists for this approval." });
+      return json(res, 200, { action });
+    }
+    if (m && method === "PUT") {
+      const current = mailActions.get(m[1]);
+      if (!current) return json(res, 404, { error: "No email draft exists for this approval." });
+      const bot = store.bot(current.botId);
+      if (!bot || bot.sharedMemoryId !== "mailroom") {
+        return json(res, 403, { error: "Only the Mailman mailroom agent may revise this email." });
+      }
+      const cardMessage = store.messagesFor(current.threadId).find((message) => message.card?.requestId === current.receiptId);
+      if (!cardMessage?.card || cardMessage.card.tool !== "email.send") {
+        return json(res, 409, { error: "The review card for this email is no longer active." });
+      }
+      try {
+        const body = await readBody(req);
+        if (body.learnStyle !== undefined && typeof body.learnStyle !== "boolean") {
+          return json(res, 400, { error: "Learn from this edit must be on or off." });
+        }
+        const revised = mailActions.revise(current.receiptId, body.draft);
+        const style = revised.changed && body.learnStyle !== false
+          ? recordWritingStyleEdit({
+              botId: current.botId,
+              sourceMessageId: cardMessage.id,
+              before: { subject: revised.previous.draft.subject, body: revised.previous.draft.body },
+              after: { subject: revised.action.draft.subject, body: revised.action.draft.body },
+            })
+          : { learned: false, sampleCount: 0 };
+        let message = cardMessage;
+        if (revised.changed) {
+          message = store.patchMessage(current.threadId, cardMessage.id, {
+            card: {
+              ...cardMessage.card,
+              title: "Review your edited email before sending",
+              subtitle: mailDraftPreview(revised.action.draft, revised.action.draftHash),
+              requestId: revised.receipt.id,
+              answered: undefined,
+              dismissed: undefined,
+              held: "Your previous approval was invalidated. Nothing has been sent. This new frozen copy expires in 30 minutes and can be used once.",
+            },
+          }) ?? cardMessage;
+          broadcast({ kind: "action-receipt", receipt: actionReceipts.get(revised.previous.receiptId) });
+          broadcast({ kind: "action-receipt", receipt: revised.receipt });
+        }
+        return json(res, 200, { action: revised.action, receipt: revised.receipt, message, style });
+      } catch (error) {
+        return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
       }
     }
 

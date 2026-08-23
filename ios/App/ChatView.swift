@@ -792,6 +792,7 @@ struct CardView: View {
     let message: Message
     @EnvironmentObject private var session: Session
     @State private var answering = false
+    @State private var editingMail = false
 
     /// The option this card offers that means "go ahead".
     ///
@@ -815,6 +816,13 @@ struct CardView: View {
 
     private var tint: Color { MausPalette.color(chat.color) }
 
+    private func canReviseEmail(_ card: OptionCard) -> Bool {
+        card.tool == "email.send"
+            && card.requestId != nil
+            && card.answered != "allow"
+            && card.answered != "failed"
+    }
+
     var body: some View {
         if let card = message.card {
             VStack(alignment: .leading, spacing: 10) {
@@ -827,7 +835,7 @@ struct CardView: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Color.primary)
                     .fixedSize(horizontal: false, vertical: true)
-                if !card.subtitle.isEmpty {
+                if !editingMail, !card.subtitle.isEmpty {
                     Text(card.subtitle)
                         .font(.system(size: 15))
                         .foregroundStyle(Color.secondary)
@@ -841,7 +849,27 @@ struct CardView: View {
                         .foregroundStyle(.orange)
                 }
 
-                if card.isPending {
+                if canReviseEmail(card), let requestId = card.requestId {
+                    if editingMail {
+                        MailDraftEditorView(requestId: requestId, tint: tint) {
+                            editingMail = false
+                        }
+                    } else {
+                        Button {
+                            editingMail = true
+                        } label: {
+                            Label(card.isPending ? "Edit draft" : "Revise draft", systemImage: "pencil")
+                                .font(.system(size: 15, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 40)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(tint)
+                        .background(Capsule().fill(tint.opacity(0.12)))
+                    }
+                }
+
+                if card.isPending, !editingMail {
                     HStack(spacing: 8) {
                         ForEach(card.options, id: \.self) { option in
                             Button {
@@ -890,7 +918,7 @@ struct CardView: View {
                         .frame(maxWidth: .infinity)
                         .disabled(answering)
                     }
-                } else if let answered = card.answered {
+                } else if !editingMail, let answered = card.answered {
                     Label(answered, systemImage: "checkmark.circle")
                         .font(.system(size: 14))
                         .foregroundStyle(Color.secondary)
@@ -905,6 +933,181 @@ struct CardView: View {
             .overlay {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .strokeBorder(card.isPending ? tint : .clear, lineWidth: 1.5)
+            }
+        }
+    }
+}
+
+private struct MailDraftEditorView: View {
+    let requestId: String
+    let tint: Color
+    let close: () -> Void
+
+    @EnvironmentObject private var session: Session
+    @State private var original: MailDraft?
+    @State private var from = ""
+    @State private var to = ""
+    @State private var cc = ""
+    @State private var bcc = ""
+    @State private var subject = ""
+    @State private var messageBody = ""
+    @State private var learnStyle = true
+    @State private var loading = true
+    @State private var saving = false
+    @State private var error: String?
+
+    private var recipients: [String] {
+        to.split(whereSeparator: { $0 == "," || $0 == ";" || $0.isNewline })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func recipientList(_ text: String) -> [String] {
+        text.split(whereSeparator: { $0 == "," || $0 == ";" || $0.isNewline })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private var revised: MailDraft {
+        MailDraft(
+            fromAccount: from,
+            to: recipients,
+            cc: recipientList(cc),
+            bcc: recipientList(bcc),
+            subject: subject,
+            body: messageBody
+        )
+    }
+
+    private var changed: Bool { original.map { $0 != revised } ?? false }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if loading {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Opening exact draft…")
+                }
+                .font(.system(size: 14))
+                .foregroundStyle(Color.secondary)
+            } else if original != nil {
+                field("From", text: $from, editable: false)
+                field("To", text: $to)
+                field("Cc", text: $cc)
+                field("Bcc", text: $bcc)
+                field("Subject", text: $subject)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Message")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.secondary)
+                    TextEditor(text: $messageBody)
+                        .font(.system(size: 15))
+                        .frame(minHeight: 180)
+                        .padding(8)
+                        .scrollContentBackground(.hidden)
+                        .background(Color.secondary.opacity(0.09))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+
+                Toggle(isOn: $learnStyle) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Learn from this edit")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("Mailman remembers your wording, not this email's facts.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color.secondary)
+                    }
+                }
+                .tint(tint)
+
+                if let error {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.red)
+                }
+
+                HStack(spacing: 8) {
+                    Button("Cancel", action: close)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                        .background(Capsule().fill(Color.secondary.opacity(0.16)))
+
+                    Button {
+                        save()
+                    } label: {
+                        HStack(spacing: 6) {
+                            if saving { ProgressView().tint(.white) }
+                            Text(changed ? "Save new revision" : "Keep saved draft")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                        .foregroundStyle(.white)
+                        .background(Capsule().fill(tint))
+                    }
+                    .disabled(saving)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if let error, original == nil {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.red)
+                Button("Close", action: close)
+                    .font(.system(size: 14, weight: .semibold))
+            }
+        }
+        .task { await load() }
+    }
+
+    @ViewBuilder
+    private func field(_ label: String, text: Binding<String>, editable: Bool = true) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.secondary)
+            TextField("", text: text)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .disabled(!editable)
+                .padding(.horizontal, 12)
+                .frame(height: 40)
+                .background(Color.secondary.opacity(editable ? 0.09 : 0.05))
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        }
+    }
+
+    private func load() async {
+        do {
+            let draft = try await session.mailDraft(requestId: requestId)
+            original = draft
+            from = draft.fromAccount
+            to = draft.to.joined(separator: ", ")
+            cc = draft.cc.joined(separator: ", ")
+            bcc = draft.bcc.joined(separator: ", ")
+            subject = draft.subject
+            messageBody = draft.body
+        } catch {
+            self.error = error.localizedDescription
+        }
+        loading = false
+    }
+
+    private func save() {
+        saving = true
+        error = nil
+        Task {
+            do {
+                _ = try await session.reviseMailDraft(
+                    requestId: requestId,
+                    draft: revised,
+                    learnStyle: learnStyle
+                )
+                close()
+            } catch {
+                self.error = error.localizedDescription
+                saving = false
             }
         }
     }

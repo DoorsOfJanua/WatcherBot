@@ -520,6 +520,30 @@ final class Session: ObservableObject {
         await perform { try await $0.alwaysAllow(botId: bot.id, key: key) }
     }
 
+    func mailDraft(requestId: String) async throws -> MailDraft {
+        guard let client else { throw APIError.transport("This computer is offline.") }
+        do {
+            return try await client.mailDraft(receiptId: requestId).draft
+        } catch let error as APIError where error.isUnauthorized {
+            status = .unauthorized
+            throw error
+        }
+    }
+
+    func reviseMailDraft(requestId: String, draft: MailDraft, learnStyle: Bool) async throws -> MailDraftResponse {
+        guard let client else { throw APIError.transport("This computer is offline.") }
+        do {
+            return try await client.reviseMailDraft(
+                receiptId: requestId,
+                draft: draft,
+                learnStyle: learnStyle
+            )
+        } catch let error as APIError where error.isUnauthorized {
+            status = .unauthorized
+            throw error
+        }
+    }
+
     /// Creating an agent does not broadcast — the desktop adds it
     /// optimistically too — so the authored teammate is folded in here rather
     /// than waited for. Return it so the sheet can open its first conversation.

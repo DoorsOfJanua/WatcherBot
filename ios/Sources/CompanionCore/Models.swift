@@ -67,6 +67,60 @@ public struct OptionCard: Codable, Hashable, Sendable {
     }
 }
 
+/// The exact email proposal behind an `email.send` approval card.
+///
+/// The server freezes this value behind a one-shot receipt. Editing it never
+/// changes that receipt in place: a successful save creates a new revision
+/// and invalidates the approval for the previous bytes.
+public struct MailDraft: Codable, Hashable, Sendable {
+    public var fromAccount: String
+    public var to: [String]
+    public var cc: [String]
+    public var bcc: [String]
+    public var subject: String
+    public var body: String
+    public var attachments: [String]
+
+    public init(
+        fromAccount: String,
+        to: [String],
+        cc: [String],
+        bcc: [String],
+        subject: String,
+        body: String,
+        attachments: [String] = []
+    ) {
+        self.fromAccount = fromAccount
+        self.to = to
+        self.cc = cc
+        self.bcc = bcc
+        self.subject = subject
+        self.body = body
+        self.attachments = attachments
+    }
+}
+
+public struct MailAction: Codable, Hashable, Sendable {
+    public var receiptId: String
+    public var botId: String
+    public var threadId: String
+    public var draft: MailDraft
+    public var draftHash: String
+    public var state: String
+    public var createdAt: String
+    public var updatedAt: String
+}
+
+public struct MailStyleResult: Codable, Hashable, Sendable {
+    public var learned: Bool
+    public var sampleCount: Int
+}
+
+public struct MailDraftResponse: Codable, Sendable {
+    public var action: MailAction
+    public var style: MailStyleResult?
+}
+
 public struct ToolActivity: Codable, Hashable, Sendable {
     public var name: String
     public var ok: Bool?

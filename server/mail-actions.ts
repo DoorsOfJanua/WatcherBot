@@ -12,7 +12,7 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { ActionReceiptStore, type ActionReceipt } from "./action-receipts.ts";
+import { ActionReceiptError, ActionReceiptStore, type ActionReceipt } from "./action-receipts.ts";
 import { writeFileAtomic } from "./atomic.ts";
 import { parseJson, type JsonValue } from "./schema.ts";
 
@@ -51,6 +51,13 @@ export interface FrozenMailAction {
 
 export interface MailSender {
   send(draft: MailDraft, expectedHash: string): Promise<MailSendReceipt>;
+}
+
+export interface MailRevision {
+  previous: FrozenMailAction;
+  action: FrozenMailAction;
+  receipt: ActionReceipt;
+  changed: boolean;
 }
 
 const EMAIL = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
@@ -266,6 +273,38 @@ export class MailActionCoordinator {
 
   get(receiptId: string): FrozenMailAction | undefined {
     return this.actions.get(receiptId);
+  }
+
+  /** Editing never mutates a frozen payload. It stages a new receipt first,
+   * then closes the old one, so an approved hash can never silently acquire
+   * different words. Both revisions remain in the audit history. */
+  revise(receiptId: string, draftValue: unknown): MailRevision {
+    const previous = this.required(receiptId);
+    if (previous.state !== "pending" && previous.state !== "dismissed") {
+      throw new Error(`mail action is ${previous.state}; check Sent before creating a fresh draft`);
+    }
+    const draft = normalizeMailDraft(draftValue);
+    if (mailDraftHash(draft) === previous.draftHash) {
+      return {
+        previous,
+        action: previous,
+        receipt: this.receipts.get(previous.receiptId),
+        changed: false,
+      };
+    }
+    const staged = this.stage({ botId: previous.botId, threadId: previous.threadId, draft });
+    if (previous.state === "pending") {
+      try {
+        this.receipts.invalidate(previous.receiptId, previous.draftHash);
+      } catch (error) {
+        if (!(error instanceof ActionReceiptError) || error.code !== "expired") throw error;
+      }
+      this.actions.update(previous.receiptId, {
+        state: "dismissed",
+        updatedAt: new Date(this.now()).toISOString(),
+      });
+    }
+    return { previous, ...staged, changed: true };
   }
 
   deny(receiptId: string): FrozenMailAction {

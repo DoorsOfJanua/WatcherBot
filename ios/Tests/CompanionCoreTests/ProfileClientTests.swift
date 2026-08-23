@@ -168,6 +168,47 @@ final class ProfileClientTests: XCTestCase {
         XCTAssertGreaterThan(request.timeoutInterval, 120)
     }
 
+    func testMailDraftLoadsFromTheExactReceipt() async throws {
+        ProfileRequestStub.responseBody = Self.mailDraftResponse
+
+        let action = try await client.mailDraft(receiptId: "receipt-old")
+
+        let request = try XCTUnwrap(ProfileRequestStub.capturedRequest)
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertEqual(request.url?.path, "/api/mail-actions/receipt-old/draft")
+        XCTAssertEqual(action.draft.subject, "Farmada questionnaire")
+        XCTAssertEqual(action.draft.to, ["farmada@example.com"])
+    }
+
+    func testMailDraftRevisionCarriesTheEditedBytesAndLearningChoice() async throws {
+        ProfileRequestStub.responseBody = Self.mailDraftResponse
+        let revised = MailDraft(
+            fromAccount: "doorsofjanua@gmail.com",
+            to: ["farmada@example.com"],
+            cc: [],
+            bcc: [],
+            subject: "Farmada questionnaire — revised",
+            body: "This is my edited reply."
+        )
+
+        _ = try await client.reviseMailDraft(
+            receiptId: "receipt-old",
+            draft: revised,
+            learnStyle: true
+        )
+
+        let request = try XCTUnwrap(ProfileRequestStub.capturedRequest)
+        XCTAssertEqual(request.httpMethod, "PUT")
+        XCTAssertEqual(request.url?.path, "/api/mail-actions/receipt-old/draft")
+        let data = try XCTUnwrap(ProfileRequestStub.capturedBody)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(body["learnStyle"] as? Bool, true)
+        let draft = try XCTUnwrap(body["draft"] as? [String: Any])
+        XCTAssertEqual(draft["subject"] as? String, "Farmada questionnaire — revised")
+        XCTAssertEqual(draft["body"] as? String, "This is my edited reply.")
+        XCTAssertEqual(draft["attachments"] as? [String], [])
+    }
+
     private static let botJSON = """
     {
       "id":"avatar-bot","threadId":"avatar-thread","name":"Scout","title":"Researcher",
@@ -182,4 +223,28 @@ final class ProfileClientTests: XCTestCase {
     private static let generatedAvatarResponse = Data(
         "{\"avatarUrl\":\"/api/attachments/123e4567-e89b-12d3-a456-426614174000.webp\",\"bot\":\(botJSON)}".utf8
     )
+
+    private static let mailDraftResponse = Data("""
+    {
+      "action": {
+        "receiptId": "receipt-new",
+        "botId": "mailman",
+        "threadId": "mail-thread",
+        "draft": {
+          "fromAccount": "doorsofjanua@gmail.com",
+          "to": ["farmada@example.com"],
+          "cc": [],
+          "bcc": [],
+          "subject": "Farmada questionnaire",
+          "body": "Draft body",
+          "attachments": []
+        },
+        "draftHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state": "pending",
+        "createdAt": "2026-08-23T12:00:00.000Z",
+        "updatedAt": "2026-08-23T12:00:00.000Z"
+      },
+      "style": {"learned": true, "sampleCount": 1}
+    }
+    """.utf8)
 }

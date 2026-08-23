@@ -59,6 +59,8 @@ describe("what the app may do", () => {
     ["POST", "/api/threads/th_1/messages/msg_2/reactions"],
     ["GET", "/api/threads/th_1/export"],
     ["POST", "/api/threads/th_1/respond"],
+    ["GET", "/api/mail-actions/ar-123/draft"],
+    ["PUT", "/api/mail-actions/ar-123/draft"],
     ["GET", "/api/search"],
     ["POST", "/api/attachments"],
     ["GET", "/api/attachments/avatar-123.webp"],

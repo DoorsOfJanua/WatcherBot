@@ -610,6 +610,33 @@ public struct CompanionClient: Sendable {
         try await send(try makeRequest("POST", "/api/threads/\(threadId)/respond", body: body))
     }
 
+    /// Load the structured proposal behind Mailman's human-readable approval
+    /// card. The card subtitle remains useful history; this is the editable
+    /// source of truth.
+    public func mailDraft(receiptId: String) async throws -> MailAction {
+        try await send(
+            try makeRequest("GET", "/api/mail-actions/\(receiptId)/draft"),
+            as: MailDraftResponse.self
+        ).action
+    }
+
+    /// Save a new frozen revision. The harness invalidates `receiptId` and
+    /// returns the action that a later approval can send exactly once.
+    public func reviseMailDraft(receiptId: String, draft: MailDraft, learnStyle: Bool) async throws -> MailDraftResponse {
+        struct Revision: Encodable {
+            var draft: MailDraft
+            var learnStyle: Bool
+        }
+        return try await send(
+            try makeRequest(
+                "PUT",
+                "/api/mail-actions/\(receiptId)/draft",
+                encodedBody: Revision(draft: draft, learnStyle: learnStyle)
+            ),
+            as: MailDraftResponse.self
+        )
+    }
+
     /// Remember a grant so the same tool stops asking. The harness decides
     /// the key and puts it on the card; the phone never derives its own.
     public func alwaysAllow(botId: String, key: String) async throws {
