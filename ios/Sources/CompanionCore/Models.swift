@@ -246,6 +246,9 @@ public struct Bot: Codable, Hashable, Identifiable, Sendable {
     public var pinned: Bool?
     public var hidden: Bool?
     public var chiefOfStaff: Bool?
+    /// When true, this bot pauses for human approval before contacting peers.
+    /// The phone presents the positive inverse as "Allow agent messaging".
+    public var approvePeerComms: Bool?
     public var autoApprove: Bool?
     public var alwaysAllow: [String]?
     public var computer: String?
@@ -543,6 +546,7 @@ public struct BotProfilePatch: Encodable, Sendable {
     public var avatarCrop: AvatarCrop?
     public var voice: String?
     public var speakReplies: Bool?
+    public var approvePeerComms: Bool?
     /// Authored living-spirit identity. These are optional so older clients
     /// can continue making narrow profile edits without resetting the art.
     public var spirit: String?
@@ -567,6 +571,7 @@ public struct BotProfilePatch: Encodable, Sendable {
         avatarCrop: AvatarCrop? = nil,
         voice: String? = nil,
         speakReplies: Bool? = nil,
+        approvePeerComms: Bool? = nil,
         spirit: String? = nil,
         spiritPalette: String? = nil,
         spiritGeometry: String? = nil,
@@ -580,6 +585,7 @@ public struct BotProfilePatch: Encodable, Sendable {
         self.avatarCrop = avatarCrop
         self.voice = voice
         self.speakReplies = speakReplies
+        self.approvePeerComms = approvePeerComms
         self.spirit = spirit
         self.spiritPalette = spiritPalette
         self.spiritGeometry = spiritGeometry
@@ -588,7 +594,7 @@ public struct BotProfilePatch: Encodable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case name, title, description, notifications, avatarUrl, avatarCrop, voice, speakReplies
-        case spirit, spiritPalette, spiritGeometry, spiritTemperament
+        case spirit, spiritPalette, spiritGeometry, spiritTemperament, approvePeerComms
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -606,6 +612,7 @@ public struct BotProfilePatch: Encodable, Sendable {
         try values.encodeIfPresent(avatarCrop, forKey: .avatarCrop)
         try values.encodeIfPresent(voice, forKey: .voice)
         try values.encodeIfPresent(speakReplies, forKey: .speakReplies)
+        try values.encodeIfPresent(approvePeerComms, forKey: .approvePeerComms)
         try values.encodeIfPresent(spirit, forKey: .spirit)
         try values.encodeIfPresent(spiritPalette, forKey: .spiritPalette)
         try values.encodeIfPresent(spiritGeometry, forKey: .spiritGeometry)

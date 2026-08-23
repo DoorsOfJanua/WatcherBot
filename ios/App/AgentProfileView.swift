@@ -15,6 +15,7 @@ struct AgentProfileView: View {
     @State private var title: String
     @State private var description: String
     @State private var notifications: Bool
+    @State private var allowPeerMessaging: Bool
     @State private var crop: AvatarCrop
     @State private var voice: String
     @State private var speakReplies: Bool
@@ -36,6 +37,7 @@ struct AgentProfileView: View {
         _title = State(initialValue: bot.title)
         _description = State(initialValue: bot.description)
         _notifications = State(initialValue: bot.notifications)
+        _allowPeerMessaging = State(initialValue: bot.approvePeerComms != true)
         _crop = State(initialValue: bot.avatarCrop ?? .mascot)
         _voice = State(initialValue: bot.voice ?? "")
         _speakReplies = State(initialValue: bot.speakReplies == true)
@@ -109,6 +111,19 @@ struct AgentProfileView: View {
                     TextField("What this agent does", text: $description, axis: .vertical)
                         .lineLimit(3...8)
                     Toggle("Agent notifications", isOn: $notifications)
+                    Toggle("Allow agent-to-agent messaging", isOn: $allowPeerMessaging)
+                }
+
+                Section {
+                    Text(allowPeerMessaging
+                         ? "This agent can contact teammates without stopping for approval."
+                         : "This agent will ask before contacting another agent.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Coordination")
+                } footer: {
+                    Text("Use this for Mailman, Sensei, or a Chief of Staff that should coordinate in the background.")
                 }
 
                 Section {
@@ -254,6 +269,8 @@ struct AgentProfileView: View {
             // nil would mean the voice field is not part of this patch.
             voice: voice == baseline.voice ? nil : voice,
             speakReplies: savedSpeakReplies == baseline.speakReplies ? nil : savedSpeakReplies,
+            approvePeerComms: allowPeerMessaging == baseline.allowPeerMessaging
+                ? nil : !allowPeerMessaging,
             spirit: spirit.rawValue == baseline.spirit ? nil : spirit.rawValue,
             spiritPalette: spiritPalette == baseline.spiritPalette ? nil : spiritPalette,
             spiritGeometry: spiritGeometry == baseline.spiritGeometry ? nil : spiritGeometry,
@@ -368,6 +385,7 @@ struct AgentProfileView: View {
         title = bot.title
         description = bot.description
         notifications = bot.notifications
+        allowPeerMessaging = bot.approvePeerComms != true
         crop = bot.avatarCrop ?? .mascot
         voice = bot.voice ?? ""
         speakReplies = bot.speakReplies == true
@@ -439,6 +457,7 @@ private struct ProfileFormSnapshot {
     var title: String
     var description: String
     var notifications: Bool
+    var allowPeerMessaging: Bool
     var crop: AvatarCrop
     var voice: String
     var speakReplies: Bool
@@ -452,6 +471,7 @@ private struct ProfileFormSnapshot {
         title = bot.title
         description = bot.description
         notifications = bot.notifications
+        allowPeerMessaging = bot.approvePeerComms != true
         crop = bot.avatarCrop ?? .mascot
         voice = bot.voice ?? ""
         speakReplies = bot.speakReplies == true
