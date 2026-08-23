@@ -40,7 +40,7 @@ struct SettingsView: View {
             } header: {
                 Text("Notifications")
             } footer: {
-                Text("Approvals and finished work can reach Agent Room even while it is closed when APNs is configured on your paired computer.")
+                Text("Approvals and finished work can reach The WatcherBot even while it is closed when APNs is configured on your paired computer.")
             }
 
             Section {
@@ -58,7 +58,7 @@ struct SettingsView: View {
             Section {
                 Button("Unpair this phone", role: .destructive) { confirmingSignOut = true }
             } footer: {
-                Text("Removes the pairing from this phone only. To stop it reaching the computer at all, remove the device in Agent Room → Settings → Companion.")
+                Text("Removes the pairing from this phone only. To stop it reaching the computer at all, remove the device in The WatcherBot → Settings → Companion.")
             }
 
             Section("Not here") {

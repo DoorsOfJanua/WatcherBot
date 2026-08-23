@@ -5,9 +5,24 @@ import {
   initialState,
   openNotificationTarget,
   reducer,
+  restoredConversationId,
   type Bot,
   type Message,
 } from "./store";
+
+describe("conversation restoration", () => {
+  const bots = [{ id: "sonnet" }, { id: "sol" }] as Bot[];
+  const groups = [{ id: "studio" }] as never;
+
+  it("returns to the exact agent or room used before restart", () => {
+    expect(restoredConversationId("sol", bots, groups)).toBe("sol");
+    expect(restoredConversationId("studio", bots, groups)).toBe("studio");
+  });
+
+  it("falls back safely when the remembered conversation was deleted", () => {
+    expect(restoredConversationId("gone", bots, groups)).toBe("sonnet");
+  });
+});
 
 describe("notification routing", () => {
   const bots = [{ id: "bot-1", threadId: "main-thread", tasks: [{ threadId: "detached-thread" }] }] as never;

@@ -1,4 +1,4 @@
-// Native Agent Room spirits.
+// Native The WatcherBot spirits.
 //
 // This is the SwiftUI/Canvas counterpart of the production hood family in
 // `src/components/spirits/HoodSpirit.tsx` and `LivingHoodSpirit.tsx`. The
@@ -90,7 +90,7 @@ private enum SpiritGeometry: String, Hashable {
 private enum SpiritActivity: Hashable {
     case idle, listening, thinking, working, waiting, success, failure, sleeping
 
-    init(_ state: MausState) {
+    init(_ state: WatcherState) {
         switch state {
         case .listening, .receiving, .dictating, .surprised, .notifying, .waking, .spawning:
             self = .listening
@@ -175,7 +175,7 @@ private struct SpiritLook {
 struct SpiritAvatar: View {
     let spirit: SpiritKind
     var size: CGFloat = 52
-    var state: MausState = .idle
+    var state: WatcherState = .idle
     var animated = true
     var comets = false
     var palette: String? = nil

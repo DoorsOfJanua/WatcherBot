@@ -447,7 +447,6 @@ export type Action =
   | { type: "screenFrame"; botId: string; png: string; mime: string }
   | { type: "provisioning"; botId: string; on: boolean }
   | { type: "computerControl"; botId: string; held: boolean; helpReason: string | null }
-  | { type: "setModel"; botId: string; selection: ModelSelection }
   | { type: "interrupt"; botId: string }
   | { type: "connected"; value: boolean }
   | { type: "error"; message: string | null }
@@ -491,6 +490,18 @@ function updateBot(state: AppState, botId: string, fn: (b: Bot) => Bot): AppStat
   return { ...state, bots: state.bots.map((b) => (b.id === botId ? fn(b) : b)) };
 }
 
+/** The last conversation is a client preference, not agent state. Keep it
+ * local to this screen, but validate it against the freshly hydrated roster
+ * so a deleted/archived chat can never strand the app on a blank view. */
+export function restoredConversationId(
+  preferredId: string,
+  bots: Array<Pick<Bot, "id">>,
+  groups: Array<Pick<Group, "id">>,
+): string {
+  const known = bots.some((bot) => bot.id === preferredId) || groups.some((group) => group.id === preferredId);
+  return preferredId && known ? preferredId : (bots[0]?.id ?? groups[0]?.id ?? "");
+}
+
 function withMascotMotion(
   state: AppState,
   botId: string,
@@ -518,9 +529,7 @@ function patchCard(state: AppState, botId: string, messageId: string, patch: Par
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "hydrate": {
-      const known = (id: string) => action.bots.some((b) => b.id === id) || action.groups.some((g) => g.id === id);
-      const selectedId =
-        state.selectedId && known(state.selectedId) ? state.selectedId : (action.bots[0]?.id ?? "");
+      const selectedId = restoredConversationId(state.selectedId, action.bots, action.groups);
       return {
         ...state,
         bots: action.bots,
@@ -780,8 +789,6 @@ export function reducer(state: AppState, action: Action): AppState {
           [action.botId]: { held: action.held, helpReason: action.helpReason },
         },
       };
-    case "setModel":
-      return updateBot(state, action.botId, (b) => ({ ...b, modelSelection: action.selection }));
     case "connected":
       return { ...state, connected: action.value };
     case "error":
@@ -981,6 +988,26 @@ export const initialState: AppState = {
   mascotMotion: null,
 };
 
+const LAST_CONVERSATION_KEY = "watcherbot.lastConversationId";
+
+function readLastConversationId(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(LAST_CONVERSATION_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function rememberConversationId(id: string): void {
+  if (!id || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(LAST_CONVERSATION_KEY, id);
+  } catch {
+    // Private/restricted storage must not prevent the app from opening.
+  }
+}
+
 // ── API client ─────────────────────────────────────────────────────────
 export async function api(path: string, init?: RequestInit): Promise<any> {
   const res = await fetch(path, {
@@ -1019,9 +1046,13 @@ const StoreContext = createContext<{
 } | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, rawDispatch] = useReducer(reducer, initialState);
+  const [state, rawDispatch] = useReducer(reducer, initialState, (seed) => ({
+    ...seed,
+    selectedId: readLastConversationId(),
+  }));
   const stateRef = useRef(state);
   stateRef.current = state;
+  useEffect(() => rememberConversationId(state.selectedId), [state.selectedId]);
   // per-frame stream-delta batching (see the "runtime" SSE case); stream
   // state is intentionally OUTSIDE the reducer so token frames re-render
   // only StreamContext consumers
@@ -1315,12 +1346,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           api(`/api/threads/${action.threadId}/messages/${action.messageId}/reactions`, {
             method: "POST",
             body: JSON.stringify({ emoji: action.emoji, by: "user" }),
-          }).catch(showError);
-          break;
-        case "setModel":
-          api(`/api/bots/${action.botId}`, {
-            method: "PATCH",
-            body: JSON.stringify({ modelSelection: action.selection }),
           }).catch(showError);
           break;
         case "interrupt":

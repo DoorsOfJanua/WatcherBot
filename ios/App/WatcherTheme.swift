@@ -16,7 +16,7 @@ enum WatcherTheme {
 
 /// A restrained witnessing lens behind the content. It is atmosphere, not a
 /// card or illustration: scrolling content and native material remain the
-/// foreground, while every screen still belongs to WatcherBotRoom.
+/// foreground, while every screen still belongs to The WatcherBot.
 struct WatcherBackdrop: View {
     var body: some View {
         GeometryReader { proxy in

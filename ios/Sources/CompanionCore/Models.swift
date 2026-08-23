@@ -226,7 +226,7 @@ public struct Bot: Codable, Hashable, Identifiable, Sendable {
     public var description: String
     public var notifications: Bool
     public var color: String
-    /// Optional authored identity used by Agent Room's native spirit renderer.
+    /// Optional authored identity used by The WatcherBot's native spirit renderer.
     /// These stay as strings so a newer desktop can add values without making
     /// an older phone reject the entire fleet response.
     public var sharedMemoryId: String? = nil
@@ -479,7 +479,7 @@ public struct ConfigStatus: Codable, Sendable {
 
 // MARK: - Agent profiles, voices, routines, and notifications
 
-/// The identity authored while creating an Agent Room teammate.
+/// The identity authored while creating a WatcherBot teammate.
 ///
 /// These values intentionally stay as strings. The desktop owns the shared
 /// spirit vocabulary and an older phone should still be able to send a newer
@@ -690,7 +690,7 @@ public struct RoutineInput: Encodable, Sendable {
 }
 
 public enum RoutineRunLocation: String, CaseIterable, Codable, Hashable, Sendable {
-    case maus
+    case local = "maus"
     case cloud
 }
 
@@ -712,13 +712,13 @@ public struct RoutineRunAvailability: Equatable, Sendable {
     public var cloudReady: Bool { cloudConfigured && cloudInstanceAvailable }
 
     public func canSelect(_ location: RoutineRunLocation, preserving current: RoutineRunLocation) -> Bool {
-        location == .maus || cloudReady || current == .cloud
+        location == .local || cloudReady || current == .cloud
     }
 }
 
 public extension Routine {
     var runLocation: RoutineRunLocation {
-        RoutineRunLocation(rawValue: runOn) ?? .maus
+        RoutineRunLocation(rawValue: runOn) ?? .local
     }
 
     /// Mirrors the desktop `canToggleRoutine` policy. A one-time routine has

@@ -1,13 +1,13 @@
 # XcodeGen spec. The .xcodeproj is generated, not committed — a project
 # file is a merge-conflict machine and nothing in it is worth reviewing.
 #
-#   brew install xcodegen && cd ios && xcodegen generate && open OpenMausCompanion.xcodeproj
+#   brew install xcodegen && cd ios && xcodegen generate && open WatcherBot.xcodeproj
 #
 # XcodeGen is a development tool, not a dependency of the app: the app
 # itself has none. If you'd rather not install it, make an iOS App target
 # in Xcode by hand, add the App/ folder, and add the local CompanionCore
 # package — the Info.plist keys below are the part that is easy to miss.
-name: OpenMausCompanion
+name: WatcherBot
 options:
   bundleIdPrefix: com.doorsofjanua
   deploymentTarget:
@@ -19,7 +19,7 @@ packages:
     path: .
 
 targets:
-  OpenMausCompanion:
+  WatcherBot:
     type: application
     platform: iOS
     sources:
@@ -28,7 +28,7 @@ targets:
     dependencies:
       - package: CompanionCore
         product: CompanionCore
-      - target: OpenMausCompanionWidgets
+      - target: WatcherBotWidgets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.doorsofjanua.agentroom
@@ -49,11 +49,11 @@ targets:
           # entitlement for a paid distribution profile.
           CODE_SIGN_ENTITLEMENTS: ""
         Release:
-          CODE_SIGN_ENTITLEMENTS: App/AgentRoom.entitlements
+          CODE_SIGN_ENTITLEMENTS: App/WatcherBot.entitlements
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: Agent Room
+        CFBundleDisplayName: The WatcherBot
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.productivity
@@ -62,9 +62,9 @@ targets:
         # and on the lock screen.
         NSSupportsLiveActivities: true
         CFBundleURLTypes:
-          - CFBundleURLName: com.openmausbot.companion.pairing
+          - CFBundleURLName: com.doorsofjanua.watcherbot.pairing
             CFBundleURLSchemes:
-              - openmausbot
+              - watcherbot
         # REQUIRED, and easy to lose. Without a launch screen iOS runs the
         # app in compatibility scaling: letterboxed inside black bars, with
         # everything drawn oversized, on every modern iPhone. An empty
@@ -82,13 +82,13 @@ targets:
         # It looks exactly like "no computers on this network", which is a
         # confusing hour if you don't know to look here.
         NSLocalNetworkUsageDescription: >-
-          Agent Room finds your computer on this network so your agents can
+          The WatcherBot finds your computer on this network so your agents can
           reach you here.
         NSCameraUsageDescription: >-
-          Agent Room uses the camera only to scan a pairing QR code shown by
-          Agent Room on your computer.
+          The WatcherBot uses the camera only to scan a pairing QR code shown by
+          The WatcherBot on your computer.
         NSBonjourServices:
-          - _openmausbot._tcp
+          - _watcherbot._tcp
         # The companion listener is plain HTTP on a local address. ATS has
         # to be told, and this is the narrowest way to say it: local
         # networking only, not a blanket exception.
@@ -110,14 +110,14 @@ targets:
 
   # The Live Activity lives in a widget extension. It shares the mascot's
   # drawing and data with the app, and the activity contract in Shared/.
-  OpenMausCompanionWidgets:
+  WatcherBotWidgets:
     type: app-extension
     platform: iOS
     sources:
       - path: Widgets
       - path: Shared
-      - path: App/MausAvatar.swift
-      - path: App/MausFaceData.swift
+      - path: App/WatcherAvatar.swift
+      - path: App/WatcherFaceData.swift
       - path: App/SpiritAvatar.swift
     dependencies:
       - package: CompanionCore
@@ -135,7 +135,7 @@ targets:
     info:
       path: Widgets/Info.plist
       properties:
-        CFBundleDisplayName: Agent Room
+        CFBundleDisplayName: The WatcherBot
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:

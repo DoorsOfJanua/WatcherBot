@@ -57,7 +57,7 @@ describe("APNs wire contract", () => {
       isBlocking: true,
     }) as any;
     expect(payload.aps["interruption-level"]).toBe("time-sensitive");
-    expect(payload.aps.category).toBe("OPENMAUS_APPROVAL");
+    expect(payload.aps.category).toBe("WATCHERBOT_APPROVAL");
     expect(payload).toMatchObject({ botId: "forge", threadId: "thread-1", kind: "approval" });
   });
 

@@ -1,10 +1,10 @@
 # App Review notes
 
-Agent Room is a companion for the OpenMausBot desktop application and does not use a developer-hosted login.
+The WatcherBot is a companion for the WatcherBot desktop application and does not use a developer-hosted login.
 
 To review the app:
 
-1. Install and start OpenMausBot on a Mac, Windows, or Linux computer.
+1. Install and start The WatcherBot on a Mac, Windows, or Linux computer.
 2. Open **Settings → Companion**, enable the companion, and choose **Start pairing**.
 3. On the iPhone, choose **Scan QR Code**, scan the code shown by the desktop,
    review the computer and address, and confirm pairing.

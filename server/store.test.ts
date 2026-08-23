@@ -181,6 +181,29 @@ describe("Store", () => {
     expect(reloaded.bot(bot.id)?.modelSelection.effort).toBe("high");
   });
 
+  it("persists a different provider and model for every bot", () => {
+    const store = new Store(selection);
+    const writer = store.createBot({ name: "Writer" });
+    const builder = store.createBot({ name: "Builder" });
+    store.patchBot(writer.id, {
+      modelSelection: { instanceId: "claude", model: "claude-opus-5" },
+    });
+    store.patchBot(builder.id, {
+      modelSelection: { instanceId: "codex", model: "gpt-5.6-sol", effort: "high" },
+    });
+
+    const reloaded = new Store(selection);
+    expect(reloaded.bot(writer.id)?.modelSelection).toEqual({
+      instanceId: "claude",
+      model: "claude-opus-5",
+    });
+    expect(reloaded.bot(builder.id)?.modelSelection).toEqual({
+      instanceId: "codex",
+      model: "gpt-5.6-sol",
+      effort: "high",
+    });
+  });
+
   it("keeps exactly one persisted Chief of Staff and supports handoff", () => {
     const store = new Store(selection);
     const first = store.createBot();

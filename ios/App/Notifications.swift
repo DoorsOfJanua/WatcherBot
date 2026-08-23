@@ -3,7 +3,7 @@ import UserNotifications
 import CompanionCore
 import UIKit
 
-final class AgentRoomAppDelegate: NSObject, UIApplicationDelegate {
+final class WatcherBotAppDelegate: NSObject, UIApplicationDelegate {
     func application(
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
@@ -62,7 +62,7 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
     }
 
     func remoteRegistrationFailed(_ error: Error) {
-        NSLog("Agent Room could not register with APNs: %@", error.localizedDescription)
+        NSLog("The WatcherBot could not register with APNs: %@", error.localizedDescription)
     }
 
     func deliver(_ notification: NotificationFrame, sequence: Int?) {
@@ -70,7 +70,7 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
         content.title = notification.title
         content.body = notification.body
         content.sound = .default
-        content.categoryIdentifier = notification.isBlocking ? "OPENMAUS_APPROVAL" : "OPENMAUS_UPDATE"
+        content.categoryIdentifier = notification.isBlocking ? "WATCHERBOT_APPROVAL" : "WATCHERBOT_UPDATE"
         content.threadIdentifier = notification.threadId
         content.userInfo = [
             "threadId": notification.threadId,
@@ -81,7 +81,7 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
 
         // A replay after a short disconnect must reconcile a missed alert,
         // but a repeated frame must not draw it twice.
-        let identifier = "openmaus.\(notification.threadId).\(sequence.map(String.init) ?? notification.title)"
+        let identifier = "watcherbot.\(notification.threadId).\(sequence.map(String.init) ?? notification.title)"
         center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
     }
 

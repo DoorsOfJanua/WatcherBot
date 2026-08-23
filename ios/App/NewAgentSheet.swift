@@ -1,4 +1,4 @@
-// Create a persistent Agent Room teammate on the phone.
+// Create a persistent The WatcherBot teammate on the phone.
 //
 // The identity controls mirror the desktop contract: a human-chosen name and
 // role, one of the six authored living spirits, and optional visual/personality
@@ -196,7 +196,7 @@ struct NewAgentSheet: View {
                 } header: {
                     Text("Choose a living spirit")
                 } footer: {
-                    Text("The Watcher is your identity. New teammates choose from the six Agent Room spirits.")
+                    Text("The Watcher is your identity. New teammates choose from the six WatcherBot spirits.")
                 }
 
                 Section("Make it yours") {

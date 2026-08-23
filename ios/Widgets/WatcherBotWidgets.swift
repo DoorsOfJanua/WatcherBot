@@ -7,7 +7,7 @@ import SwiftUI
 import WidgetKit
 
 @main
-struct OpenMausWidgets: WidgetBundle {
+struct WatcherBotWidgets: WidgetBundle {
     var body: some Widget {
         BotActivityWidget()
     }
@@ -54,7 +54,7 @@ struct BotActivityWidget: Widget {
             } minimal: {
                 ActivityAvatar(context: context, size: 22)
             }
-            .keylineTint(MausPalette.color(context.attributes.color))
+            .keylineTint(WatcherPalette.color(context.attributes.color))
         }
     }
 
@@ -64,13 +64,13 @@ struct BotActivityWidget: Widget {
         case "needsYou":
             Image(systemName: "hand.raised.fill")
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(MausPalette.color(context.attributes.color))
+                .foregroundStyle(WatcherPalette.color(context.attributes.color))
         case "working":
             Image(systemName: "circle.dotted")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.8))
         default:
-            Circle().fill(MausPalette.color(context.attributes.color)).frame(width: 8, height: 8)
+            Circle().fill(WatcherPalette.color(context.attributes.color)).frame(width: 8, height: 8)
         }
     }
 }
@@ -86,7 +86,7 @@ private struct LockScreenView: View {
                     if context.state.kind == "needsYou" {
                         Image(systemName: "hand.raised.fill")
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(MausPalette.color(context.attributes.color))
+                            .foregroundStyle(WatcherPalette.color(context.attributes.color))
                     }
                     Text(context.state.headline)
                         .font(.system(size: 15, weight: .semibold))
@@ -130,7 +130,7 @@ private struct AnswerButtons: View {
                             Capsule().fill(
                                 option.caseInsensitiveCompare("Deny") == .orderedSame
                                     ? Color.white.opacity(0.16)
-                                    : MausPalette.color(context.attributes.color)
+                                    : WatcherPalette.color(context.attributes.color)
                             )
                         )
                 }
@@ -168,7 +168,7 @@ private struct ActivityAvatar: View {
     var comets = false
 
     var body: some View {
-        let state = MausState(rawValue: context.state.face) ?? .idle
+        let state = WatcherState(rawValue: context.state.face) ?? .idle
         if let raw = context.attributes.spirit, let spirit = SpiritKind(rawValue: raw) {
             SpiritAvatar(
                 spirit: spirit,
@@ -182,7 +182,7 @@ private struct ActivityAvatar: View {
                 label: context.attributes.name
             )
         } else {
-            MausFaceStill(color: context.attributes.color, state: state, size: size, comets: comets, at: Date())
+            WatcherFaceStill(color: context.attributes.color, state: state, size: size, comets: comets, at: Date())
         }
     }
 }

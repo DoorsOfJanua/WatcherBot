@@ -8,7 +8,7 @@ import CompanionCore
 struct BotAvatarView: View {
     let bot: Bot
     let size: CGFloat
-    var state: MausState = .idle
+    var state: WatcherState = .idle
     var animated = true
     var comets = false
 
@@ -40,7 +40,7 @@ struct BotAvatarView: View {
                     label: "\(bot.name) spirit"
                 )
             } else {
-                MausAvatar(color: bot.color, size: size, state: state, animated: animated, comets: comets)
+                WatcherAvatar(color: bot.color, size: size, state: state, animated: animated, comets: comets)
             }
         }
         .frame(width: size, height: size)
@@ -73,7 +73,7 @@ struct BotAvatarView: View {
 struct ChatAvatarView: View {
     let chat: Chat
     let size: CGFloat
-    var state: MausState = .idle
+    var state: WatcherState = .idle
     var animated = true
     var comets = false
 

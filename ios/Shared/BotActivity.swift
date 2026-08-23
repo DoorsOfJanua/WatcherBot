@@ -9,7 +9,7 @@ import Foundation
 
 struct BotActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
-        /// `MausState.rawValue` — the face to wear.
+        /// `WatcherState.rawValue` — the face to wear.
         var face: String
         /// "needsYou" | "working" | "toReview"
         var kind: String
@@ -29,9 +29,9 @@ struct BotActivityAttributes: ActivityAttributes {
     var botId: String
     var threadId: String
     var name: String
-    /// MausPalette colour name.
+    /// WatcherPalette colour name.
     var color: String
-    /// Optional authored Agent Room spirit identity.
+    /// Optional authored The WatcherBot spirit identity.
     var spirit: String?
     var spiritPalette: String?
     var spiritGeometry: String?

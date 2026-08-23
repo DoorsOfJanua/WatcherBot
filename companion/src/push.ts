@@ -61,7 +61,7 @@ export function notificationPayload(frame: NotifyFrame): Record<string, unknown>
       // JSON escaping even when the text is all four-byte emoji.
       alert: { title: clipUtf8(frame.title, 300), body: clipUtf8(frame.body, 2_500) },
       sound: "default",
-      category: frame.isBlocking ? "OPENMAUS_APPROVAL" : "OPENMAUS_UPDATE",
+      category: frame.isBlocking ? "WATCHERBOT_APPROVAL" : "WATCHERBOT_UPDATE",
       "thread-id": frame.threadId,
       "interruption-level": frame.isBlocking ? "time-sensitive" : "active",
     },

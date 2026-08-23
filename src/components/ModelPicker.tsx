@@ -92,7 +92,7 @@ function ModelSearch({
 }
 
 export function ModelPicker({ bot, className }: { bot: Bot; className?: string }) {
-  const { state, dispatch, refreshInstances } = useStore();
+  const { state, dispatch, flushBotPatches, refreshInstances } = useStore();
   const [open, setOpen] = useState(false);
   const [railId, setRailId] = useState<string | null>(null);
   const [pane, setPane] = useState<"main" | "custom">("main");
@@ -157,11 +157,11 @@ export function ModelPicker({ bot, className }: { bot: Bot; className?: string }
       model,
     };
     if (sameInstance && selection.effort) nextSelection.effort = selection.effort;
-    dispatch({
-      type: "setModel",
-      botId: bot.id,
-      selection: nextSelection,
-    });
+    dispatch({ type: "updateBot", botId: bot.id, patch: { modelSelection: nextSelection } });
+    // A model choice is a discrete decision, not free-form typing. Commit it
+    // immediately so closing/restarting the app cannot lose the click inside
+    // the profile-edit debounce window.
+    void flushBotPatches(bot.id);
     setOpen(false);
   };
 

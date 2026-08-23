@@ -7,8 +7,8 @@
 import SwiftUI
 
 @main
-struct CompanionApp: App {
-    @UIApplicationDelegateAdaptor(AgentRoomAppDelegate.self) private var appDelegate
+struct WatcherBotApp: App {
+    @UIApplicationDelegateAdaptor(WatcherBotAppDelegate.self) private var appDelegate
     @StateObject private var session = Session()
     @Environment(\.scenePhase) private var scenePhase
     @State private var liveActivities = LiveActivityCoordinator()
@@ -76,7 +76,7 @@ struct UnpairedView: View {
 
     var body: some View {
         ContentUnavailableView {
-            Label("Agent Room was unpaired", systemImage: "lock.slash")
+            Label("The WatcherBot was unpaired", systemImage: "lock.slash")
         } description: {
             Text("It was removed from the computer's companion settings, or the pairing was reset.")
         } actions: {
