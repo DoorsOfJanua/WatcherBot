@@ -2,19 +2,21 @@
 // (upstream rule): the React app dispatches typed commands over HTTP and
 // folds one SSE event stream; every provider process runs here.
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, unlinkSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { isIP } from "node:net";
-import { extname, join } from "node:path";
+import { basename, extname, isAbsolute, join } from "node:path";
 
 import { z } from "zod";
 import { botAvatarUrlFromStoredPath } from "../shared/bot-avatar.ts";
+import { botMessageSharesDocument, isLocalDocumentPath } from "../shared/shared-document.ts";
 
 import { approvalKey, autoVerdict } from "./auto-approve.ts";
 import { ActionReceiptError, ActionReceiptStore } from "./action-receipts.ts";
+import { januaMailGatewayConfig, MailActionCoordinator, MailActionStore, mailDraftPreview, PythonMailGateway } from "./mail-actions.ts";
 import { appendDecision, readDecisions } from "./decision-log.ts";
 import { validateBotCwd } from "./bot-cwd.ts";
-import { attachmentExists, extensionForMime, IMAGE_MAX_BYTES, readAttachment, saveAvatar, saveImage, type SavedAttachment } from "./attachments.ts";
+import { attachmentExists, extensionForMime, FILE_MAX_BYTES, IMAGE_MAX_BYTES, readAttachment, saveAvatar, saveFile, saveImage, type SavedAttachment } from "./attachments.ts";
 import {
   avatarGenerationRequestSchema,
   avatarGenerationStateMatches,
@@ -67,7 +69,7 @@ import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
 import { searchMessages } from "./message-db.ts";
 import { _loadPending, discardDelegations, drainDelegations, pendingThreads, queueDelegation, type QueueResult } from "./delegations.ts";
-import { drainSteeredMessages, queueSteeredMessage } from "./steer-queue.ts";
+import { discardSteeredMessages, drainSteeredMessages, queueSteeredMessage } from "./steer-queue.ts";
 import { EventBus } from "./harness/bus.ts";
 import { ProviderRegistry } from "./harness/registry.ts";
 import { cancelPeerApprovalsFor, cancelPeerApprovalsForThread, dismissStalePeerCards, requestPeerApproval, resolvePeerComms, type ApprovalBus } from "./peer-approval.ts";
@@ -76,6 +78,7 @@ import {
   roomResponders,
   Store,
   type GroupDefaultResponder,
+  type MausColor,
   type Message,
   type TaskRecord,
 } from "./store.ts";
@@ -125,6 +128,33 @@ const MIME: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
+const SHARED_DOCUMENT_MIME: Record<string, string> = {
+  ".md": "text/markdown; charset=utf-8",
+  ".markdown": "text/markdown; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
+  ".pdf": "application/pdf",
+  ".csv": "text/csv; charset=utf-8",
+  ".tsv": "text/tab-separated-values; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".yaml": "application/yaml; charset=utf-8",
+  ".yml": "application/yaml; charset=utf-8",
+  ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".ppt": "application/vnd.ms-powerpoint",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".rtf": "application/rtf",
+  ".odt": "application/vnd.oasis.opendocument.text",
+  ".ods": "application/vnd.oasis.opendocument.spreadsheet",
+  ".odp": "application/vnd.oasis.opendocument.presentation",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+};
+
 ensureDirs();
 const cfg = loadConfig();
 const registry = new ProviderRegistry(BUILT_IN_DRIVERS);
@@ -160,7 +190,7 @@ const phoneProxyPath = SPAWNED_PROXIES.phone;
 // in the packaged app process.execPath is Electron — run the proxy as node
 const AGENTS_NODE_FLAG = { ELECTRON_RUN_AS_NODE: "1" };
 
-function agentsIntegration(botId: string, threadId: string, depth: number) {
+function agentsIntegration(botId: string, threadId: string, depth: number, canStageEmail = false) {
   return {
     command: process.execPath,
     args: [agentsProxyPath],
@@ -171,6 +201,7 @@ function agentsIntegration(botId: string, threadId: string, depth: number) {
       OMB_THREAD_ID: threadId,
       OMB_COMMS_TOKEN: COMMS_TOKEN,
       OMB_TURN_DEPTH: String(depth),
+      OMB_CAN_STAGE_EMAIL: canStageEmail ? "1" : "0",
     },
   };
 }
@@ -263,6 +294,15 @@ store.seedIfEmpty();
 // not execute providers; future email/WhatsApp/phone adapters must claim and
 // consume these records before invoking their own provider.
 const actionReceipts = new ActionReceiptStore(DATA_DIR);
+const mailActionStore = new MailActionStore(DATA_DIR);
+const mailGatewayConfig = januaMailGatewayConfig();
+const mailActions = new MailActionCoordinator(actionReceipts, mailActionStore, new PythonMailGateway(mailGatewayConfig));
+const mailSendAccounts = new Set(
+  (process.env.OMB_MAIL_SEND_ACCOUNTS || mailGatewayConfig.protonAccounts.join(","))
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean),
+);
 
 /** A bot as a client may see it: no provider session bookkeeping.
  *
@@ -291,6 +331,30 @@ const publicBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => ({
   activeLeafId: store.activeLeaf(bot.threadId),
   tasks: store.tasks(bot.id).map(wireTask),
 });
+
+/** A local path becomes remotely readable only after a bot has deliberately
+ * put that exact path in a Markdown link. This lets Janua open generated
+ * artifacts from Electron, a browser, or the paired phone without turning
+ * the harness into a general-purpose file server. */
+function transcriptSharesDocument(filePath: string): boolean {
+  const threadIds = new Set<string>();
+  for (const bot of store.bots) {
+    threadIds.add(bot.threadId);
+    for (const task of bot.tasks ?? []) threadIds.add(task.threadId);
+  }
+  for (const group of store.groups) threadIds.add(group.threadId);
+  for (const threadId of threadIds) {
+    if (
+      store.messagesFor(threadId).some(
+        (message) =>
+          message.role === "bot" &&
+          message.kind === "text" &&
+          botMessageSharesDocument(message.text, filePath),
+      )
+    ) return true;
+  }
+  return false;
+}
 
 // The store tells us what it wrote; this is the ONE place that turns those
 // into SSE frames. No mutation path can persist without emitting — the
@@ -519,6 +583,101 @@ async function answerRequest(
   return outcome;
 }
 
+/** Harness-owned mail cards outlive the model turn that proposed them. They
+ * are answered here instead of handed back to a provider ask broker. */
+async function answerMailAction(
+  threadId: string,
+  requestId: string,
+  behavior: "allow" | "deny" | "answer",
+): Promise<{ handled: boolean; outcome?: string }> {
+  const action = mailActions.get(requestId);
+  if (!action) return { handled: false };
+  if (action.threadId !== threadId) return { handled: true, outcome: "wrong-thread" };
+  // A second tap can race in from another device. The durable action state
+  // answers it without another provider call, transcript row, or decision.
+  if (action.state === "sent") return { handled: true, outcome: "sent" };
+  if (action.state === "sending") return { handled: true, outcome: "sending" };
+  if (action.state === "failed") return { handled: true, outcome: "failed" };
+  if (action.state === "dismissed") return { handled: true, outcome: "rejected" };
+  const cardMessage = store.messagesFor(threadId).find((message) => message.card?.requestId === requestId);
+  const bot = store.bot(action.botId);
+  const from = cardMessage?.from;
+  const patchCard = (answered: string, dismissed = false) => {
+    if (cardMessage?.card) {
+      store.patchMessage(threadId, cardMessage.id, {
+        card: { ...cardMessage.card, answered, dismissed },
+      });
+    }
+  };
+  if (behavior !== "allow") {
+    try { mailActions.deny(requestId); } catch { /* already expired/closed remains fail-closed */ }
+    patchCard("deny", true);
+    appendDecision(DATA_DIR, {
+      threadId,
+      requestId,
+      botId: bot?.id,
+      botName: bot?.name,
+      tool: "email.send",
+      summary: cardMessage?.card?.subtitle,
+      decision: "user-denied",
+      source: "user",
+    });
+    broadcast({ kind: "action-receipt", receipt: actionReceipts.get(requestId) });
+    return { handled: true, outcome: "rejected" };
+  }
+  const approvedBy = `identity:${(cfg.profile?.name?.trim() || "janua").toLowerCase().replace(/\s+/g, "-")}`;
+  const recordApproval = () => appendDecision(DATA_DIR, {
+      threadId,
+      requestId,
+      botId: bot?.id,
+      botName: bot?.name,
+      tool: "email.send",
+      summary: cardMessage?.card?.subtitle,
+      decision: "user-approved",
+      source: "user",
+    });
+  try {
+    const sent = await mailActions.approveAndSend(requestId, approvedBy);
+    recordApproval();
+    patchCard("allow");
+    const receipt = sent.providerReceipt!;
+    store.appendMessage(threadId, {
+      role: "bot",
+      kind: "text",
+      ...(from ? { from } : {}),
+      text: [
+        "📬 **Sent — exact approved draft**",
+        `From: ${sent.draft.fromAccount}`,
+        `To: ${sent.draft.to.join(", ")}`,
+        `Subject: ${sent.draft.subject}`,
+        `Receipt: ${receipt.provider} · ${receipt.messageId}`,
+        `Accepted: ${receipt.acceptedAt}`,
+      ].join("\n"),
+    });
+    broadcast({ kind: "action-receipt", receipt: actionReceipts.get(requestId) });
+    return { handled: true, outcome: "sent" };
+  } catch (error) {
+    // Record a real human approval only if it reached the exact receipt.
+    // Validation/expiry failures before approval remain visible errors but
+    // must not create an audit row claiming authorization was granted.
+    try {
+      if (actionReceipts.get(requestId).approvedBy === approvedBy) recordApproval();
+    } catch { /* receipt could not be read; no decision row */ }
+    patchCard("failed", true);
+    store.appendMessage(threadId, {
+      role: "bot",
+      kind: "activity",
+      ...(from ? { from } : {}),
+      tool: {
+        name: `error: Email was not confirmed sent — ${error instanceof Error ? error.message : String(error)}. The one-shot approval is locked; check Sent before creating a fresh draft.`,
+        ok: false,
+      },
+    });
+    broadcast({ kind: "action-receipt", receipt: actionReceipts.get(requestId) });
+    return { handled: true, outcome: "failed" };
+  }
+}
+
 /** Close every approval still open on a thread. Interrupting a turn kills the
  * process that raised its questions, so those cards can never be answered —
  * and a pending approval owns the composer, so one left open blocks the
@@ -530,6 +689,9 @@ function closeOpenApprovals(threadId: string): void {
   for (const message of store.messagesFor(threadId)) {
     const card = message.card;
     if (!card?.requestId || card.answered || card.dismissed) continue;
+    if (card.tool === "email.send") {
+      try { mailActions.deny(card.requestId); } catch { /* fail closed */ }
+    }
     store.patchMessage(threadId, message.id, { card: { ...card, answered: "unavailable", dismissed: true } });
     askMessageByRequest.delete(`${threadId}:${card.requestId}`);
   }
@@ -1111,7 +1273,7 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
     const targetThreadId = store.bot(toBotId)?.threadId;
     if (targetThreadId) delegationWatch.set(targetThreadId, { channelId: channel?.id, toBotId });
     let failureReported = false;
-    const reportStartFailure = (error: unknown) => {
+    const reportStartFailure = (error: unknown): void => {
       if (failureReported) return;
       failureReported = true;
       const bot = store.bot(toBotId);
@@ -1132,7 +1294,7 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
         tool: { name: `error: delegation to @${bot?.name ?? toBotId} could not start — ${why.slice(0, 120)}`, ok: false },
       });
     };
-    return startTurn(toBotId, text, {
+    void startTurn(toBotId, text, {
       commsDepth,
       unattended: isUnattended(store.botByThread(sourceThreadId)?.id),
       // startTurn schedules provider/integration setup after marking the bot
@@ -1170,12 +1332,12 @@ bus.subscribe((event: RuntimeEvent) => {
 });
 
 function drainQueuedSends() {
-  drainSteeredMessages(store, (botId, threadId, prompt, userMessage) =>
+  drainSteeredMessages(store, (botId, threadId, prompt, userMessage) => {
     // A plain attended turn — no automationSource, no unattended, no comms
     // depth: exactly what typing the same words into an idle bot would run.
     // The messages are already in the transcript; userMessage keeps
     // startTurn from appending the joined prompt as a duplicate.
-    startTurn(botId, prompt, { threadId, userMessage }).catch((err) => {
+    void startTurn(botId, prompt, { threadId, userMessage }).catch((err) => {
       store.appendMessage(threadId, {
         role: "bot",
         kind: "activity",
@@ -1184,8 +1346,8 @@ function drainQueuedSends() {
           ok: false,
         },
       });
-    }),
-  );
+    });
+  });
 }
 
 // ── live screen: poll the bot's computer while it works ───────────────
@@ -1626,9 +1788,9 @@ async function startTurn(
       if (
         commsDepth < MAX_COMMS_DEPTH &&
         instance.adapter.capabilities.agentsMcp === true &&
-        store.bots.filter((b) => b.id !== bot.id && !b.hidden).length > 0
+        (store.bots.filter((b) => b.id !== bot.id && !b.hidden).length > 0 || bot.sharedMemoryId === "mailroom")
       ) {
-        integrations.agents = agentsIntegration(bot.id, threadId, commsDepth);
+        integrations.agents = agentsIntegration(bot.id, threadId, commsDepth, bot.sharedMemoryId === "mailroom");
       }
       // @mentions in the user's message (the composer's tagging UI) become
       // an explicit delegation nudge — the agent still does the ask_bot call
@@ -1725,6 +1887,10 @@ async function startTurn(
       drainQueuedSends();
     }
   })();
+  // The HTTP caller gets the durable user row as an acknowledgement. SSE is
+  // still the live source of truth, but returning the same id lets a window
+  // reconcile the bubble even if its event stream dropped during this send.
+  return userMessage;
 }
 
 // ── routines: persisted definitions → detached bot tasks ───────────────
@@ -1742,8 +1908,9 @@ routines = new RoutineManager({
     if (task && bot) broadcast({ kind: "bot", bot: publicBot(bot) });
     return task;
   },
-  startTurn: (botId, threadId, prompt, runOn, triggerSource, onDispatchError) =>
-    startTurn(botId, prompt, { threadId, runOn, automationSource: triggerSource, onDispatchError }),
+  startTurn: async (botId, threadId, prompt, runOn, triggerSource, onDispatchError) => {
+    await startTurn(botId, prompt, { threadId, runOn, automationSource: triggerSource, onDispatchError });
+  },
   interruptTurn: async (botId, threadId, runOn) => {
     const bot = store.bot(botId);
     const instance = runOn === "cloud"
@@ -1887,6 +2054,9 @@ async function runGroupMemberTurn(
   );
   if (selectedSkills.some((skill) => skill.manifest.requiredCapabilities.includes("phoneMcp"))) {
     integrations.phone = phoneIntegration();
+  }
+  if (instance.adapter.capabilities.agentsMcp === true) {
+    integrations.agents = agentsIntegration(bot.id, group.threadId, 0, bot.sharedMemoryId === "mailroom");
   }
   try {
     if (bot.composio !== false && composio.configured(cfg) && instance.adapter.capabilities.composioMcp === true) {
@@ -2297,6 +2467,7 @@ function configStatus() {
     imageGen: { configured: Boolean(cfg.imageGen?.key) },
     // not a secret — the sidebar shows it
     profile: { name: cfg.profile?.name ?? "", email: cfg.profile?.email ?? "" },
+    appearance: { avatarStyle: cfg.appearance?.avatarStyle ?? "spirits" },
     rooms: { turnTimeoutMinutes: roomTurnTimeoutMinutes(cfg) },
     localVm: {
       mode: localVmMode(cfg),
@@ -2470,6 +2641,51 @@ const server = createServer(async (req, res) => {
             description: b.description || undefined,
           }));
         return json(res, 200, { bots });
+      }
+      if (method === "POST" && path === "/api/internal/mail-drafts") {
+        const body = await readBody(req);
+        const fromBotId = String(body.fromBotId ?? "");
+        const threadId = String(body.fromThreadId ?? "");
+        const bot = store.bot(fromBotId);
+        if (!bot || bot.sharedMemoryId !== "mailroom") {
+          return json(res, 403, { error: "only the Mailman mailroom agent may stage email" });
+        }
+        const group = store.groupByThread(threadId);
+        const ownsThread = Boolean(store.taskByThread(bot.id, threadId)) || Boolean(group?.memberIds.includes(bot.id));
+        if (!ownsThread) return json(res, 403, { error: "source thread does not belong to Mailman" });
+        try {
+          const draft = body.draft as Record<string, unknown> | undefined;
+          const requestedSender = typeof draft?.fromAccount === "string" ? draft.fromAccount.trim().toLowerCase() : "";
+          if (!mailSendAccounts.has(requestedSender)) {
+            return json(res, 409, {
+              error: `That sender is not send-enabled here. Use one of: ${[...mailSendAccounts].join(", ") || "none configured"}`,
+            });
+          }
+          const staged = mailActions.stage({ botId: bot.id, threadId, draft });
+          const from = group ? { botId: bot.id, name: bot.name, color: bot.color } : undefined;
+          store.appendMessage(threadId, {
+            role: "bot",
+            kind: "options",
+            ...(from ? { from } : {}),
+            card: {
+              title: "Review the exact email before sending",
+              subtitle: mailDraftPreview(staged.action.draft, staged.action.draftHash),
+              options: ["Approve & send", "Deny"],
+              requestId: staged.receipt.id,
+              tool: "email.send",
+              held: "Nothing has been sent. Approval expires in 30 minutes, applies only to this frozen copy, and can be used once.",
+            },
+          });
+          broadcast({ kind: "action-receipt", receipt: staged.receipt });
+          return json(res, 201, {
+            staged: true,
+            receiptId: staged.receipt.id,
+            contentHash: staged.receipt.contentHash,
+            expiresAt: staged.receipt.expiresAt,
+          });
+        } catch (error) {
+          return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        }
       }
       if (method === "POST" && path === "/api/internal/ask-bot") {
         const body = await readBody(req);
@@ -2669,6 +2885,83 @@ const server = createServer(async (req, res) => {
       return json(res, 404, { error: "unknown internal endpoint" });
     }
 
+    // ── fleet emergency stop ─────────────────────────────────────────────
+    // One endpoint, rather than N UI requests, makes Stop authoritative even
+    // when the renderer showing the stale spinner is itself the broken part.
+    if (path === "/api/emergency-stop" && method === "POST") {
+      const activeBots = store.bots.filter((bot) => bot.busy);
+      const activeGroups = store.groups.filter((group) => Boolean(group.busyBotId));
+      const activeThreads = new Set([
+        ...activeBots.map((bot) => bot.threadId),
+        ...activeGroups.map((group) => group.threadId),
+      ]);
+      const knownThreads = new Set([
+        ...store.bots.map((bot) => bot.threadId),
+        ...store.groups.map((group) => group.threadId),
+      ]);
+
+      // Drop auto-follow-ups BEFORE interrupting: turn.completed can arrive
+      // immediately, and its normal fold intentionally drains steer queues.
+      const queuedMessages = discardSteeredMessages(store);
+      let queuedDelegations = 0;
+      for (const threadId of pendingThreads()) {
+        queuedDelegations += discardDelegations(commsBus, threadId);
+      }
+      for (const threadId of knownThreads) closeOpenApprovals(threadId);
+
+      // Shut entrances first, then cancel everything already admitted.
+      const pausedWebhooks = webhooks.pauseAll();
+      const routineSummary = await routines!.pauseAll();
+
+      // Interrupt every provider thread, not only records marked busy. That is
+      // intentional: a kill switch must still work when runtime bookkeeping is
+      // exactly what became stale. Idle adapters treat this as a no-op.
+      const interrupts: Promise<void>[] = [];
+      for (const bot of store.bots) {
+        const instance = registry.get(bot.modelSelection.instanceId);
+        interrupts.push(instance?.adapter.interruptTurn(bot.threadId).catch(() => {}) ?? Promise.resolve());
+      }
+      for (const group of store.groups) {
+        const speaker = group.busyBotId ? store.bot(group.busyBotId) : undefined;
+        const instance = speaker ? registry.get(speaker.modelSelection.instanceId) : undefined;
+        interrupts.push(instance?.adapter.interruptTurn(group.threadId).catch(() => {}) ?? Promise.resolve());
+      }
+      await Promise.allSettled(interrupts);
+
+      // Reconcile every memory-only owner even if a provider failed to emit its
+      // terminal event. Messages, tasks, memory, and files are never removed.
+      for (const threadId of activeThreads) {
+        watchdog.settle(threadId);
+        repeats.settle(threadId);
+        releaseLocalVmThread(threadId);
+        lastReply.delete(threadId);
+        finalizeDelegationWatch(threadId, false, "", "Delegated turn stopped by the fleet emergency stop");
+      }
+      for (const group of activeGroups) {
+        roomStallCompletions.stall(group.threadId);
+        groupSpeakers.delete(group.threadId);
+        store.patchGroup(group.id, { busyBotId: null, unread: true });
+      }
+      for (const bot of activeBots) {
+        stopScreenPoller(bot.id);
+        activeVpsThreads.delete(bot.id);
+        clearUnattended(bot.id);
+        store.setActivity(bot.id, "idle");
+      }
+
+      return json(res, 200, {
+        ok: true,
+        stopped: {
+          turns: activeThreads.size,
+          queuedMessages,
+          queuedDelegations,
+          pausedRoutines: routineSummary.pausedRoutines,
+          cancelledRuns: routineSummary.cancelledRuns,
+          pausedWebhooks,
+        },
+      });
+    }
+
     // ── routines calendar ────────────────────────────────────────────────
     if (path === "/api/routines" && method === "GET") {
       const fromParam = url.searchParams.get("from");
@@ -2787,9 +3080,13 @@ const server = createServer(async (req, res) => {
       sseClients.add(client);
       const keepalive = setInterval(() => {
         try {
-          res.write(": keepalive\n\n");
+          // A comment keeps the TCP socket open but is invisible to
+          // EventSource. Send an application heartbeat instead so the
+          // renderer can detect a dev-proxy socket whose upstream server has
+          // died while the proxy-facing half still looks connected.
+          res.write(`data: ${JSON.stringify({ kind: "heartbeat", at: Date.now() })}\n\n`);
         } catch {}
-      }, 25_000);
+      }, 2_000);
       req.on("close", () => {
         clearInterval(keepalive);
         sseClients.delete(client);
@@ -2859,6 +3156,54 @@ const server = createServer(async (req, res) => {
         "cache-control": "private, max-age=31536000, immutable",
       });
       return res.end(bytes);
+    }
+
+    // ── files selected on a browser or phone ────────────────────────────
+    // Electron can hand agents an existing local path. A browser cannot, so
+    // it uploads the selected bytes here and receives an app-owned path that
+    // the local CLI agents can open. The original name never becomes a path.
+    if (method === "POST" && path === "/api/file-attachments") {
+      const rawType = Array.isArray(req.headers["content-type"]) ? req.headers["content-type"][0] : req.headers["content-type"];
+      const rawFilename = Array.isArray(req.headers["x-attachment-filename"])
+        ? req.headers["x-attachment-filename"][0]
+        : req.headers["x-attachment-filename"];
+      let filename = "";
+      try {
+        filename = decodeURIComponent(rawFilename?.trim() ?? "");
+      } catch {
+        return json(res, 400, { error: "invalid attachment filename" });
+      }
+      if (!filename || filename.length > 255 || /[\r\n]/.test(filename)) {
+        return json(res, 400, { error: "attachment upload requires a filename" });
+      }
+      const mime = rawType?.split(";")[0]?.trim().toLowerCase() || "application/octet-stream";
+      const saved = await new Promise<SavedAttachment>((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        let received = 0;
+        let settled = false;
+        const fail = (status: number, msg: string) => {
+          if (settled) return;
+          settled = true;
+          reject(Object.assign(new Error(msg), { status }));
+        };
+        req.on("data", (chunk: Buffer) => {
+          if (settled) return;
+          received += chunk.byteLength;
+          if (received > FILE_MAX_BYTES) return fail(413, `file exceeds ${FILE_MAX_BYTES} bytes`);
+          chunks.push(chunk);
+        });
+        req.on("end", () => {
+          if (settled) return;
+          settled = true;
+          try {
+            resolve(saveFile(Buffer.concat(chunks), mime, filename));
+          } catch (e) {
+            reject(Object.assign(e instanceof Error ? e : new Error(String(e)), { status: 400 }));
+          }
+        });
+        req.on("error", (e) => fail(400, e instanceof Error ? e.message : String(e)));
+      });
+      return json(res, 201, saved);
     }
 
     // ── image attachments ────────────────────────────────────────────────
@@ -2958,6 +3303,48 @@ const server = createServer(async (req, res) => {
       });
       if (method === "HEAD") return res.end();
       return res.end(attachment.bytes);
+    }
+
+    // ── documents explicitly shared by bots ────────────────────────────
+    // Absolute filesystem links otherwise resolve as SPA routes in a web
+    // renderer (`/Users/...`), which opens Agent Room again. Serve only
+    // non-executable document formats, only regular non-symlink files, and
+    // only when a stored bot message contains the exact Markdown link.
+    if (path === "/api/shared-documents" && (method === "GET" || method === "HEAD")) {
+      const filePath = url.searchParams.get("path") ?? "";
+      if (!isLocalDocumentPath(filePath) || !isAbsolute(filePath)) {
+        return json(res, 400, { error: "a supported absolute document path is required" });
+      }
+      if (!transcriptSharesDocument(filePath)) {
+        return json(res, 403, { error: "that document was not shared by a bot" });
+      }
+      let stat;
+      try {
+        stat = lstatSync(filePath);
+      } catch {
+        return json(res, 404, { error: "the shared document no longer exists" });
+      }
+      if (!stat.isFile() || stat.isSymbolicLink()) {
+        return json(res, 400, { error: "the shared document must be a regular file" });
+      }
+      if (stat.size <= 0 || stat.size > FILE_MAX_BYTES) {
+        return json(res, 413, { error: `shared documents must be between 1 byte and ${FILE_MAX_BYTES} bytes` });
+      }
+      const extension = extname(filePath).toLowerCase();
+      const mime = SHARED_DOCUMENT_MIME[extension];
+      if (!mime) return json(res, 415, { error: "unsupported shared document type" });
+      const filename = basename(filePath);
+      const asciiFilename = filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_");
+      res.writeHead(200, {
+        "content-type": mime,
+        "content-length": String(stat.size),
+        "content-disposition": `inline; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+        "cache-control": "private, no-store",
+        "x-content-type-options": "nosniff",
+        "content-security-policy": "sandbox",
+      });
+      if (method === "HEAD") return res.end();
+      return res.end(readFileSync(filePath));
     }
 
     // ── search across every transcript ──────────────────────────────────
@@ -3312,7 +3699,29 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { message: patched });
     }
     if (method === "POST" && path === "/api/bots") {
-      const bot = store.createBot();
+      const body = await readBody(req);
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return json(res, 400, { error: "bot profile must be an object" });
+      }
+      const profile = parseBotProfilePatch(body);
+      if (!profile.ok) return json(res, 400, { error: profile.error });
+      const allowedColors = new Set<MausColor>([
+        "green", "blue", "red", "orange", "purple",
+        "cyan", "pink", "yellow", "teal", "coral",
+      ]);
+      if (body.color !== undefined && !allowedColors.has(body.color as MausColor)) {
+        return json(res, 400, { error: "color is not recognized" });
+      }
+      const bot = store.createBot({
+        name: profile.patch.name,
+        title: profile.patch.title,
+        description: profile.patch.description,
+        spirit: profile.patch.spirit,
+        spiritPalette: profile.patch.spiritPalette,
+        spiritGeometry: profile.patch.spiritGeometry,
+        spiritTemperament: profile.patch.spiritTemperament,
+        ...(body.color !== undefined ? { color: body.color as MausColor } : {}),
+      });
       store.patchBot(bot.id, { modelSelection: await defaultSelection() });
       return json(res, 201, {
         bot: {
@@ -3684,15 +4093,15 @@ const server = createServer(async (req, res) => {
           const steered = await instance.adapter.steer(bot.threadId, text).catch(() => false);
           if (steered) {
             clearUnattended(bot.id);
-            store.appendMessage(bot.threadId, { role: "user", kind: "text", text, steered: true });
-            return json(res, 202, { ok: true, steered: true });
+            const message = store.appendMessage(bot.threadId, { role: "user", kind: "text", text, steered: true });
+            return json(res, 202, { ok: true, steered: true, message });
           }
         }
         const message = queueSteeredMessage(store, bot, text);
-        return json(res, 202, { ok: true, queued: true, messageId: message.id });
+        return json(res, 202, { ok: true, queued: true, messageId: message.id, message });
       }
-      await startTurn(bot.id, text);
-      return json(res, 202, { ok: true });
+      const message = await startTurn(bot.id, text);
+      return json(res, 202, { ok: true, message });
     }
 
     // edit a user message → fork the conversation there and rerun the turn.
@@ -3753,6 +4162,13 @@ const server = createServer(async (req, res) => {
       if (resolvePeerComms(approvalBus, String(body.requestId), behavior)) {
         return json(res, 200, { ok: true, outcome: behavior === "allow" ? "allowed-once" : "rejected" });
       }
+      const mail = await answerMailAction(bot.threadId, String(body.requestId), behavior);
+      if (mail.handled) {
+        return json(res, mail.outcome === "wrong-thread" ? 403 : 200, {
+          ok: mail.outcome !== "wrong-thread",
+          outcome: mail.outcome,
+        });
+      }
       const outcome = await answerRequest(bot.threadId, bot.modelSelection.instanceId, String(body.requestId), behavior, body.message, { id: bot.id, name: bot.name });
       return json(res, 200, { ok: true, outcome });
     }
@@ -3771,6 +4187,13 @@ const server = createServer(async (req, res) => {
       // looking for one — a room between turns has no speaker to find.
       if (resolvePeerComms(approvalBus, requestId, behavior)) {
         return json(res, 200, { ok: true, outcome: behavior === "allow" ? "allowed-once" : "rejected" });
+      }
+      const mail = await answerMailAction(threadId, requestId, behavior);
+      if (mail.handled) {
+        return json(res, mail.outcome === "wrong-thread" ? 403 : 200, {
+          ok: mail.outcome !== "wrong-thread",
+          outcome: mail.outcome,
+        });
       }
       const group = store.groupByThread(threadId);
       // busyBotId is in-memory only, so an approval that outlives its turn — or
@@ -4244,12 +4667,13 @@ const server = createServer(async (req, res) => {
         syncCredentialEnv(patch);
         Object.assign(cfg, loadConfig());
       }
-      // Provider keys change the fleet. Profile, voice, VPS, and room timeout
-      // changes do not rebuild it: no driver reads them, and they should not
-      // interrupt in-flight turns.
+      // Provider keys change the fleet. Profile, appearance, voice, VPS, and
+      // room timeout changes do not rebuild it: no driver reads them, and
+      // they should not interrupt in-flight turns.
       const reloadKeys = Object.keys(patch).filter(
         (key) =>
           key !== "profile" &&
+          key !== "appearance" &&
           key !== "tts" &&
           key !== "imageGen" &&
           key !== "vps" &&

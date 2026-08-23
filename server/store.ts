@@ -13,7 +13,15 @@ import { workspaceDir } from "./workspace.ts";
 import { newId, type CloudBackend, type ModelSelection, type ThreadId } from "./contracts.ts";
 import { pickBotName } from "./names.ts";
 import { redactSecretsInText } from "./redact.ts";
-import { botAvatarProfile, type BotAvatarCrop, type BotSpirit } from "../shared/bot-avatar.ts";
+import {
+  BOT_SPIRITS,
+  botAvatarProfile,
+  type BotAvatarCrop,
+  type BotSpirit,
+  type BotSpiritGeometry,
+  type BotSpiritPalette,
+  type BotSpiritTemperament,
+} from "../shared/bot-avatar.ts";
 
 export type MausColor =
   | "green"
@@ -261,6 +269,9 @@ export interface BotRecord {
   avatarCrop?: BotAvatarCrop;
   /** Optional original code-drawn spirit; custom image assets still win. */
   spirit?: BotSpirit;
+  spiritPalette?: BotSpiritPalette;
+  spiritGeometry?: BotSpiritGeometry;
+  spiritTemperament?: BotSpiritTemperament;
   unread: boolean;
   modelSelection: ModelSelection;
   /** provider-native continuation per instance (e.g. claude session id) */
@@ -469,6 +480,12 @@ export class Store {
       if (b.spirit !== undefined && avatar.spirit !== b.spirit) {
         delete b.spirit;
         botsMigrated = true;
+      }
+      for (const field of ["spiritPalette", "spiritGeometry", "spiritTemperament"] as const) {
+        if (b[field] !== undefined && avatar[field] !== b[field]) {
+          delete b[field];
+          botsMigrated = true;
+        }
       }
     }
     for (const b of this.bots) {
@@ -777,7 +794,7 @@ export class Store {
 
   createBot(
     profile: Partial<
-      Pick<BotRecord, "name" | "title" | "description" | "color" | "mascotExpression" | "modelSelection">
+      Pick<BotRecord, "name" | "title" | "description" | "color" | "mascotExpression" | "modelSelection" | "spirit" | "spiritPalette" | "spiritGeometry" | "spiritTemperament">
     > = {},
     opts: {
       /** false = no greeting/onboarding seed. Imported bots must not open
@@ -786,6 +803,12 @@ export class Store {
     } = {},
   ): BotRecord {
     const name = profile.name?.trim() || pickBotName(this.bots.map((b) => b.name));
+    // Agent Room's living identities are the primary system. Calls from an
+    // older client that do not yet send a spirit still receive the first
+    // unused authored identity, then rotate through the family.
+    const spirit = profile.spirit
+      ?? BOT_SPIRITS.find((candidate) => !this.bots.some((bot) => bot.spirit === candidate))
+      ?? BOT_SPIRITS[this.bots.length % BOT_SPIRITS.length];
     const bot: BotRecord = {
       id: newId(),
       threadId: newId(),
@@ -795,11 +818,15 @@ export class Store {
       notifications: true,
       color: profile.color ?? COLORS[this.bots.length % COLORS.length],
       ...(profile.mascotExpression ? { mascotExpression: profile.mascotExpression } : {}),
+      spirit,
       unread: false,
       modelSelection: profile.modelSelection ?? this.defaultSelection(),
       resumeCursors: {},
       createdAt: Date.now(),
     };
+    if (profile.spiritPalette) bot.spiritPalette = profile.spiritPalette;
+    if (profile.spiritGeometry) bot.spiritGeometry = profile.spiritGeometry;
+    if (profile.spiritTemperament) bot.spiritTemperament = profile.spiritTemperament;
     bot.tasks = [{ threadId: bot.threadId, title: UNTITLED_TASK, createdAt: bot.createdAt, resumeCursors: {} }];
     this.bots.unshift(bot);
     this.saveBots();

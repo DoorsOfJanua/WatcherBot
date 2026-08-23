@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 const DATA_ROOT = mkdtempSync(join(tmpdir(), "omb-attachments-"));
 process.env.OMB_DATA_DIR = join(DATA_ROOT, "data");
 
-const { ATTACHMENTS_DIR, IMAGE_MAX_BYTES, extensionForMime, readAttachment, saveAvatar, saveImage } = await import("./attachments.ts");
+const { ATTACHMENTS_DIR, FILE_MAX_BYTES, IMAGE_MAX_BYTES, extensionForMime, readAttachment, saveAvatar, saveFile, saveImage } = await import("./attachments.ts");
 
 describe("extensionForMime", () => {
   it("maps the accepted image mimes to extensions", () => {
@@ -64,6 +64,29 @@ describe("saveImage", () => {
     expect(() => saveImage(Buffer.from("x"), "image/svg+xml")).toThrow(/unsupported image type/);
     expect(() => saveImage(Buffer.alloc(0), "image/png")).toThrow(/empty/);
     expect(() => saveImage(Buffer.alloc(IMAGE_MAX_BYTES + 1), "image/png")).toThrow(/exceeds/);
+  });
+});
+
+describe("saveFile", () => {
+  beforeEach(() => {
+    rmSync(ATTACHMENTS_DIR, { recursive: true, force: true });
+  });
+  afterEach(() => {
+    rmSync(ATTACHMENTS_DIR, { recursive: true, force: true });
+  });
+
+  it("keeps only a safe extension and writes a private non-executable file", () => {
+    const saved = saveFile(Buffer.from("brief"), "application/pdf", "../My brief.PDF");
+    expect(saved.path.startsWith(ATTACHMENTS_DIR)).toBe(true);
+    expect(saved.path.endsWith(".pdf")).toBe(true);
+    expect(saved.mime).toBe("application/pdf");
+    if (process.platform !== "win32") expect(statSync(saved.path).mode & 0o777).toBe(0o600);
+  });
+
+  it("uses a neutral extension for suspicious names and enforces the size bounds", () => {
+    expect(saveFile(Buffer.from("x"), "", "payload.toolongextension").path.endsWith(".bin")).toBe(true);
+    expect(() => saveFile(Buffer.alloc(0), "text/plain", "empty.txt")).toThrow(/empty/);
+    expect(() => saveFile(Buffer.alloc(FILE_MAX_BYTES + 1), "text/plain", "large.txt")).toThrow(/exceeds/);
   });
 });
 

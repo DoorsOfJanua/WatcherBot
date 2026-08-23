@@ -30,6 +30,8 @@ let boxStubPort = 0;
 let home: string;
 let staticDir: string;
 let fakeClaudeDump: string;
+let sharedDocumentPath: string;
+let unsharedDocumentPath: string;
 let stderr = "";
 
 const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
@@ -68,11 +70,15 @@ beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "omb-api-test-"));
   staticDir = join(home, "static");
   fakeClaudeDump = join(home, "fake-claude-dump.json");
+  sharedDocumentPath = join(home, "Farmada wishes.md");
+  unsharedDocumentPath = join(home, "private notes.md");
   // a fleet of exactly one unknown driver: no CLI probes, no network
   mkdirSync(join(home, ".openmausbot"), { recursive: true });
   mkdirSync(join(staticDir, "assets"), { recursive: true });
   writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Packaged OpenMausBot</title>");
   writeFileSync(join(staticDir, "assets", "smoke.css"), "body { color: white; }");
+  writeFileSync(sharedDocumentPath, "# Farmada wishes\n\nVerified artifact.\n");
+  writeFileSync(unsharedDocumentPath, "This file was never linked by a bot.\n");
   writeFileSync(
     join(home, ".openmausbot", "config.json"),
     JSON.stringify({
@@ -117,6 +123,16 @@ beforeAll(async () => {
         createdAt: 4,
       },
       {
+        id: "test-shared-room",
+        threadId: "test-shared-room-thread",
+        name: "Shared documents",
+        memberIds: ["test-bot-a"],
+        defaultResponder: { kind: "member", botId: "test-bot-a" },
+        bulletin: "",
+        unread: false,
+        createdAt: 5,
+      },
+      {
         id: "test-pinned-room",
         threadId: "test-pinned-room-thread",
         name: "Pinned room",
@@ -128,6 +144,24 @@ beforeAll(async () => {
         pinnedCwd: null,
       },
     ]),
+  );
+
+  writeFileSync(
+    join(home, ".openmausbot", "messages-test-shared-room-thread.json"),
+    JSON.stringify({
+      activeLeafId: "shared-document-message",
+      messages: [
+        {
+          id: "shared-document-message",
+          at: 5,
+          parentId: null,
+          role: "bot",
+          kind: "text",
+          text: `Saved: [Farmada wishes](<${sharedDocumentPath}>)`,
+          from: { botId: "test-bot-a", name: "Test bot A", color: "purple" },
+        },
+      ],
+    }),
   );
 
   // A room transcript carrying an approval that outlived its turn: the card
@@ -436,9 +470,32 @@ describe("harness HTTP API", () => {
   });
 
   it("creates, patches, and deletes a bot", async () => {
-    const created = await api("POST", "/api/bots");
+    const created = await api("POST", "/api/bots", {
+      name: "Archivist",
+      title: "Project memory",
+      description: "Keeps decisions and project state coherent.",
+      color: "teal",
+      spirit: "signal",
+      spiritPalette: "aqua",
+      spiritGeometry: "orbit",
+      spiritTemperament: "focused",
+    });
     expect(created.status).toBe(201);
     const bot = created.body.bot;
+    expect(bot).toMatchObject({
+      name: "Archivist",
+      title: "Project memory",
+      description: "Keeps decisions and project state coherent.",
+      color: "teal",
+      spirit: "signal",
+      spiritPalette: "aqua",
+      spiritGeometry: "orbit",
+      spiritTemperament: "focused",
+    });
+    expect(bot.messages[0].text).toContain("I'm Archivist");
+
+    expect((await api("POST", "/api/bots", { name: "", spirit: "cursor" })).status).toBe(400);
+    expect((await api("POST", "/api/bots", { name: "Valid", color: "ultraviolet" })).status).toBe(400);
 
     const patched = await api("PATCH", `/api/bots/${bot.id}`, { name: "Renamed", pinned: true });
     expect(patched.status).toBe(200);
@@ -527,6 +584,60 @@ describe("harness HTTP API", () => {
       body: Buffer.alloc(IMAGE_MAX_BYTES + 1),
     });
     expect(tooBig.status).toBe(413);
+  });
+
+  it("serves only regular documents explicitly linked by a bot", async () => {
+    const shared = await fetch(
+      `${BASE}/api/shared-documents?path=${encodeURIComponent(sharedDocumentPath)}`,
+    );
+    expect(shared.status).toBe(200);
+    expect(shared.headers.get("content-type")).toContain("text/markdown");
+    expect(shared.headers.get("content-disposition")).toContain("Farmada wishes.md");
+    expect(shared.headers.get("cache-control")).toBe("private, no-store");
+    expect(await shared.text()).toContain("Verified artifact");
+
+    const head = await fetch(
+      `${BASE}/api/shared-documents?path=${encodeURIComponent(sharedDocumentPath)}`,
+      { method: "HEAD" },
+    );
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
+
+    const unshared = await fetch(
+      `${BASE}/api/shared-documents?path=${encodeURIComponent(unsharedDocumentPath)}`,
+    );
+    expect(unshared.status).toBe(403);
+
+    const executable = await fetch(
+      `${BASE}/api/shared-documents?path=${encodeURIComponent(join(home, "run.command"))}`,
+    );
+    expect(executable.status).toBe(400);
+  });
+
+  it("accepts explicit files from a phone/browser without trusting their names as paths", async () => {
+    const missingName = await fetch(`${BASE}/api/file-attachments`, {
+      method: "POST",
+      headers: { "content-type": "application/pdf" },
+      body: "brief",
+    });
+    expect(missingName.status).toBe(400);
+
+    const saved = await fetch(`${BASE}/api/file-attachments`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/pdf",
+        "x-attachment-filename": encodeURIComponent("../../Farmada brief.pdf"),
+      },
+      body: "brief",
+    });
+    expect(saved.status).toBe(201);
+    // SAFETY: this test is exercising the endpoint's owned response contract.
+    const body = (await saved.json()) as { path: string; mime: string; bytes: number };
+    expect(body.path).toMatch(/attachments[/\\][A-Za-z0-9-]+\.pdf$/);
+    expect(body.path).not.toContain("Farmada brief");
+    expect(body.mime).toBe("application/pdf");
+    expect(body.bytes).toBe(5);
+    expect(statSync(body.path).isFile()).toBe(true);
   });
 
   it("saves and serves validated Rive avatar assets without widening image uploads", async () => {
@@ -1334,6 +1445,37 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("returns the durable user message immediately when a direct turn starts", async () => {
+    const created = await api("POST", "/api/bots", {});
+    const botId = created.body.bot.id;
+    try {
+      const selected = await api("PATCH", `/api/bots/${botId}`, {
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      });
+      expect(selected.status).toBe(200);
+
+      const sent = await api("POST", `/api/bots/${botId}/messages`, { text: "keep this visible" });
+      expect(sent.status).toBe(202);
+      expect(sent.body).toMatchObject({
+        ok: true,
+        message: {
+          role: "user",
+          kind: "text",
+          text: "keep this visible",
+        },
+      });
+      expect(sent.body.message.id).toEqual(expect.any(String));
+
+      const reread = (await api("GET", "/api/bots")).body.bots.find(
+        (bot: { id: string }) => bot.id === botId,
+      );
+      expect(reread.messages.some((message: { id: string }) => message.id === sent.body.message.id)).toBe(true);
+    } finally {
+      await api("POST", `/api/bots/${botId}/interrupt`);
+      await api("DELETE", `/api/bots/${botId}`);
+    }
+  });
+
   it("validates the non-secret VPS alias and keeps old bots on Box by default", async () => {
     const before = await api("GET", "/api/bots");
     const bot = before.body.bots[0];
@@ -1803,6 +1945,17 @@ describe("resumable event stream", () => {
       await stream.until(() => stream.frames.filter((f) => f.kind === "bot").length >= 2);
       const bots = stream.frames.filter((f) => f.kind === "bot");
       expect(bots[1].seq).toBeGreaterThan(bots[0].seq);
+    } finally {
+      stream.close();
+    }
+  });
+
+  it("emits application heartbeats that a renderer can use to detect a stale proxy", async () => {
+    const stream = await openSse(`${BASE}/api/events`);
+    try {
+      await stream.until((frame) => frame.kind === "hello");
+      const heartbeat = await stream.until((frame) => frame.kind === "heartbeat", 5_000);
+      expect(heartbeat.at).toEqual(expect.any(Number));
     } finally {
       stream.close();
     }

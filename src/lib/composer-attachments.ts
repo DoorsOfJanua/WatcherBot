@@ -84,6 +84,44 @@ export function fileAttachment(name: string, path: string, size: number): FileAt
   return { kind: "file", id: newId(), path, name, size };
 }
 
+export const FILE_MAX_BYTES = 50 * 1024 * 1024;
+
+/** Attach a file selected through the universal + menu. Electron exposes its
+ * existing path without copying. Browsers and phones upload it to the private
+ * host attachment store so the same local agents receive a real readable path. */
+export async function fileAttachmentFromFile(
+  file: File,
+  getPath: (file: File) => string = () => "",
+): Promise<FileAttachment> {
+  let path = "";
+  try {
+    path = getPath(file);
+  } catch {
+    // Browser File objects intentionally do not expose filesystem paths.
+  }
+  if (path) return fileAttachment(file.name, path, file.size);
+  if (file.size === 0) throw Object.assign(new Error(`${file.name} is empty`), { status: 400 });
+  if (file.size > FILE_MAX_BYTES) {
+    throw Object.assign(new Error(`${file.name} exceeds 50 MB`), { status: 413 });
+  }
+  const response = await fetch("/api/file-attachments", {
+    method: "POST",
+    headers: {
+      "content-type": file.type || "application/octet-stream",
+      "x-attachment-filename": encodeURIComponent(file.name || "attachment.bin"),
+    },
+    body: file,
+  });
+  if (!response.ok) {
+    // SAFETY: only the optional human-readable error field is consumed.
+    const detail = (await response.json().catch(() => ({ error: response.statusText }))) as { error?: string };
+    throw Object.assign(new Error(detail.error ?? "file upload failed"), { status: response.status });
+  }
+  // SAFETY: the private upload endpoint owns this response contract.
+  const saved = (await response.json()) as { path: string; bytes: number };
+  return fileAttachment(file.name || "attachment", saved.path, saved.bytes);
+}
+
 /** Matches the server's IMAGE_MAX_BYTES — checked client-side so an
  * oversized paste is refused before the upload starts, not mid-stream. */
 export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;

@@ -1,6 +1,13 @@
 import { z } from "zod";
 
-import { botAvatarCropSchema, botAvatarUrlSchema, botSpiritSchema } from "../shared/bot-avatar.ts";
+import {
+  botAvatarCropSchema,
+  botAvatarUrlSchema,
+  botSpiritGeometrySchema,
+  botSpiritPaletteSchema,
+  botSpiritSchema,
+  botSpiritTemperamentSchema,
+} from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS, normalizeBotContact } from "../shared/bot-profile.ts";
 import { SHARED_MEMORY_ID } from "./shared-agent-memory.ts";
 
@@ -14,6 +21,9 @@ export const BOT_PROFILE_PATCH_FIELDS = [
   "avatarUrl",
   "avatarCrop",
   "spirit",
+  "spiritPalette",
+  "spiritGeometry",
+  "spiritTemperament",
   "voice",
   "speakReplies",
   "email",
@@ -47,6 +57,9 @@ const profilePatchSchema = z.object({
     .optional(),
   avatarCrop: botAvatarCropSchema.optional(),
   spirit: z.union([botSpiritSchema, z.null()]).optional(),
+  spiritPalette: botSpiritPaletteSchema.optional(),
+  spiritGeometry: botSpiritGeometrySchema.optional(),
+  spiritTemperament: botSpiritTemperamentSchema.optional(),
   voice: z
     .string({ error: "voice must be a string" })
     .max(BOT_PROFILE_LIMITS.voice, { error: "voice must be at most 200 characters" })
@@ -84,6 +97,9 @@ export type BotProfilePatch = Partial<
     | "avatarUrl"
     | "avatarCrop"
     | "spirit"
+    | "spiritPalette"
+    | "spiritGeometry"
+    | "spiritTemperament"
     | "voice"
     | "speakReplies"
     | "email"

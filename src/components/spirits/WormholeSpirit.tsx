@@ -3,7 +3,7 @@ import type { BotAvatarState } from "../../../shared/bot-avatar";
 import "./agent-spirits.css";
 
 /**
- * Wormhole — Chief of Staff. A violet ribbon folded into an impossible loop:
+ * The Watcher — Chief of Staff. A violet ribbon folded into an impossible loop:
  * the sash threads over the ring and dives into the portal at its heart.
  * Calm and coordinating; thinking circles, working routes, success briefly
  * opens branching paths out of the portal.
@@ -12,7 +12,7 @@ export function WormholeSpirit({
   state = "idle",
   size = 44,
   animated = true,
-  label = "Wormhole spirit",
+  label = "The Watcher spirit",
 }: {
   state?: BotAvatarState;
   size?: number;

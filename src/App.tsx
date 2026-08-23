@@ -16,6 +16,8 @@ import { DesktopCapabilitiesProvider } from "@/components/DesktopCapabilities";
 import { RoutinesPage } from "@/components/RoutinesPage";
 import { NoEngines } from "@/components/NoEngines";
 import { CommandPalette } from "@/components/CommandPalette";
+import { AvatarAppearanceProvider } from "@/components/AvatarAppearance";
+import { NewAgentDialog } from "@/components/NewAgentDialog";
 
 function Shell() {
   const { state, dispatch } = useStore();
@@ -25,6 +27,7 @@ function Shell() {
   // turn the aside into a containing block for its fixed descendants (see
   // Sidebar.tsx's className comment).
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [newAgentOpen, setNewAgentOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const group = state.groups.find((g) => g.id === state.selectedId);
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? state.bots[0]);
@@ -47,7 +50,7 @@ function Shell() {
       const bots = state.bots.filter((b) => !b.hidden);
       if (e.key === "n" && !e.shiftKey) {
         e.preventDefault();
-        dispatch({ type: "newBot" });
+        setNewAgentOpen(true);
       } else if (/^[1-9]$/.test(e.key)) {
         const target = bots[Number(e.key) - 1];
         if (target) {
@@ -78,6 +81,7 @@ function Shell() {
   }, [state.selectedId, state.activeView, state.pluginsOpen, state.settingsOpen]);
 
   return (
+    <AvatarAppearanceProvider style={state.config?.appearance?.avatarStyle ?? "spirits"}>
     <div className="flex h-full flex-col">
       {/* fixed-position popup, bottom-left — outside the layout flow */}
       <UpdateBanner />
@@ -101,6 +105,7 @@ function Shell() {
       )}
       <Sidebar
         open={drawerOpen}
+        onNewAgent={() => setNewAgentOpen(true)}
         onClose={() => {
           setDrawerOpen(false);
           menuButtonRef.current?.focus();
@@ -135,8 +140,10 @@ function Shell() {
       {/* mounted after the modals: same z-50 tier, so DOM order keeps the
           palette on top when one of them is open underneath */}
       <CommandPalette />
+      {newAgentOpen && <NewAgentDialog onClose={() => setNewAgentOpen(false)} />}
       </div>
     </div>
+    </AvatarAppearanceProvider>
   );
 }
 

@@ -1,6 +1,6 @@
 # App Review notes
 
-OpenMausMobile is a companion for the OpenMausBot desktop application and does not use a developer-hosted login.
+Agent Room is a companion for the OpenMausBot desktop application and does not use a developer-hosted login.
 
 To review the app:
 

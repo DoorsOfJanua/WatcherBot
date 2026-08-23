@@ -24,6 +24,7 @@ function toolLabel(tool?: string): string {
     Edit: "edit a file",
     WebFetch: "fetch a web page",
     WebSearch: "search the web",
+    "email.send": "send this exact email once",
   };
   return nice[tool] ?? bare;
 }
@@ -71,7 +72,11 @@ export function ApprovalCard({
       <div className="mt-3 flex items-center gap-1.5 text-[13px] text-ink-secondary">
         {settled === "allow" ? (
           <>
-            <Check size={14} className="text-success" /> Allowed
+            <Check size={14} className="text-success" /> {card.tool === "email.send" ? "Approved and sent" : "Allowed"}
+          </>
+        ) : settled === "failed" ? (
+          <>
+            <X size={14} className="text-danger" /> Send not confirmed — approval locked
           </>
         ) : settled ? (
           <>

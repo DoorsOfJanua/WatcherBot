@@ -172,6 +172,14 @@ public struct Bot: Codable, Hashable, Identifiable, Sendable {
     public var description: String
     public var notifications: Bool
     public var color: String
+    /// Optional authored identity used by Agent Room's native spirit renderer.
+    /// These stay as strings so a newer desktop can add values without making
+    /// an older phone reject the entire fleet response.
+    public var sharedMemoryId: String? = nil
+    public var spirit: String? = nil
+    public var spiritPalette: String? = nil
+    public var spiritGeometry: String? = nil
+    public var spiritTemperament: String? = nil
     /// An app-owned `/api/attachments/:name` URL. The URL is intentionally
     /// relative so every paired device fetches it from its own computer.
     public var avatarUrl: String?
@@ -416,6 +424,42 @@ public struct ConfigStatus: Codable, Sendable {
 }
 
 // MARK: - Agent profiles, voices, routines, and notifications
+
+/// The identity authored while creating an Agent Room teammate.
+///
+/// These values intentionally stay as strings. The desktop owns the shared
+/// spirit vocabulary and an older phone should still be able to send a newer
+/// value without coupling creation to an app release.
+public struct NewAgentProfile: Encodable, Equatable, Sendable {
+    public var name: String
+    public var title: String
+    public var description: String
+    public var spirit: String
+    public var spiritPalette: String
+    public var spiritGeometry: String
+    public var spiritTemperament: String
+    public var color: String
+
+    public init(
+        name: String,
+        title: String = "",
+        description: String = "",
+        spirit: String,
+        spiritPalette: String = "native",
+        spiritGeometry: String = "native",
+        spiritTemperament: String = "native",
+        color: String
+    ) {
+        self.name = name
+        self.title = title
+        self.description = description
+        self.spirit = spirit
+        self.spiritPalette = spiritPalette
+        self.spiritGeometry = spiritGeometry
+        self.spiritTemperament = spiritTemperament
+        self.color = color
+    }
+}
 
 public struct BotProfilePatch: Encodable, Sendable {
     /// `nil` means "leave the field alone". Profile actions deliberately send

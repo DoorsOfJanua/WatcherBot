@@ -1,4 +1,4 @@
-OpenMausMobile is the private iPhone companion for OpenMausBot on your computer.
+Agent Room is the private iPhone companion for the OpenMausBot team on your computer.
 
 Keep your AI team moving when you step away from your desk:
 
@@ -13,7 +13,7 @@ Keep your AI team moving when you step away from your desk:
 
 YOUR COMPUTER STAYS IN CHARGE
 
-OpenMausMobile connects directly to the companion service on your own computer. Your bot transcripts remain in OpenMausBot’s local storage; this app does not upload a cloud copy to the developer.
+Agent Room connects directly to the companion service on your own computer. Your bot transcripts remain in OpenMausBot’s local storage; this app does not upload a cloud copy to the developer.
 
 PAIR ONCE, REVOKE ANY TIME
 

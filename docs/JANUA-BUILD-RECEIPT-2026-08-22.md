@@ -34,8 +34,12 @@
   they do not grant sending authority or store provider credentials.
 - Added durable, exact external-action receipts: an approval is bound to the SHA-256 hash of one
   payload, expires, records the approving identity and time, can be claimed once, and preserves the
-  first provider receipt idempotently. Provider send adapters and the review UI are deliberately not
-  connected yet.
+  first provider receipt idempotently.
+- Connected Mailman's first complete external-action vertical slice: the mailroom-only model tool
+  freezes a normalized email, opens the same review card on desktop and iPhone, and invokes the
+  existing Gmail/Proton gateway only after the exact receipt is approved and synchronously claimed.
+  Delivery success returns the provider message id; ambiguous failures remain claimed and require a
+  Sent-folder check rather than an unsafe automatic retry.
 - Added the Threshold Spirits identity direction and the Rive animation contract under `docs/`.
 
 ## Shared relationship memory wave
@@ -71,6 +75,19 @@
 - Identity-wave typecheck, production build, and `git diff --check`: passed.
 - Headless Chrome visual acceptance: Mailman's original animated character renders in the live
   Agent profile and can be selected independently of the inherited mascot.
+- Mail exact-action tests: 11 receipt/coordinator tests passed, including denial, replay, header
+  injection, attachment refusal, private persistence, and ambiguous-provider locking.
+- Codex MCP protocol tests: 37 tests passed across the driver and exact-action suites. The current
+  `mcpServer/elicitation/request` action/content envelope is pinned, and Mailman's local staging tool
+  no longer creates a confusing approval before the real send approval.
+- Full real-server HTTP suite: 80/80 passed. Production renderer build passed.
+- Paired-phone companion suite: 177/177 passed. This pass also corrected a pre-existing Node
+  strip-only incompatibility in the new APNs helper that would otherwise break the companion on its
+  next restart.
+- Live rehearsal: Mailman staged `WATCHERBOT APPROVAL TEST` from the send-enabled Proton account to
+  the Gmail inbox, producing a complete frozen review card. The test was denied; both durable files
+  are mode `0600`, the receipt is permanently invalidated, and no provider receipt exists. Nothing
+  was sent.
 
 ## Live vertical proof
 
@@ -88,9 +105,11 @@
 
 ## Honest blockers before cutover
 
-- Exact hash-bound external action receipts and the one-shot claim gate now exist inside MyAgent
-  Room. The human review card and real email/WhatsApp/phone provider adapters are not wired to that
-  gate yet, so do not treat an in-chat “approved” message as permission to transmit from this fork.
+- Mailman's exact review → approval → one-shot send → provider-receipt path is wired. WhatsApp and
+  phone actions still have no provider adapter and remain receipt-foundation only.
+- `nils.palmen@protonmail.com` is the currently send-enabled Mailman identity.
+  `doorsofjanua@gmail.com` remains read-only until Gmail OAuth is granted a send/compose scope; the
+  harness refuses to stage it as a sender rather than failing after approval.
 - The live test proved Codex user plugins can remain available even when the OpenMaus Composio flag
   is off. Provider-native plugin/MCP isolation or an explicit allowlist is required before
   unattended operation.

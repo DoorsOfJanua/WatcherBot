@@ -1,4 +1,4 @@
-Welcome to OpenMausMobile 1.0.
+Welcome to Agent Room 1.0.
 
 • Pair securely with your OpenMausBot computer
 • Chat with bots and rooms

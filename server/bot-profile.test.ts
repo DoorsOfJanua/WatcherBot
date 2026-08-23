@@ -44,6 +44,20 @@ describe("parseBotProfilePatch (strict — the paired boundary)", () => {
     expect(parseBotProfilePatch({ spirit: "cursor" } as never, true).ok).toBe(false);
   });
 
+  it("accepts the spirit palette, geometry, and emotional range", () => {
+    expect(parseBotProfilePatch({
+      spiritPalette: "rose",
+      spiritGeometry: "constellation",
+      spiritTemperament: "playful",
+    }, true)).toEqual({
+      ok: true,
+      patch: { spiritPalette: "rose", spiritGeometry: "constellation", spiritTemperament: "playful" },
+    });
+    expect(parseBotProfilePatch({ spiritPalette: "radioactive" } as never, true).ok).toBe(false);
+    expect(parseBotProfilePatch({ spiritGeometry: "triangle" } as never, true).ok).toBe(false);
+    expect(parseBotProfilePatch({ spiritTemperament: "random" } as never, true).ok).toBe(false);
+  });
+
   it("accepts, normalizes, and clears public contact labels", () => {
     expect(parseBotProfilePatch({
       email: "  Agent@Example.COM ",

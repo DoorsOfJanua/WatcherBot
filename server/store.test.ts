@@ -68,6 +68,17 @@ describe("Store", () => {
     expect(first.color).not.toBe(second.color);
   });
 
+  it("gives every new agent a living spirit and preserves an authored choice", () => {
+    const store = new Store(selection);
+    const first = store.createBot();
+    const second = store.createBot();
+    const authored = store.createBot({ spirit: "forge" });
+
+    expect(first.spirit).toBe("wormhole");
+    expect(second.spirit).toBe("sensei");
+    expect(authored.spirit).toBe("forge");
+  });
+
   it("defaults a room to its first member and repairs the lead when membership changes", () => {
     const store = new Store(selection);
     const first = store.createBot();

@@ -30,7 +30,7 @@ MYAGENT_ROOM_URL=http://127.0.0.1:8799 pnpm bootstrap:janua
 ```
 
 The bootstrap is idempotent. It imports personas, selects the intended Claude/Codex models,
-makes Wormhole Chief of Staff, creates the room, and explicitly leaves computers and connected
+makes The Watcher Chief of Staff, creates the room, and explicitly leaves computers and connected
 apps off. It refuses to guess if it finds a partial or duplicate core roster.
 
 The project registry defaults to `/Users/janua/.myagent-room/project-registry.json`. Override it
@@ -44,7 +44,7 @@ MYAGENT_PROJECT_REGISTRY=/absolute/path/project-registry.json
 
 1. Start with a fresh test data directory and the test project registry.
 2. Create or import the Janua core team without granting connected apps or computer access.
-3. Tell Wormhole: `Open Farmada and tell me the current next action.`
+3. Tell The Watcher: `Open Farmada and tell me the current next action.`
 4. In the same thread say only: `continue`.
 5. Confirm both responses use the same Farmada project state and do not ask for a re-explanation.
 6. Simulate a mailbox result of zero matches. Confirm the agent reports the failed search but

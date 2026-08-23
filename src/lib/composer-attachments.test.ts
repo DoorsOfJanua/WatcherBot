@@ -1,14 +1,17 @@
 // composeMessage with images, the image tag round-trip through
 // splitAttachedImages, and the mime gate the composer pastes through.
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   attachmentBasename,
   composeMessage,
+  fileAttachmentFromFile,
   isImageFile,
   splitAttachedImages,
   type ImageAttachment,
 } from "./composer-attachments";
+
+afterEach(() => vi.unstubAllGlobals());
 
 const image = (path: string): ImageAttachment => ({
   kind: "image",
@@ -76,3 +79,33 @@ describe("isImageFile", () => {
   });
 });
 
+describe("fileAttachmentFromFile", () => {
+  it("keeps the existing path in the desktop shell without uploading", async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const file = new File(["hello"], "notes.md", { type: "text/markdown" });
+    const attachment = await fileAttachmentFromFile(file, () => "/Users/janua/notes.md");
+    expect(attachment).toMatchObject({ kind: "file", name: "notes.md", path: "/Users/janua/notes.md" });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("uploads a phone/browser file and returns the host-readable path", async () => {
+    const fetcher = vi.fn(async () =>
+      new Response(JSON.stringify({ path: "/host/attachments/abc.pdf", bytes: 5 }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const file = new File(["hello"], "My brief.pdf", { type: "application/pdf" });
+    const attachment = await fileAttachmentFromFile(file);
+    expect(attachment).toMatchObject({ kind: "file", name: "My brief.pdf", path: "/host/attachments/abc.pdf", size: 5 });
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/file-attachments",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "x-attachment-filename": "My%20brief.pdf" }),
+      }),
+    );
+  });
+});

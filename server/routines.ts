@@ -311,6 +311,46 @@ export class RoutineManager {
     if (changed) this.save();
   }
 
+  /** Latching half of the fleet emergency stop. Scheduled definitions stay
+   * paused until the person explicitly enables them again; active and queued
+   * receipts remain as an honest cancelled history rather than disappearing. */
+  async pauseAll(reason = "Emergency stop pressed"): Promise<{
+    pausedRoutines: number;
+    cancelledRuns: number;
+    interruptedRuns: number;
+  }> {
+    let pausedRoutines = 0;
+    let cancelledRuns = 0;
+    const interrupts: Promise<void>[] = [];
+    const at = this.now();
+
+    for (const routine of this.routines) {
+      if (!routine.enabled) continue;
+      routine.enabled = false;
+      routine.nextRunAt = null;
+      routine.updatedAt = at;
+      this.emitRoutine(routine);
+      pausedRoutines += 1;
+    }
+    for (const run of this.runs) {
+      if (!["queued", "running", "waiting"].includes(run.status)) continue;
+      const wasActive = run.status === "running" || run.status === "waiting";
+      run.status = "cancelled";
+      run.finishedAt = at;
+      run.error = reason.slice(0, 500);
+      this.emitRun(run);
+      cancelledRuns += 1;
+      if (wasActive && run.threadId && this.options.interruptTurn) {
+        interrupts.push(
+          this.options.interruptTurn(run.botId, run.threadId, run.runOn ?? "maus").catch(() => {}),
+        );
+      }
+    }
+    if (pausedRoutines || cancelledRuns) this.save();
+    await Promise.allSettled(interrupts);
+    return { pausedRoutines, cancelledRuns, interruptedRuns: interrupts.length };
+  }
+
   runNow(id: string): RoutineRun | null {
     const routine = this.routines.find((r) => r.id === id);
     if (!routine) return null;

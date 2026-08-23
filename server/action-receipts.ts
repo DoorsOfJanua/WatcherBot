@@ -209,6 +209,17 @@ export class ActionReceiptStore {
     receipt.approvedBy = approvedBy.trim(); receipt.approvedAt = at; receipt.execution = { state: "approved" }; this.save(); return this.output(receipt);
   }
 
+  /** Permanently close an unexecuted receipt (for a human denial/cancel). */
+  invalidate(id: string, contentHash: string): ActionReceipt {
+    const receipt = this.find(id); this.checkHash(receipt, contentHash);
+    if (receipt.execution.state === "consumed" || receipt.execution.state === "claimed") return this.output(receipt);
+    if (receipt.execution.state === "invalidated") return this.output(receipt);
+    if (receipt.execution.state === "expired") throw new ActionReceiptError("receipt has expired", "expired");
+    receipt.execution = { ...receipt.execution, state: "invalidated", invalidatedAt: this.nowIso() };
+    this.save();
+    return this.output(receipt);
+  }
+
   /** The one-shot execution gate; every later caller is rejected. */
   claim(id: string, contentHash: string): ActionReceipt {
     const receipt = this.find(id); this.checkHash(receipt, contentHash);

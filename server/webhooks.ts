@@ -446,6 +446,22 @@ export class WebhookManager {
     if (changed) this.save();
   }
 
+  /** Pause every event entrance during a fleet emergency stop. Secrets and
+   * definitions remain intact, so each trigger can be reviewed and resumed. */
+  pauseAll(message = "Emergency stop pressed"): number {
+    let paused = 0;
+    for (const trigger of this.webhooks) {
+      if (!trigger.enabled) continue;
+      trigger.enabled = false;
+      trigger.updatedAt = this.now();
+      this.options.cancelQueued?.(trigger.id, message);
+      this.emit(trigger);
+      paused += 1;
+    }
+    if (paused) this.save();
+    return paused;
+  }
+
   authorize(endpointId: string, secret: string): boolean {
     const trigger = this.webhooks.find((candidate) => candidate.endpointId === endpointId);
     return Boolean(trigger && secretMatches(secret, trigger.secretHash));

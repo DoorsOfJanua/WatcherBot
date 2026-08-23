@@ -22,7 +22,7 @@ export interface ProxyOptions {
   /** Where the harness is listening on loopback. */
   harnessPort: number;
   /** Does this bearer token belong to a paired device? */
-  authenticate: (token: string | undefined) => { cloudDesktopAccess: boolean } | null;
+  authenticate: (token: string | undefined) => { id?: string; cloudDesktopAccess: boolean } | null;
   /** Redeem a pairing code. Handled here and never forwarded: the harness
    * has no such route and no idea devices exist — pairing is the sidecar's
    * own concern, and the one thing a device does before it has a token. */
@@ -40,6 +40,10 @@ export interface ProxyOptions {
   /** How long the harness may take to produce response *headers*. Optional,
    * and only ever set by tests — the default is the one that ships. */
   headersTimeoutMs?: number;
+  registerPush?: (deviceId: string, token: unknown, environment: unknown) => boolean;
+  unregisterPush?: (deviceId: string) => boolean;
+  deviceStreamOpened?: (deviceId: string) => void;
+  deviceStreamClosed?: (deviceId: string) => void;
 }
 
 /** The harness has this long to send a status line and headers.
@@ -183,6 +187,33 @@ export function createProxyHandler(options: ProxyOptions) {
         (error: Error) => sendJson(res, 400, { error: error.message }),
       );
       return;
+    }
+
+    // Push registration belongs to the sidecar, not the harness. It is tied
+    // to the device selected by the bearer token; no request body may choose
+    // another paired phone's record.
+    if (method === "POST" && path === "/api/push/register") {
+      readJson(req).then(
+        (body) => {
+          if (!device?.id || !options.registerPush) return sendJson(res, 503, { error: "push is not configured" });
+          if (!options.registerPush(device.id, body.token, body.environment)) {
+            return sendJson(res, 400, { error: "invalid APNs registration" });
+          }
+          return sendJson(res, 200, { ok: true });
+        },
+        (error: Error) => sendJson(res, 400, { error: error.message }),
+      );
+      return;
+    }
+    if (method === "DELETE" && path === "/api/push/register") {
+      if (!device?.id || !options.unregisterPush) return sendJson(res, 503, { error: "push is not configured" });
+      options.unregisterPush(device.id);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (method === "GET" && path === "/api/events" && device?.id) {
+      const deviceId = device.id;
+      options.deviceStreamOpened?.(deviceId);
+      res.once("close", () => options.deviceStreamClosed?.(deviceId));
     }
 
     const upstream = httpRequest(

@@ -105,3 +105,41 @@ describe("cross-client bot creation", () => {
     expect(greeted.bots[0]?.messages).toEqual([greeting]);
   });
 });
+
+describe("spirit reactions", () => {
+  const message = {
+    id: "answer-1",
+    role: "bot",
+    kind: "text",
+    text: "Done.",
+    at: 2,
+  } satisfies Message;
+  const bot = {
+    id: "mailman",
+    threadId: "mail-thread",
+    name: "Mailman",
+    title: "Operations",
+    description: "Fast, cheerful mail operations.",
+    notifications: true,
+    color: "red",
+    unread: false,
+    modelSelection: { instanceId: "codex", model: "default" },
+    messages: [message],
+  } satisfies Bot;
+
+  it("reacts when the user adds and removes an emoji", () => {
+    const added = reducer(
+      { ...initialState, bots: [bot] },
+      { type: "toggleReaction", threadId: bot.threadId, messageId: message.id, emoji: "❤️" },
+    );
+    expect(added.mascotMotion).toEqual({ botId: bot.id, nonce: 1, kind: "customize" });
+
+    const removed = reducer(added, {
+      type: "toggleReaction",
+      threadId: bot.threadId,
+      messageId: message.id,
+      emoji: "❤️",
+    });
+    expect(removed.mascotMotion).toEqual({ botId: bot.id, nonce: 2, kind: "blink" });
+  });
+});

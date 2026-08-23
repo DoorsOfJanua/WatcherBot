@@ -2,8 +2,8 @@
 //
 // One Live Activity per bot that is doing something — needs you, or working
 // — started, updated and ended from the same `updates` the pill reads. The
-// stream is foreground-only and there is no push path yet, so the island is
-// exact while the app is alive and goes quiet with it; iOS keeps the last
+// the activity itself is exact while the app is alive; ordinary APNs alerts
+// cover closed-app events. iOS keeps the last
 // state on screen for a while, then the activity is ended on the next
 // launch if the bot has moved on.
 import ActivityKit
@@ -65,7 +65,16 @@ final class LiveActivityCoordinator {
                 let newAsk = update.kind == .needsYou && lastSent[bot.id]?.requestId != content.requestId
                 Task { await activity.update(.init(state: content, staleDate: nil), alertConfiguration: newAsk ? alert : nil) }
             } else {
-                let attributes = BotActivityAttributes(botId: bot.id, threadId: bot.threadId, name: bot.name, color: bot.color)
+                let attributes = BotActivityAttributes(
+                    botId: bot.id,
+                    threadId: bot.threadId,
+                    name: bot.name,
+                    color: bot.color,
+                    spirit: SpiritKind.forBot(bot)?.rawValue,
+                    spiritPalette: bot.spiritPalette,
+                    spiritGeometry: bot.spiritGeometry,
+                    spiritTemperament: bot.spiritTemperament
+                )
                 _ = try? Activity.request(attributes: attributes, content: .init(state: content, staleDate: nil), pushType: nil)
                 // a fresh activity cannot alert on request; one immediate alerting update does it
                 if let alert, let activity = Activity<BotActivityAttributes>.activities.first(where: { $0.attributes.botId == bot.id }) {

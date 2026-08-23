@@ -24,6 +24,7 @@ import {
   RefreshCw,
   Search,
   Settings,
+  Square,
   Puzzle,
   Trash2,
   Users,
@@ -31,7 +32,7 @@ import {
 } from "lucide-react";
 import { api, useStore, formatTime, visibleMessages, type Bot, type Group } from "@/state/store";
 
-import { BotAvatar, InitialsAvatar } from "./Avatar";
+import { BotAvatar, UserAvatar } from "./Avatar";
 import { stateForBot } from "@/lib/mascot";
 import { useUpdaterState } from "@/lib/updater";
 import { cn } from "@/lib/cn";
@@ -46,6 +47,17 @@ import {
   saveSidebarDensity,
   type SidebarDensity,
 } from "@/lib/sidebar-preferences";
+
+interface EmergencyStopResult {
+  stopped?: {
+    turns?: number;
+    queuedMessages?: number;
+    queuedDelegations?: number;
+    pausedRoutines?: number;
+    cancelledRuns?: number;
+    pausedWebhooks?: number;
+  };
+}
 
 /** "Milind Soni" → "MS", "milind" → "M", "you@x.dev" → "Y", unset → "?" */
 function profileInitials(profile?: { name?: string; email?: string }): string {
@@ -186,7 +198,7 @@ function StackedMauses({ members, density }: { members: Bot[]; density: SidebarD
     <div className={cn("flex shrink-0 items-center justify-center", slotSize)}>
       <div className="flex items-center -space-x-3">
         {shown.map((b) => (
-          <BotAvatar key={b.id} bot={b} state="happy" size={30} />
+          <BotAvatar key={b.id} bot={b} state="happy" size={34} />
         ))}
         {extra > 0 && (
           <span className="z-10 flex size-[22px] items-center justify-center rounded-full border border-hairline/40 bg-raised text-[10px] font-medium text-ink-secondary">
@@ -411,7 +423,7 @@ function NewRoomPanel({ onClose }: { onClose: () => void }) {
               onClick={() => toggle(b.id)}
               className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-raised/50"
             >
-              <BotAvatar bot={b} state="happy" size={28} />
+              <BotAvatar bot={b} state="happy" size={34} />
               <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{b.name}</span>
               <span
                 className={cn(
@@ -714,7 +726,7 @@ function BotListItem({
   useEffect(() => {
     if (iconOnly) setRenaming(false);
   }, [iconOnly]);
-  const avatarSize = iconOnly ? 44 : density === "compact" ? 40 : 56;
+  const avatarSize = iconOnly ? 48 : density === "compact" ? 46 : 62;
   // the visible branch, so a version switch changes the row with the chat
   const visible = visibleMessages(bot);
   const last = visible.at(-1);
@@ -969,7 +981,15 @@ function ArchivedBotsPanel({
   );
 }
 
-export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function Sidebar({
+  open,
+  onClose,
+  onNewAgent,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onNewAgent: () => void;
+}) {
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
   const importReturnRef = useRef<HTMLButtonElement>(null);
@@ -994,6 +1014,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     return saved === "icons" ? "comfortable" : saved;
   });
   const [densityOpen, setDensityOpen] = useState(false);
+  const [stoppingAll, setStoppingAll] = useState(false);
 
   const setDensity = (next: SidebarDensity) => {
     setDensityState(next);
@@ -1055,6 +1076,78 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       });
     } finally {
       setExportingTeam(false);
+    }
+  };
+
+  const stopAllAgentWork = async () => {
+    if (stoppingAll) return;
+    setStoppingAll(true);
+    setTeamFeedback(null);
+    try {
+      let result: EmergencyStopResult;
+      try {
+        result = await api("/api/emergency-stop", { method: "POST", body: "{}" });
+      } catch {
+        // The development renderer hot-reloads without restarting the harness.
+        // Keep the switch useful in that mixed-version window by composing the
+        // older, already-supported stop/pause endpoints. The single endpoint
+        // takes over automatically on the next app launch.
+        const pauseResults = await Promise.allSettled([
+          ...state.routines
+            .filter((routine) => routine.enabled)
+            .map((routine) => api(`/api/routines/${routine.id}`, {
+              method: "PATCH",
+              body: JSON.stringify({ enabled: false }),
+            })),
+          ...state.webhooks
+            .filter((webhook) => webhook.enabled)
+            .map((webhook) => api(`/api/webhooks/${webhook.id}`, {
+              method: "PATCH",
+              body: JSON.stringify({ enabled: false }),
+            })),
+        ]);
+        const runResults = await Promise.allSettled(
+          state.routineRuns
+            // Pausing a routine/webhook already cancels queued receipts. Only
+            // live provider turns still need their explicit cancel endpoint.
+            .filter((run) => ["running", "waiting"].includes(run.status))
+            .map((run) => api(`/api/routine-runs/${run.id}/cancel`, { method: "POST", body: "{}" })),
+        );
+        const turnResults = await Promise.allSettled([
+          ...state.groups.map((group) => api(`/api/groups/${group.id}/interrupt`, { method: "POST", body: "{}" })),
+          ...state.bots.map((bot) => api(`/api/bots/${bot.id}/interrupt`, { method: "POST", body: "{}" })),
+        ]);
+        const failures = [...pauseResults, ...runResults, ...turnResults].filter((item) => item.status === "rejected");
+        if (failures.length) throw new Error(`Stop reached most agents, but ${failures.length} control request${failures.length === 1 ? "" : "s"} failed`);
+        result = {
+          stopped: {
+            turns: new Set([
+              ...state.bots.filter((bot) => bot.busy).map((bot) => bot.id),
+              ...state.groups.map((group) => group.busyBotId).filter(Boolean),
+            ]).size,
+            pausedRoutines: state.routines.filter((routine) => routine.enabled).length,
+            cancelledRuns: state.routineRuns.filter((run) => ["queued", "running", "waiting"].includes(run.status)).length,
+            pausedWebhooks: state.webhooks.filter((webhook) => webhook.enabled).length,
+          },
+        };
+      }
+      const stopped = result.stopped ?? {};
+      const turns = stopped.turns ?? 0;
+      const automations = (stopped.pausedRoutines ?? 0) + (stopped.pausedWebhooks ?? 0);
+      const queues = (stopped.queuedMessages ?? 0) + (stopped.queuedDelegations ?? 0) + (stopped.cancelledRuns ?? 0);
+      const details = [
+        turns ? `${turns} active ${turns === 1 ? "turn" : "turns"}` : "all agents idle",
+        automations ? `${automations} ${automations === 1 ? "automation" : "automations"} paused` : "automations paused",
+        queues ? `${queues} queued ${queues === 1 ? "item" : "items"} cancelled` : "",
+      ].filter(Boolean);
+      setTeamFeedback({ error: false, text: `Stopped · ${details.join(" · ")}` });
+    } catch (cause) {
+      setTeamFeedback({
+        error: true,
+        text: cause instanceof Error ? cause.message : String(cause),
+      });
+    } finally {
+      setStoppingAll(false);
     }
   };
 
@@ -1278,6 +1371,35 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           >
             <Plus size={20} strokeWidth={2} />
           </button>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            aria-label="Refresh Agent Room"
+            className="flex size-10 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-raised hover:text-ink"
+            title="Refresh conversations and status without stopping agent work"
+          >
+            <RefreshCw size={17} />
+          </button>
+          <button
+            type="button"
+            onClick={() => void stopAllAgentWork()}
+            disabled={stoppingAll}
+            aria-label="Stop all agent work"
+            className={cn(
+              "relative flex size-10 items-center justify-center rounded-md transition-colors",
+              stoppingAll
+                ? "cursor-wait bg-danger/10 text-danger"
+                : "text-ink-secondary hover:bg-danger/10 hover:text-danger",
+            )}
+            title="Emergency stop — stop every agent and pause automations. Messages, memory, and files stay safe."
+          >
+            {stoppingAll ? <Loader2 size={18} className="animate-spin" /> : <Square size={16} className="fill-current" />}
+            {!stoppingAll && (
+              state.bots.some((bot) => bot.busy) ||
+              state.groups.some((group) => Boolean(group.busyBotId)) ||
+              state.routineRuns.some((run) => ["queued", "running", "waiting"].includes(run.status))
+            ) && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-danger" />}
+          </button>
           {plusOpen && (
             <>
               <div className="fixed inset-0 z-30" onMouseDown={() => setPlusOpen(false)} />
@@ -1289,12 +1411,12 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                   onClick={() => {
                     setPlusOpen(false);
                     track("bot_created");
-                    dispatch({ type: "newBot" });
+                    onNewAgent();
                   }}
                   className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
                 >
                   <BotIcon size={16} className="text-ink-secondary" />
-                  New Bot
+                  New Agent
                 </button>
                 <button
                   onClick={() => {
@@ -1446,7 +1568,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             aria-label={density === "icons" ? "App settings" : undefined}
             title={density === "icons" ? (state.config?.profile?.name?.trim() || "App settings") : undefined}
           >
-            <InitialsAvatar initials={profileInitials(state.config?.profile)} size={28} />
+            <UserAvatar initials={profileInitials(state.config?.profile)} size={34} />
             <span className={cn("truncate text-[14px] text-ink", density === "icons" && "hidden")}>
               {state.config?.profile?.name?.trim() || state.config?.profile?.email?.trim() || "You"}
             </span>

@@ -1,6 +1,6 @@
-// A room: several bots + you in one shared thread. The sidebar and call view
-// carry the personality; avatars inside the room stay still so a busy group
-// does not become a wall of competing motion. Plain messages go to the room's
+// A room: several bots + you in one shared thread. The compact header carries
+// each spirit's quiet personality and current reaction without turning the
+// transcript into a wall of competing motion. Plain messages go to the room's
 // default responder; @mentions override that routing.
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ChevronDown, Folder, FolderOpen, Pin, PinOff, X } from "lucide-react";
@@ -14,7 +14,7 @@ import {
   type GroupDefaultResponder,
   type Message,
 } from "@/state/store";
-import { MausAvatar } from "./Avatar";
+import { BotAvatar, MausAvatar } from "./Avatar";
 import { normalizeState } from "@/lib/mascot";
 import { effectiveDefaultResponder, groupResponseHint } from "@/lib/group-routing";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -47,18 +47,15 @@ function dayLabel(at: number): string {
   return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 }
 
-/** 16px maus + name, shown once per sender cluster. */
-function ClusterLabel({ bot, name, color }: { bot?: Bot; name: string; color: string }) {
+/** Small, still identity + name, shown once per sender cluster. */
+function ClusterLabel({ bot, name }: { bot?: Bot; name: string }) {
   return (
     <div className="mt-1 flex items-center gap-1.5 pl-0.5">
-      <MausAvatar
-        color={(bot?.color ?? color) as Bot["color"]}
-        state={normalizeState(bot?.mascotExpression) ?? "happy"}
-        size={16}
-        motion="none"
-        motionKey={0}
-        animated={false}
-      />
+      {bot ? (
+        <BotAvatar bot={bot} state={normalizeState(bot.mascotExpression) ?? "happy"} size={22} animated={false} />
+      ) : (
+        <MausAvatar color="green" state="happy" size={18} animated={false} />
+      )}
       <span className="text-[11px] font-medium text-ink-secondary">{name}</span>
     </div>
   );
@@ -159,7 +156,7 @@ const Transcript = memo(function Transcript({
               </div>
             )}
             {!user && m.from && newCluster && (
-              <ClusterLabel bot={memberOf(m.from.botId)} name={m.from.name} color={m.from.color} />
+              <ClusterLabel bot={memberOf(m.from.botId)} name={m.from.name} />
             )}
             {row}
           </div>
@@ -471,7 +468,7 @@ export function GroupView({ group }: { group: Group }) {
   return (
     <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
       <GroupCallOverlay group={group} members={members} />
-      {/* Header: static member mauses; a ring + dot marks the working bot. */}
+      {/* Header: living member spirits; a ring + dot marks the working bot. */}
       <div
         className={cn(
           "flex items-center justify-between px-5 py-3",
@@ -486,26 +483,32 @@ export function GroupView({ group }: { group: Group }) {
           <GroupCallButton group={group} members={members} />
           {!group.dm && <RoomWorkingFolderChip group={group} onToggle={() => setFolderOpen((open) => !open)} />}
           {!group.dm && <DefaultResponderSelect group={group} members={members} />}
-          {members.map((b) => (
-            <span
-              key={b.id}
-              title={`${b.name}${group.busyBotId === b.id ? " — working…" : ""}`}
-              className={cn(
-                "relative inline-flex rounded-full",
-                group.busyBotId === b.id && "ring-2 ring-accent/50 ring-offset-1 ring-offset-app",
-              )}
-            >
-              <MausAvatar
-                color={b.color}
-                state={normalizeState(b.mascotExpression) ?? "happy"}
-                size={24}
-                animated={false}
-              />
-              {group.busyBotId === b.id && (
-                <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full border border-app bg-accent" />
-              )}
-            </span>
-          ))}
+          {members.map((b) => {
+            const activeMotion = state.mascotMotion?.botId === b.id ? state.mascotMotion : null;
+            const working = group.busyBotId === b.id;
+            return (
+              <span
+                key={b.id}
+                title={`${b.name}${working ? " — working…" : ""}`}
+                className={cn(
+                  "relative inline-flex rounded-full",
+                  working && "ring-2 ring-accent/50 ring-offset-1 ring-offset-app",
+                )}
+              >
+                <BotAvatar
+                  bot={b}
+                  state={working ? "working" : normalizeState(b.mascotExpression) ?? "happy"}
+                  size={32}
+                  animated
+                  motion={activeMotion?.kind ?? (working ? "working" : "none")}
+                  motionKey={activeMotion?.nonce ?? 0}
+                />
+                {working && (
+                  <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full border border-app bg-accent" />
+                )}
+              </span>
+            );
+          })}
         </div>
       </div>
 
@@ -622,13 +625,11 @@ export function GroupView({ group }: { group: Group }) {
             <div className="flex flex-1 flex-col items-center justify-center gap-3 py-24 text-center">
               <div className="flex -space-x-2">
                 {members.slice(0, 3).map((b) => (
-                  <MausAvatar
+                  <BotAvatar
                     key={b.id}
-                    color={b.color}
+                    bot={b}
                     state="happy"
-                    size={44}
-                    motion="none"
-                    motionKey={0}
+                    size={52}
                     animated={false}
                   />
                 ))}
@@ -662,7 +663,7 @@ export function GroupView({ group }: { group: Group }) {
           )}
           {speaker && showWorkingDots(true, streaming, group.messages.at(-1), speaker.id) && (
             <>
-              <ClusterLabel bot={speaker} name={speaker.name} color={speaker.color} />
+              <ClusterLabel bot={speaker} name={speaker.name} />
               <div className="flex justify-start">
                 <div className="flex items-center gap-1.5 rounded-2xl bg-raised px-4 py-3">
                   <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:0ms]" />
@@ -674,7 +675,7 @@ export function GroupView({ group }: { group: Group }) {
           )}
           {speaker && streaming && (
             <>
-              <ClusterLabel bot={speaker} name={speaker.name} color={speaker.color} />
+              <ClusterLabel bot={speaker} name={speaker.name} />
               <StreamingBubble text={streaming} />
             </>
           )}

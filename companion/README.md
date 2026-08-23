@@ -105,12 +105,23 @@ it is switched on, so the opt-in is never implicit.
 | `OMB_CONTROL_PORT` | `8811` | the pairing page, loopback only |
 | `OMB_COMPANION_DIR` | `~/.openmausbot-companion` | paired devices live here |
 | `OMB_COMPANION_NAME` | your name, from the harness | what the phone calls this computer |
+| `OMB_APNS_TEAM_ID` | unset | Apple Developer team id; enables closed-app push with the other APNs values |
+| `OMB_APNS_KEY_ID` | unset | Apple Push Notification authentication key id |
+| `OMB_APNS_PRIVATE_KEY_PATH` | unset | local path to the `.p8` APNs key; `OMB_APNS_PRIVATE_KEY` may hold it inline instead |
+| `OMB_APNS_BUNDLE_ID` | `com.doorsofjanua.agentroom` | the signed Agent Room app topic |
 
 `OMB_COMPANION_NAME` overrides a name the sidecar otherwise asks the harness
 for at startup — the profile from onboarding, as *"Ada's computer"*. It falls
 back to `OpenMausBot` when the harness is not up or has no profile. Read once
 and cached: the name goes into the Bonjour record, and re-advertising under a
 new one later would show the phone two computers.
+
+When all three APNs credentials are present, the sidecar keeps a resumable
+loopback event stream and sends ordinary alert pushes directly to Apple. It
+does not open an internet listener or send transcripts to a hosted relay.
+The iPhone registers its APNs token through the authenticated device port;
+the token is kept out of the control UI and removed automatically when APNs
+reports it invalid. A foreground app stream suppresses duplicate pushes.
 
 The harness owns two ports, not one: itself, and a webhook receiver one above
 it (`OMB_WEBHOOK_PORT`). The companion refuses to start on either and says

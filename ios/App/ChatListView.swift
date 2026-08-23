@@ -20,6 +20,7 @@ struct ChatListView: View {
     @State private var searching = false
     @State private var searchOpen = false
     @State private var showingUpdates = false
+    @State private var showingNewAgent = false
     @State private var showingNewGroup = false
     @FocusState private var searchFocused: Bool
 
@@ -37,7 +38,7 @@ struct ChatListView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if query.isEmpty {
                             groupsStrip
-                            sectionLabel("Bots")
+                            sectionLabel("Agents")
                                 .padding(.top, 18)
                                 .padding(.bottom, 4)
                         }
@@ -88,11 +89,11 @@ struct ChatListView: View {
                 .overlay {
                     if chats.isEmpty && searchHits.isEmpty {
                         ContentUnavailableView(
-                            query.isEmpty ? "No bots yet" : "Nothing matches",
-                            systemImage: query.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass",
+                            query.isEmpty ? "No agents yet" : "Nothing matches",
+                            systemImage: query.isEmpty ? "sparkles" : "magnifyingglass",
                             description: Text(
                                 query.isEmpty
-                                    ? "Bots you create on your computer show up here."
+                                    ? "Create a teammate, name them, and choose their living spirit."
                                     : "No chat matches \u{201C}\(query)\u{201D}."
                             )
                         )
@@ -101,6 +102,7 @@ struct ChatListView: View {
             }
             // top-aligned: the roster fills downward from the header
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(WatcherBackdrop())
             .overlay(alignment: .bottom) { bottomBar }
             // a bot that stopped for you grows out of the island
             .overlay(alignment: .top) {
@@ -146,6 +148,12 @@ struct ChatListView: View {
                     path.append(Chat.room(room))
                 }
             }
+            .sheet(isPresented: $showingNewAgent) {
+                NewAgentSheet { bot in
+                    showingNewAgent = false
+                    path.append(Chat.bot(bot))
+                }
+            }
             .task(id: query) {
                 let expected = query
                 guard expected.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 else {
@@ -179,9 +187,9 @@ struct ChatListView: View {
             Spacer(minLength: 8)
 
             VStack(spacing: 2) {
-                Text("Chats")
+                Text("Agent Room")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Color.primary)
+                    .foregroundStyle(WatcherTheme.ivory)
                 Text(headerSubtitle)
                     .font(.system(size: 13))
                     .foregroundStyle(Color.secondary)
@@ -292,11 +300,9 @@ struct ChatListView: View {
                     .accessibilityLabel("Search")
 
                     GlassButton(systemImage: "square.and.pencil", size: 48, weight: .medium) {
-                        Task {
-                            if let bot = await session.createBot() { path.append(Chat.bot(bot)) }
-                        }
+                        showingNewAgent = true
                     }
-                    .accessibilityLabel("New bot")
+                    .accessibilityLabel("New agent")
                 }
             }
         }

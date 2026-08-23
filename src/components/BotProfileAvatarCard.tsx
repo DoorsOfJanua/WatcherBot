@@ -3,6 +3,7 @@ import { Check, ImagePlus, Loader2, Sparkles, Trash2 } from "lucide-react";
 
 import { api, useStore, type Bot, type ConfigStatus } from "@/state/store";
 import { imageAttachmentFromFile } from "@/lib/composer-attachments";
+import { agentSpiritForBot } from "@/lib/agent-spirit-identity";
 import { cn } from "@/lib/cn";
 import {
   PICKABLE_STATES,
@@ -13,16 +14,24 @@ import {
 } from "@/lib/mascot";
 import {
   BOT_AVATAR_CROPS,
+  BOT_SPIRIT_GEOMETRIES,
+  BOT_SPIRIT_GEOMETRY_LABELS as GEOMETRY_LABELS,
+  BOT_SPIRIT_PALETTES,
+  BOT_SPIRIT_PALETTE_LABELS as PALETTE_LABELS,
+  BOT_SPIRIT_TEMPERAMENTS,
+  BOT_SPIRIT_TEMPERAMENT_META as TEMPERAMENT_META,
   botAvatarUrlFromStoredPath,
   BOT_SPIRITS,
   type BotSpirit,
   type BotAvatarCrop,
 } from "../../shared/bot-avatar";
 import { BotAvatar, MausAvatar } from "./Avatar";
-import { MailmanSpirit } from "./MailmanSpirit";
+import { AGENT_SPIRIT_META } from "./spirits/AgentSpirit";
+import { LivingHoodSpirit } from "./spirits/LivingHoodSpirit";
+import { SPIRIT_PALETTE_SWATCHES } from "./spirits/HoodSpirit";
 
 type AvatarPatch = Partial<
-  Omit<Pick<Bot, "avatarCrop" | "avatarUrl" | "color" | "mascotExpression" | "spirit">, "spirit">
+  Omit<Pick<Bot, "avatarCrop" | "avatarUrl" | "color" | "mascotExpression" | "spirit" | "spiritPalette" | "spiritGeometry" | "spiritTemperament">, "spirit">
 > & { spirit?: BotSpirit | null };
 
 const CROP_LABEL = {
@@ -46,9 +55,13 @@ async function uploadRiveAvatar(file: File): Promise<{ path: string; mime: strin
     body: new Uint8Array(await file.arrayBuffer()),
   });
   if (!response.ok) {
+    // SAFETY: the avatar endpoint's error contract is an optional string;
+    // every other JSON shape safely falls back to response.statusText.
     const detail = (await response.json().catch(() => ({ error: response.statusText }))) as { error?: string };
     throw new Error(detail.error ?? "Rive avatar upload failed");
   }
+  // SAFETY: a successful /api/avatars response is produced by the server's
+  // saveAvatar branch with exactly these three fields.
   return (await response.json()) as { path: string; mime: string; bytes: number };
 }
 
@@ -76,6 +89,11 @@ export function BotProfileAvatarCard({
   cropRef.current = crop;
   const imageConfigured = state.config?.imageGen?.configured === true;
   const spirit = bot.spirit ?? null;
+  const selectedSpirit = spirit ?? agentSpiritForBot(bot);
+  const avatarStyle = state.config?.appearance?.avatarStyle ?? "spirits";
+  const spiritPalette = bot.spiritPalette ?? "native";
+  const spiritGeometry = bot.spiritGeometry ?? "native";
+  const spiritTemperament = bot.spiritTemperament ?? "native";
 
   const upload = async (file: File | undefined) => {
     if (!file) return;
@@ -102,6 +120,25 @@ export function BotProfileAvatarCard({
   const removeImage = () => {
     setError(null);
     onPatch({ avatarUrl: null, avatarCrop: "mascot" });
+  };
+
+  const switchAvatarStyle = async (next: "classic" | "spirits") => {
+    if (next === avatarStyle || !state.config) return;
+    const previous = state.config;
+    dispatch({
+      type: "configStatus",
+      config: { ...previous, appearance: { avatarStyle: next } },
+    });
+    try {
+      const config: ConfigStatus = await api("/api/config", {
+        method: "PATCH",
+        body: JSON.stringify({ appearance: { avatarStyle: next } }),
+      });
+      dispatch({ type: "configStatus", config });
+    } catch (switchError) {
+      dispatch({ type: "configStatus", config: previous });
+      setError(switchError instanceof Error ? switchError.message : String(switchError));
+    }
   };
 
   const saveImageKey = async () => {
@@ -159,7 +196,7 @@ export function BotProfileAvatarCard({
       <div className="flex items-center justify-between border-b border-hairline/40 px-3 py-2.5">
         <span className="rounded-lg bg-raised px-3 py-1.5 text-[14px] font-medium text-ink">Avatar</span>
         <button
-          onClick={() => onPatch({ spirit: null, avatarCrop: "mascot", color: "green", mascotExpression: null })}
+          onClick={() => onPatch({ spirit: null, avatarCrop: "mascot", color: "green", mascotExpression: null, spiritPalette: "native", spiritGeometry: "native", spiritTemperament: "native" })}
           className="rounded-md px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
           Reset mascot
@@ -178,43 +215,109 @@ export function BotProfileAvatarCard({
         </div>
 
         <div className="mb-2 mt-1 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
-          Character
+          Character identity
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <button
             type="button"
-            aria-pressed={spirit === null}
-            onClick={() => onPatch({ spirit: null, avatarCrop: "mascot" })}
+            aria-pressed={avatarStyle === "classic"}
+            onClick={() => void switchAvatarStyle("classic")}
             className={cn(
               "flex items-center gap-2 rounded-xl bg-inset px-2.5 py-2 text-left transition-colors hover:bg-raised",
-              spirit === null && "ring-2 ring-accent-border",
+              avatarStyle === "classic" && "ring-2 ring-accent-border",
             )}
           >
             <MausAvatar color={bot.color} state={activeState} size={40} animated={false} />
             <span className="min-w-0">
-              <span className="block text-[12px] font-medium text-ink">Mascot</span>
-              <span className="block text-[10px] text-ink-secondary">Classic</span>
+              <span className="block text-[12px] font-medium text-ink">Classic</span>
+              <span className="block text-[10px] text-ink-secondary">Switch room family</span>
             </span>
           </button>
           {BOT_SPIRITS.map((candidate) => (
             <button
               key={candidate}
               type="button"
-              aria-pressed={spirit === candidate}
-              onClick={() => onPatch({ spirit: candidate, avatarUrl: null, avatarCrop: "mascot", mascotExpression: null })}
+              aria-pressed={avatarStyle === "spirits" && selectedSpirit === candidate}
+              onClick={() => {
+                onPatch({ spirit: candidate, avatarUrl: null, avatarCrop: "mascot", mascotExpression: null });
+                void switchAvatarStyle("spirits");
+              }}
               className={cn(
                 "flex items-center gap-2 rounded-xl bg-inset px-2.5 py-2 text-left transition-colors hover:bg-raised",
-                spirit === candidate && "ring-2 ring-accent-border",
+                avatarStyle === "spirits" && selectedSpirit === candidate && "ring-2 ring-accent-border",
               )}
             >
-              <MailmanSpirit state={activeState} size={40} animated={false} />
+              <LivingHoodSpirit spirit={candidate} state="idle" size={42} animated={false} />
               <span className="min-w-0">
-                <span className="block text-[12px] font-medium text-ink">Mailman</span>
-                <span className="block text-[10px] text-ink-secondary">Folded ink</span>
+                <span className="block text-[12px] font-medium text-ink">{AGENT_SPIRIT_META[candidate].title}</span>
+                <span className="block truncate text-[10px] text-ink-secondary">{AGENT_SPIRIT_META[candidate].role}</span>
               </span>
             </button>
           ))}
         </div>
+
+        {avatarStyle === "spirits" && selectedSpirit !== null && (
+          <div className="mt-5 rounded-xl border border-hairline/40 bg-inset/40 p-3">
+            <div className="text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">Spirit color</div>
+            <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Spirit color">
+              {BOT_SPIRIT_PALETTES.map((candidate) => (
+                <button
+                  key={candidate}
+                  type="button"
+                  aria-label={PALETTE_LABELS[candidate]}
+                  aria-pressed={spiritPalette === candidate}
+                  onClick={() => onPatch({ spiritPalette: candidate })}
+                  className={cn(
+                    "group flex min-w-[62px] flex-col items-center gap-1 rounded-lg px-1.5 py-1.5 text-[10px] text-ink-secondary transition-colors hover:bg-raised hover:text-ink",
+                    spiritPalette === candidate && "bg-raised text-ink ring-2 ring-accent-border",
+                  )}
+                >
+                  <span className="h-5 w-9 rounded-full border border-white/15" style={{ background: SPIRIT_PALETTE_SWATCHES[candidate] }} />
+                  {PALETTE_LABELS[candidate]}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-4 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">Sacred geometry</div>
+            <div className="mt-2 grid grid-cols-5 gap-1.5" role="group" aria-label="Sacred geometry">
+              {BOT_SPIRIT_GEOMETRIES.map((candidate) => (
+                <button
+                  key={candidate}
+                  type="button"
+                  aria-label={GEOMETRY_LABELS[candidate]}
+                  aria-pressed={spiritGeometry === candidate}
+                  onClick={() => onPatch({ spiritGeometry: candidate })}
+                  className={cn(
+                    "flex min-w-0 flex-col items-center gap-0.5 rounded-lg py-1.5 text-[9.5px] text-ink-secondary hover:bg-raised hover:text-ink",
+                    spiritGeometry === candidate && "bg-raised text-ink ring-2 ring-accent-border",
+                  )}
+                >
+                  <LivingHoodSpirit spirit={selectedSpirit} palette={spiritPalette} geometry={candidate} temperament={spiritTemperament} size={35} animated={false} />
+                  <span className="max-w-full truncate">{GEOMETRY_LABELS[candidate]}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-4 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">Emotional range</div>
+            <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3" role="group" aria-label="Emotional range">
+              {BOT_SPIRIT_TEMPERAMENTS.map((candidate) => (
+                <button
+                  key={candidate}
+                  type="button"
+                  aria-pressed={spiritTemperament === candidate}
+                  onClick={() => onPatch({ spiritTemperament: candidate })}
+                  className={cn(
+                    "rounded-lg border border-hairline/35 px-2.5 py-2 text-left hover:bg-raised",
+                    spiritTemperament === candidate && "border-accent-border bg-raised ring-1 ring-accent-border",
+                  )}
+                >
+                  <span className="block text-[11.5px] font-medium text-ink">{TEMPERAMENT_META[candidate].label}</span>
+                  <span className="mt-0.5 block text-[9.5px] leading-snug text-ink-secondary">{TEMPERAMENT_META[candidate].note}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="mt-2 flex gap-2">
           <input

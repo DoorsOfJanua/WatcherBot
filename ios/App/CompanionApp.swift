@@ -8,6 +8,7 @@ import SwiftUI
 
 @main
 struct CompanionApp: App {
+    @UIApplicationDelegateAdaptor(AgentRoomAppDelegate.self) private var appDelegate
     @StateObject private var session = Session()
     @Environment(\.scenePhase) private var scenePhase
     @State private var liveActivities = LiveActivityCoordinator()
@@ -49,6 +50,9 @@ struct RootView: View {
                 ChatListView()
             }
         }
+        .tint(WatcherTheme.violet)
+        .preferredColorScheme(.dark)
+        .background(WatcherBackdrop())
         .alert(
             "Something went wrong",
             isPresented: Binding(
@@ -72,12 +76,13 @@ struct UnpairedView: View {
 
     var body: some View {
         ContentUnavailableView {
-            Label("This phone was unpaired", systemImage: "lock.slash")
+            Label("Agent Room was unpaired", systemImage: "lock.slash")
         } description: {
             Text("It was removed from the computer's companion settings, or the pairing was reset.")
         } actions: {
             Button("Pair again") { session.signOut() }
                 .buttonStyle(.borderedProminent)
         }
+        .background(WatcherBackdrop())
     }
 }

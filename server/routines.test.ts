@@ -156,6 +156,28 @@ describe("RoutineManager", () => {
     expect(h.started).toHaveLength(0);
   });
 
+  it("emergency stop pauses every definition and cancels active work", async () => {
+    const h = harness();
+    const interrupt = vi.fn(async () => {});
+    h.options.interruptTurn = interrupt;
+    const routine = h.manager.create({
+      name: "Overnight scout",
+      prompt: "Keep researching",
+      botId: "maus-scout",
+      schedule: { type: "daily", time: "23:00", weekdays: [0, 1, 2, 3, 4, 5, 6] },
+    });
+    h.manager.runNow(routine.id);
+    await h.manager.tick();
+    expect(h.manager.listRuns()[0]).toMatchObject({ status: "running", threadId: "thread-1" });
+
+    const result = await h.manager.pauseAll();
+
+    expect(result).toEqual({ pausedRoutines: 1, cancelledRuns: 1, interruptedRuns: 1 });
+    expect(h.manager.listRoutines()[0]).toMatchObject({ enabled: false, nextRunAt: null });
+    expect(h.manager.listRuns()[0]).toMatchObject({ status: "cancelled", error: "Emergency stop pressed" });
+    expect(interrupt).toHaveBeenCalledWith("maus-scout", "thread-1", "maus");
+  });
+
   it("snapshots queued instructions so later edits do not rewrite a receipt", async () => {
     const h = harness();
     h.setBot("busy");

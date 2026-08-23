@@ -227,6 +227,7 @@ struct ChatView: View {
             composer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .background(WatcherBackdrop())
         .overlay(alignment: .bottom) { plusSheet }
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)

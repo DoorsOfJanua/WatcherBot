@@ -309,7 +309,7 @@ public struct CompanionClient: Sendable {
 
     /// Turn a non-2xx into an `APIError` carrying the harness's own message.
     /// Those messages are written for people ("pair this device in
-    /// OpenMausBot → Settings → Companion"), so passing them through beats
+    /// Agent Room → Settings → Companion"), so passing them through beats
     /// inventing a worse one here.
     static func check(_ response: URLResponse, _ data: Data) throws {
         guard let http = response as? HTTPURLResponse else { return }
@@ -341,6 +341,20 @@ public struct CompanionClient: Sendable {
             body: [key: credential, "deviceName": deviceName]
         )
         return try await client.send(pairRequest, as: PairResponse.self)
+    }
+
+    /// Register this paired installation for closed-app APNs delivery. The
+    /// sidecar binds the address to the bearer token's device record.
+    public func registerPush(token: String, environment: String) async throws {
+        try await send(try makeRequest(
+            "POST",
+            "/api/push/register",
+            body: ["token": token, "environment": environment]
+        ))
+    }
+
+    public func unregisterPush() async throws {
+        try await send(try makeRequest("DELETE", "/api/push/register"))
     }
 
     // MARK: - Reading
@@ -456,11 +470,13 @@ public struct CompanionClient: Sendable {
 
     // MARK: - Doing
 
-    /// Make a new bot. The harness picks its name, colour and greeting — the
-    /// phone deliberately does not, so a bot created here is indistinguishable
-    /// from one created on the desktop.
-    public func createBot() async throws -> Bot {
-        try await send(try makeRequest("POST", "/api/bots"), as: CreatedBot.self).bot
+    /// Make a persistent Agent Room teammate with the identity authored on
+    /// the phone. The same server contract powers the desktop creation flow.
+    public func createBot(profile: NewAgentProfile) async throws -> Bot {
+        try await send(
+            try makeRequest("POST", "/api/bots", encodedBody: profile),
+            as: CreatedBot.self
+        ).bot
     }
 
     /// The paired-device profile contract is deliberately narrower than the

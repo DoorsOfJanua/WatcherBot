@@ -677,26 +677,14 @@ final class MausFaceEngine {
     private static func easeInOut(_ t: CGFloat) -> CGFloat { t < 0.5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t) }
 }
 
-/// The person, not a bot — the roster header and the settings row. A letter
-/// rather than a mascot, deliberately: the mascots mean "this is a bot", and
-/// giving the human one too would blur the only distinction the roster makes.
+/// The person, not a bot — represented by the ivory Watcher spirit shared
+/// with Agent Room's desktop roster.
 struct ProfileAvatar: View {
     let name: String
     var size: CGFloat = 34
 
     var body: some View {
-        Circle()
-            .fill(MausPalette.color("green"))
-            .frame(width: size, height: size)
-            .overlay {
-                Text(initial)
-                    .font(.system(size: size * 0.45, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-    }
-
-    private var initial: String {
-        String(name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased()
+        SpiritAvatar(spirit: .watcher, size: size, animated: true, label: "\(name) profile")
     }
 }
 

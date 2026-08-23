@@ -15,6 +15,7 @@ struct GlassSurface<S: InsettableShape>: ViewModifier {
     var tint: Color? = nil
 
     func body(content: Content) -> some View {
+#if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             let base: Glass = interactive ? .regular.interactive() : .regular
             content.glassEffect(tint.map { base.tint($0) } ?? base, in: shape)
@@ -22,8 +23,14 @@ struct GlassSurface<S: InsettableShape>: ViewModifier {
             content
                 .background(.ultraThinMaterial, in: shape)
                 .background(tint?.opacity(0.18) ?? .clear, in: shape)
-                .overlay(shape.strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
+                .overlay(shape.strokeBorder(WatcherTheme.hairline, lineWidth: 0.5))
         }
+#else
+        content
+            .background(.ultraThinMaterial, in: shape)
+            .background(tint?.opacity(0.18) ?? .clear, in: shape)
+            .overlay(shape.strokeBorder(WatcherTheme.hairline, lineWidth: 0.5))
+#endif
     }
 }
 
@@ -50,11 +57,15 @@ struct GlassGroup<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
+#if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             GlassEffectContainer(spacing: spacing, content: content)
         } else {
             content()
         }
+#else
+        content()
+#endif
     }
 }
 

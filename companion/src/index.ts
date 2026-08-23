@@ -32,6 +32,7 @@ import {
   type ServiceInfo,
 } from "./mdns.ts";
 import { createProxyHandler } from "./proxy.ts";
+import { apnsConfig, ApnsSender, PushService } from "./push.ts";
 
 /** A port from the environment, or the default. Anything that is not a whole
  * number in range is the default — a typo'd port must not become port 0. */
@@ -98,6 +99,16 @@ async function refreshMachineName(): Promise<void> {
 
 const devices = new DeviceRegistry();
 const mdns = new MdnsResponder();
+const pushConfig = apnsConfig();
+const push = pushConfig
+  ? new PushService({
+      harnessPort: HARNESS_PORT,
+      targets: () => devices.pushTargets(),
+      unregister: (id) => { devices.clearPush(id); },
+      sender: new ApnsSender(pushConfig),
+      log: (line) => console.warn(line),
+    })
+  : null;
 
 /** Keeps the Bonjour record matching the interface table: advertise when a
  * network appears, re-advertise when DHCP moves us, withdraw when it goes —
@@ -137,6 +148,10 @@ const companion = createServer(
     // machine joins another network, and a pairing is exactly the moment the
     // list has to be right.
     hosts: () => hostCandidates(),
+    registerPush: (id, token, environment) => devices.setPush(id, token, environment),
+    unregisterPush: (id) => devices.clearPush(id),
+    deviceStreamOpened: (id) => devices.streamOpened(id),
+    deviceStreamClosed: (id) => devices.streamClosed(id),
   }),
 );
 
@@ -208,6 +223,7 @@ async function main(): Promise<void> {
 
   await listen(control, CONTROL_PORT, "127.0.0.1");
   await listen(companion, COMPANION_PORT, "0.0.0.0");
+  if (push) void push.run();
 
   // Before advertising: the service name goes into the Bonjour record, and
   // re-advertising under a new name later would show the phone two computers.
@@ -253,6 +269,7 @@ const shutdown = async (signal: string): Promise<void> => {
   // the watcher first, or a tick could re-advertise the record the next
   // line just withdrew
   watcher.stop();
+  push?.stop();
   await mdns.stop().catch(() => {});
   // close() waits for open connections, and an SSE stream never ends on its
   // own — drop the sockets so "stop" means stopped, now.

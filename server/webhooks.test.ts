@@ -182,6 +182,19 @@ describe("WebhookManager", () => {
     expect(h.manager.list()).toHaveLength(0);
   });
 
+  it("emergency stop pauses every webhook without deleting its setup", () => {
+    const h = harness();
+    const first = create(h.manager).webhook;
+    const second = h.manager.create({ name: "Alerts", prompt: "Triage it", botId: "maus-ops" }).webhook;
+
+    expect(h.manager.pauseAll()).toBe(2);
+    expect(h.manager.list()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: first.id, enabled: false }),
+      expect.objectContaining({ id: second.id, enabled: false }),
+    ]));
+    expect(h.cancelled.map((item) => item.id)).toEqual(expect.arrayContaining([first.id, second.id]));
+  });
+
   it("filters event types, caps unfinished work, and rate-limits a noisy endpoint", () => {
     const h = harness();
     const { webhook, secret } = h.manager.create({ name: "Builds", prompt: "Review it", botId: "maus-1", eventTypes: ["push"] });

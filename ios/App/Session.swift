@@ -95,6 +95,9 @@ final class Session: ObservableObject {
         NotificationCoordinator.shared.responseHandler = { [weak self] target in
             Task { @MainActor in await self?.openNotification(target) }
         }
+        NotificationCoordinator.shared.deviceTokenHandler = { [weak self] token, environment in
+            Task { @MainActor in await self?.registerPush(token: token, environment: environment) }
+        }
 #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-store-preview"),
            let url = Bundle.main.url(forResource: "StorePreview", withExtension: "json"),
@@ -179,6 +182,12 @@ final class Session: ObservableObject {
         self.rotation = CandidateRotation(hosts: stored.orderedHosts)
         self.client = CompanionClient(connection: stored, token: paired.token)
         self.state = CompanionState()
+        if let pushToken = NotificationCoordinator.shared.remoteDeviceToken {
+            await registerPush(
+                token: pushToken,
+                environment: NotificationCoordinator.shared.remoteEnvironment
+            )
+        }
         // A fresh pairing settles any restore that was still waiting on the
         // keychain — the token is in hand, so there is nothing left to retry.
         restorePending = false
@@ -202,6 +211,7 @@ final class Session: ObservableObject {
     }
 
     func signOut() {
+        if let client { Task { try? await client.unregisterPush() } }
         streamTask?.cancel()
         streamTask = nil
         restorePending = false
@@ -510,18 +520,14 @@ final class Session: ObservableObject {
         await perform { try await $0.alwaysAllow(botId: bot.id, key: key) }
     }
 
-    /// Make a new bot. The harness chooses its name, colour and greeting, so
-    /// one made here is indistinguishable from one made on the desktop.
-    ///
-    /// Creating a bot does not broadcast — the desktop adds it optimistically
-    /// too — so the new bot is folded in here rather than waited for. Return
-    /// it so the caller can open it, which is the only reason anyone taps the
-    /// button.
+    /// Creating an agent does not broadcast — the desktop adds it
+    /// optimistically too — so the authored teammate is folded in here rather
+    /// than waited for. Return it so the sheet can open its first conversation.
     @discardableResult
-    func createBot() async -> Bot? {
+    func createBot(profile: NewAgentProfile) async -> Bot? {
         guard let client else { return nil }
         do {
-            let bot = try await client.createBot()
+            let bot = try await client.createBot(profile: profile)
             state.apply(.bot(bot))
             return bot
         } catch {
@@ -874,6 +880,9 @@ final class Session: ObservableObject {
 
     func refreshNotificationAuthorization() async {
         notificationAuthorization = await NotificationCoordinator.shared.authorizationStatus()
+        if notificationAuthorization == .authorized || notificationAuthorization == .provisional {
+            NotificationCoordinator.shared.registerForRemoteNotifications()
+        }
     }
 
     func enableNotifications() async {
@@ -886,6 +895,13 @@ final class Session: ObservableObject {
         _ = await NotificationCoordinator.shared.requestAuthorization()
         await refreshNotificationAuthorization()
         NotificationCoordinator.shared.setBadge(state.unreadCount)
+    }
+
+    private func registerPush(token: String, environment: String) async {
+        guard let client else { return }
+        do { try await client.registerPush(token: token, environment: environment) }
+        catch let error as APIError where error.isUnauthorized { status = .unauthorized }
+        catch { log.notice("push registration deferred: \(error.localizedDescription, privacy: .public)") }
     }
 
     var notificationStatusText: String {
@@ -965,7 +981,7 @@ enum Chat: Identifiable, Hashable {
     var subtitle: String {
         switch self {
         case let .bot(bot): return bot.title
-        case let .room(room): return "\(room.memberIds.count) bots"
+        case let .room(room): return "\(room.memberIds.count) agents"
         }
     }
 

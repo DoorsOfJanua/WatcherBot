@@ -249,15 +249,38 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         const method = msg.method as string;
         const params = msg.params ?? {};
         const legacy = method === "execCommandApproval" || method === "applyPatchApproval";
-        const isQuestion = method === "item/tool/requestUserInput";
+        const isMcpElicitation = method === "mcpServer/elicitation/request";
+        const mcpMeta = params._meta ?? params.meta ?? {};
+        const isMcpApproval = isMcpElicitation && mcpMeta.codex_approval_kind === "mcp_tool_call";
+        // Mailman's MCP call only freezes a local draft and opens OUR exact
+        // approval card. Asking first whether Codex may call the staging tool
+        // creates a confusing double approval. Auto-accept only this named,
+        // harness-owned proposal call; the later email.send card remains the
+        // sole external-action authority.
+        const isMailProposal =
+          isMcpApproval &&
+          params.serverName === "agents" &&
+          /tool\s+["']propose_email_draft["']/i.test(String(params.message ?? ""));
+        if (isMailProposal) {
+          return send({ jsonrpc: "2.0", id: msg.id, result: { action: "accept", content: {}, _meta: null } });
+        }
+        const isQuestion = method === "item/tool/requestUserInput" || (isMcpElicitation && !isMcpApproval);
         const tool =
           method === "item/fileChange/requestApproval" || method === "applyPatchApproval"
             ? "edit"
             : isQuestion
               ? "ask_user"
-              : "shell";
+              : isMcpApproval
+                ? `mcp:${String(params.serverName ?? "tool")}`
+                : "shell";
         if (config.fullAuto && !isQuestion) {
-          return send({ jsonrpc: "2.0", id: msg.id, result: { decision: legacy ? "approved" : "accept" } });
+          return send({
+            jsonrpc: "2.0",
+            id: msg.id,
+            result: isMcpElicitation
+              ? { action: "accept", content: {}, _meta: null }
+              : { decision: legacy ? "approved" : "accept" },
+          });
         }
         const requestId = newId();
         const summary =
@@ -267,6 +290,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
               ? params.questions.map((q: any) => q.question ?? q.header).filter(Boolean).join(" · ")
               : typeof params.reason === "string"
                 ? params.reason
+                : typeof params.message === "string"
+                  ? params.message
                 : tool;
         const choices = isQuestion
           ? (params.questions?.[0]?.options ?? []).map((o: any) => o.label).slice(0, 5)
@@ -274,7 +299,15 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         const finish = (behavior: "allow" | "deny" | "answer", message?: string, source: "user" | "timeout" | "system" = "user") => {
           if (!asks.delete(requestId)) return;
           clearTimeout(timer);
-          if (isQuestion) {
+          if (isMcpElicitation) {
+            send({
+              jsonrpc: "2.0",
+              id: msg.id,
+              result: behavior === "allow" || behavior === "answer"
+                ? { action: "accept", content: isQuestion && message ? { answer: message } : {}, _meta: null }
+                : { action: "decline", content: null, _meta: null },
+            });
+          } else if (isQuestion) {
             const answers: Record<string, { answers: string[] }> = {};
             for (const q of Array.isArray(params.questions) ? params.questions : []) {
               answers[q.id] = { answers: [message || QUESTION_TIMEOUT_NOTE] };

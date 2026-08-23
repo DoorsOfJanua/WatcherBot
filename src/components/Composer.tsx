@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { useComposerDraft } from "@/lib/drafts";
 import { MausAvatar } from "./Avatar";
 import { ComposerAttachments } from "./ComposerAttachments";
+import { ComposerAddMenu } from "./ComposerAddMenu";
 import {
   composeMessage,
   imageAttachmentFromFile,
@@ -316,6 +317,12 @@ export function Composer({
           allowImages={engineSupportsImages}
         />
         <div className="flex items-end gap-2 rounded-3xl border border-hairline/40 bg-raised/60 py-2 pl-3 pr-2">
+        <ComposerAddMenu
+          allowImages={engineSupportsImages}
+          disabled={Boolean(approval)}
+          onAdd={addAttachments}
+          onError={(message) => dispatch({ type: "error", message })}
+        />
         <textarea
           ref={inputRef}
           rows={1}

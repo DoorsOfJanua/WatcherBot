@@ -16,6 +16,7 @@ import { UsageSection } from "./UsageSection";
 import { SkinPicker } from "./SkinPicker";
 import { RoomTurnTimeoutSettings } from "./RoomTurnTimeoutSettings";
 import { cn } from "@/lib/cn";
+import { AvatarStylePicker } from "./AvatarStylePicker";
 
 const SECTIONS: Array<{ id: AppSettingsSection; label: string; icon: typeof User }> = [
   { id: "general", label: "General", icon: User },
@@ -238,6 +239,9 @@ export function SettingsModal() {
                 </Card>
                 <Card title="Skin" subtitle="Applies instantly and is remembered on this machine.">
                   <SkinPicker />
+                </Card>
+                <Card title="Agent appearance" subtitle="One shared visual family across the room.">
+                  <AvatarStylePicker />
                 </Card>
                 <Card title="Room turns" subtitle="Set one maximum duration for every bot turn in a room.">
                   <RoomTurnTimeoutSettings />

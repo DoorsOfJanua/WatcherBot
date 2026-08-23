@@ -20,7 +20,7 @@ rest of Janua's core roster.
 
 | MyAgent Room | Canonical memory identity |
 | --- | --- |
-| Wormhole | `wormhole` |
+| The Watcher | `wormhole` |
 | Forge | `forge` |
 | Signal | `signal` |
 | Ganga | `ganga` |
@@ -64,4 +64,3 @@ The two surfaces do not render one literally identical transcript yet. They shar
 relationship memory while retaining separate visible threads. Telegram's nightly portrait job also
 still derives from its own append-only Telegram memory ledger; MyAgent Room turns reach live
 Telegram replies through AgentHQ, but are not yet evidence for that nightly portrait.
-

@@ -176,7 +176,7 @@ paid account is required to run on your own phone.
 On the phone, in order:
 
 1. **Pair.** In OpenMausBot → Settings → Companion, choose **Set up a
-   phone**. Scan the QR code with the phone's Camera, open OpenMausMobile,
+   phone**. Scan the QR code with the phone's Camera, open Agent Room,
    confirm that the computer and six-digit code are filled in, then tap
    **Connect**. The computer should also appear by name for the manual path:
    tap it and type the same code.
@@ -267,13 +267,11 @@ port — only the route to it is different.
 
 ---
 
-## What is expected not to work
+## What still needs release credentials or later work
 
-Not built yet, so not bugs:
-
-- **Nothing arrives after the app is terminated.** Live and replayed notification
-  frames now become native alerts and badges, but closed-app push still needs an
-  APNs relay with project-owned Apple credentials.
+- **Closed-app alerts are absent without APNs configuration.** Live and
+  replayed frames still become native alerts and badges. Terminated-app
+  delivery additionally needs the credentials in `companion/README.md`.
 - **No voice or routine management.** Tasks, SQLite transcript search/export,
   reactions, and edit/version switching are available from the conversation UI.
 

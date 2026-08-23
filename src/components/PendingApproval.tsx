@@ -47,6 +47,7 @@ function label(tool: string): string {
     Write: "File-change approval requested",
     Edit: "File-change approval requested",
     edit: "File-change approval requested",
+    "email.send": "Exact email ready to review",
   };
   return nice[tool] ?? "Approval requested";
 }
@@ -94,6 +95,7 @@ export function PendingApprovalActions({
   onCancelTurn: () => void;
 }) {
   const { dispatch } = useStore();
+  const exactEmail = pending.tool === "email.send";
   const decide = (behavior: "allow" | "deny", always = false) =>
     dispatch({
       type: "decideRequest",
@@ -107,14 +109,16 @@ export function PendingApprovalActions({
   const base = "rounded-full px-3.5 py-1.5 text-[13.5px] transition-colors";
   return (
     <div className="flex flex-wrap items-center justify-end gap-2 px-2 py-2">
-      <button onClick={onCancelTurn} className={cn(base, "text-ink-secondary hover:bg-raised hover:text-ink")}>
-        Cancel turn
-      </button>
+      {!exactEmail && (
+        <button onClick={onCancelTurn} className={cn(base, "text-ink-secondary hover:bg-raised hover:text-ink")}>
+          Cancel turn
+        </button>
+      )}
       <button
         onClick={() => decide("deny")}
         className={cn(base, "border border-danger/40 text-danger hover:bg-danger/10")}
       >
-        Deny
+        {exactEmail ? "Don't send" : "Deny"}
       </button>
       {bot && pending.allowKey && (
         <button
@@ -129,7 +133,7 @@ export function PendingApprovalActions({
         onClick={() => decide("allow")}
         className={cn(base, "bg-accent font-medium text-white hover:brightness-110")}
       >
-        Allow once
+        {exactEmail ? "Approve & send exact email" : "Allow once"}
       </button>
     </div>
   );

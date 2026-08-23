@@ -85,6 +85,22 @@ export function drainSteeredMessages(
   }
 }
 
+/** Emergency-stop semantics are deliberately different from ordinary Stop.
+ * Keep every word in the transcript, but remove its promise to auto-run and
+ * drop the in-memory queue. This prevents a global stop from immediately
+ * starting a follow-up turn as the interrupted provider settles. */
+export function discardSteeredMessages(store: SteerStore): number {
+  let discarded = 0;
+  for (const [threadId, entry] of queues) {
+    queues.delete(threadId);
+    for (const item of entry.items) {
+      store.patchMessage(threadId, item.messageId, { queued: undefined });
+      discarded += 1;
+    }
+  }
+  return discarded;
+}
+
 /** Test helper: how many messages remain queued for a thread. */
 export function _queuedCount(threadId: string): number {
   return queues.get(threadId)?.items.length ?? 0;

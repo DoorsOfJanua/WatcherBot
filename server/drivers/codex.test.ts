@@ -349,6 +349,28 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(JSON.parse(readFileSync(dump, "utf8")).decision).toEqual({ decision: "approved" });
   });
 
+  it("answers current MCP approval elicitations with the action/content envelope", async () => {
+    await create({ mode: "mcp-approval" });
+    const dump = join(scratch, "mcp-approval.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: "t-mcp-approval", text: "ask a peer" });
+    const opened = await recorder.until((e) => e.type === "request.opened");
+    expect(opened).toMatchObject({ requestType: "permission", tool: "mcp:agents" });
+    expect(await instance.adapter.respondToRequest("t-mcp-approval", opened.requestId!, { behavior: "allow" })).toBe("allowed-once");
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(JSON.parse(readFileSync(dump, "utf8")).decision).toEqual({ action: "accept", content: {}, _meta: null });
+  });
+
+  it("auto-accepts only Mailman's local draft proposal so the exact send card is the one human approval", async () => {
+    await create({ mode: "mail-proposal" });
+    const dump = join(scratch, "mail-proposal.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: "t-mail-proposal", text: "stage an email" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.some((e) => e.type === "request.opened")).toBe(false);
+    expect(JSON.parse(readFileSync(dump, "utf8")).decision).toEqual({ action: "accept", content: {}, _meta: null });
+  });
+
   it("stamps approvalScope on cards only when the turn controls this Mac", async () => {
     await create({ mode: "approval" });
 

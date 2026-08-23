@@ -65,4 +65,14 @@ describe("external action receipts", () => {
     expect(value.get(receipt.id).execution.state).toBe("expired");
     expect(() => value.approve(receipt.id, receipt.contentHash, "janua")).toThrow(/expired/);
   });
+
+  it("permanently invalidates a receipt the human denies", () => {
+    const { value } = store();
+    const receipt = value.create({
+      actionType: "email.send", channel: "email", account: "a", destination: "b", content: "body", preview: "body", expiresAt: now + 60_000,
+    });
+    expect(value.invalidate(receipt.id, receipt.contentHash).execution.state).toBe("invalidated");
+    expect(value.invalidate(receipt.id, receipt.contentHash).execution.state).toBe("invalidated");
+    expect(() => value.approve(receipt.id, receipt.contentHash, "janua")).toThrow(/invalidated/);
+  });
 });

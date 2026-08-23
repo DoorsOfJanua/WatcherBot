@@ -15,7 +15,13 @@ import {
 } from "react";
 import type { CloudBackend, EffortLevel } from "../../server/contracts.ts";
 import type { MausColor, MausMotion } from "@/lib/mascot";
-import type { BotAvatarCrop, BotSpirit } from "../../shared/bot-avatar";
+import type {
+  BotAvatarCrop,
+  BotSpirit,
+  BotSpiritGeometry,
+  BotSpiritPalette,
+  BotSpiritTemperament,
+} from "../../shared/bot-avatar";
 import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
 import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib/webhooks";
 import { currentCall } from "@/lib/call";
@@ -165,6 +171,9 @@ export interface Bot {
   avatarCrop?: BotAvatarCrop;
   /** Optional original code-drawn spirit; custom image assets still win. */
   spirit?: BotSpirit | null;
+  spiritPalette?: BotSpiritPalette;
+  spiritGeometry?: BotSpiritGeometry;
+  spiritTemperament?: BotSpiritTemperament;
   unread: boolean;
   busy?: boolean;
   /** what the bot is doing, as the harness sees it; busy is derived from it */
@@ -247,11 +256,13 @@ export interface ConfigStatus {
   imageGen?: { configured: boolean };
   /** who's using the app — collected in onboarding, shown in the sidebar */
   profile?: { name: string; email: string };
+  /** Workspace-wide avatar family, shared by desktop and phone clients. */
+  appearance?: { avatarStyle: "classic" | "spirits" };
 }
 
 export type ConfigStatusFrame = Pick<
   ConfigStatus,
-  "xai" | "composio" | "box" | "vps" | "rooms" | "localVm" | "opencodeGo" | "tts" | "imageGen" | "profile"
+  "xai" | "composio" | "box" | "vps" | "rooms" | "localVm" | "opencodeGo" | "tts" | "imageGen" | "profile" | "appearance"
 >;
 
 export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
@@ -266,6 +277,7 @@ export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
     tts: frame.tts,
     imageGen: frame.imageGen,
     profile: frame.profile,
+    appearance: frame.appearance,
   };
 }
 
@@ -883,6 +895,14 @@ export function reducer(state: AppState, action: Action): AppState {
         groups: state.groups.map((g) => (g.id === action.groupId ? { ...g, ...action.patch } : g)),
       };
     case "toggleReaction": {
+      const directBot = state.bots.find((bot) => bot.threadId === action.threadId);
+      const room = state.groups.find((group) => group.threadId === action.threadId);
+      const message = directBot?.messages.find((candidate) => candidate.id === action.messageId)
+        ?? room?.messages.find((candidate) => candidate.id === action.messageId);
+      const removing = Boolean(
+        message?.reactions?.some((reaction) => reaction.emoji === action.emoji && reaction.by === "user"),
+      );
+      const reactingBotId = directBot?.id ?? message?.from?.botId;
       const toggle = (m: Message): Message => {
         if (m.id !== action.messageId) return m;
         const reactions = m.reactions ?? [];
@@ -890,7 +910,7 @@ export function reducer(state: AppState, action: Action): AppState {
         const next = at >= 0 ? reactions.filter((_, i) => i !== at) : [...reactions, { emoji: action.emoji, by: "user" }];
         return { ...m, reactions: next.length ? next : undefined };
       };
-      return {
+      const next = {
         ...state,
         bots: state.bots.map((b) =>
           b.threadId === action.threadId ? { ...b, messages: b.messages.map(toggle) } : b,
@@ -899,6 +919,9 @@ export function reducer(state: AppState, action: Action): AppState {
           g.threadId === action.threadId ? { ...g, messages: g.messages.map(toggle) } : g,
         ),
       };
+      return reactingBotId
+        ? withMascotMotion(next, reactingBotId, removing ? "blink" : "customize")
+        : next;
     }
     // handled entirely by the async wrapper
     case "send":
@@ -1121,7 +1144,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           api(`/api/bots/${action.botId}/messages`, {
             method: "POST",
             body: JSON.stringify({ text: action.text }),
-          }).catch(showError);
+          })
+            .then(({ message }) => {
+              if (!message) return;
+              const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
+              if (!bot) return;
+              rawDispatch({ type: "messageAdded", threadId: bot.threadId, message });
+            })
+            .catch(showError);
           break;
         case "editMessage":
           api(`/api/bots/${action.botId}/messages/${action.messageId}/edit`, {
@@ -1219,6 +1249,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             avatarUrl: source.avatarUrl,
             avatarCrop: source.avatarCrop,
             spirit: source.spirit,
+            spiritPalette: source.spiritPalette,
+            spiritGeometry: source.spiritGeometry,
+            spiritTemperament: source.spiritTemperament,
           };
           api("/api/bots", { method: "POST" })
             .then(({ bot }) =>
@@ -1335,17 +1368,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // ── initial load + SSE fold ──────────────────────────────────────────
   useEffect(() => {
     let alive = true;
+    const loadConversations = () =>
+      api("/api/bots")
+        .then(({ bots, groups, computerControl }) =>
+          alive && rawDispatch({
+            type: "hydrate",
+            bots,
+            groups: groups ?? [],
+            computerControl: computerControl ?? {},
+          }))
+        .catch(() => {});
     const loadAll = () =>
       Promise.all([
-        api("/api/bots")
-          .then(({ bots, groups, computerControl }) =>
-            alive && rawDispatch({
-              type: "hydrate",
-              bots,
-              groups: groups ?? [],
-              computerControl: computerControl ?? {},
-            }))
-          .catch(() => {}),
+        loadConversations(),
         api("/api/instances")
           .then(({ instances }) => alive && rawDispatch({ type: "instances", instances }))
           .catch(() => {}),
@@ -1368,23 +1403,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     let hydrated = false;
     let hydrating = false;
     let rehydrateRequested = false;
+    let fullRehydrateRequested = false;
     const pendingFrames: any[] = [];
     let handleFrame: (frame: any) => void;
-    const hydrate = () => {
+    const hydrate = (full = true) => {
       if (hydrating) {
         // A second non-resumable hello means this snapshot may have started
         // before another connection gap. Run one more after it settles.
         rehydrateRequested = true;
+        fullRehydrateRequested ||= full;
         return;
       }
       hydrating = true;
       hydrated = false;
-      void loadAll().finally(() => {
+      void (full ? loadAll() : loadConversations()).finally(() => {
         if (!alive) return;
         hydrating = false;
         if (rehydrateRequested) {
+          const rerunFull = fullRehydrateRequested;
           rehydrateRequested = false;
-          hydrate();
+          fullRehydrateRequested = false;
+          hydrate(rerunFull);
           return;
         }
         hydrated = true;
@@ -1397,11 +1436,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const hydrationFallback = setTimeout(hydrate, 1_000);
 
     const es = new EventSource("/api/events");
+    let streamConnected = false;
+    let lastStreamFrameAt = Date.now();
     // The hydrate decision belongs to the hello frame, not to onopen: the
     // server replays what we missed when it can, and re-downloading every
     // transcript on a reconnect it already covered is pure waste.
-    es.onopen = () => rawDispatch({ type: "connected", value: true });
-    es.onerror = () => rawDispatch({ type: "connected", value: false });
+    es.onopen = () => {
+      streamConnected = true;
+      lastStreamFrameAt = Date.now();
+      rawDispatch({ type: "connected", value: true });
+    };
+    es.onerror = () => {
+      streamConnected = false;
+      rawDispatch({ type: "connected", value: false });
+    };
     handleFrame = (frame) => {
       switch (frame.kind) {
         case "message": {
@@ -1551,6 +1599,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     };
     es.onmessage = (raw) => {
+      lastStreamFrameAt = Date.now();
       let frame: any;
       try {
         frame = JSON.parse(raw.data);
@@ -1567,9 +1616,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (hydrated) handleFrame(frame);
       else pendingFrames.push(frame);
     };
+
+    // SSE is the fast path, not the source of truth. Some Electron/Vite
+    // combinations keep the browser-facing socket open after the proxy's
+    // upstream agent server has died, so EventSource never fires `error`.
+    // The server emits an application heartbeat; if frames go quiet for five
+    // seconds, reconcile against the durable REST snapshot. Also reconcile
+    // whenever the app comes back into view, so replies completed while the
+    // laptop was asleep are visible immediately.
+    const recoveryPoll = setInterval(() => {
+      const stale = Date.now() - lastStreamFrameAt > 5_000;
+      if ((!streamConnected || stale) && document.visibilityState !== "hidden") {
+        if (stale) rawDispatch({ type: "connected", value: false });
+        hydrate(false);
+      }
+    }, 1_000);
+    const refreshVisibleConversations = () => {
+      if (document.visibilityState !== "hidden") hydrate(false);
+    };
+    window.addEventListener("focus", refreshVisibleConversations);
+    document.addEventListener("visibilitychange", refreshVisibleConversations);
     return () => {
       alive = false;
       clearTimeout(hydrationFallback);
+      clearInterval(recoveryPoll);
+      window.removeEventListener("focus", refreshVisibleConversations);
+      document.removeEventListener("visibilitychange", refreshVisibleConversations);
       es.close();
     };
   }, []);

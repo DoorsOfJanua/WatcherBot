@@ -1,5 +1,6 @@
 // Agent-to-agent comms MCP proxy — spawned as an MCP server inside a bot's
-// agent process (via the "agents" integration). Exposes three tools that
+// agent process (via the "agents" integration). Exposes three fleet tools
+// plus Mailman's exact-draft proposal tool when the harness enables it. They
 // let one bot talk to another, routed back through the harness so the
 // harness stays the single owner of turns, permissions, and recursion
 // limits:
@@ -25,6 +26,7 @@ const BOT_ID = process.env.OMB_BOT_ID ?? "";
 const THREAD_ID = process.env.OMB_THREAD_ID ?? "";
 const TOKEN = process.env.OMB_COMMS_TOKEN ?? "";
 const DEPTH = Number(process.env.OMB_TURN_DEPTH ?? "0") || 0;
+const CAN_STAGE_EMAIL = process.env.OMB_CAN_STAGE_EMAIL === "1";
 
 const TOOLS = [
   {
@@ -60,6 +62,24 @@ const TOOLS = [
       required: ["bot_id", "message"],
     },
   },
+  ...(CAN_STAGE_EMAIL ? [{
+    name: "propose_email_draft",
+    description:
+      "Stage one exact email draft for Janua to review on desktop or phone. This NEVER sends. The harness freezes From/To/Cc/Bcc/Subject/body, shows an approval card, and only sends that exact copy after Janua taps Approve & send. Use fromAccount nils.palmen@protonmail.com; attachments must be an empty list.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAccount: { type: "string" },
+        to: { type: "array", items: { type: "string" } },
+        cc: { type: "array", items: { type: "string" } },
+        bcc: { type: "array", items: { type: "string" } },
+        subject: { type: "string" },
+        body: { type: "string" },
+        attachments: { type: "array", maxItems: 0 },
+      },
+      required: ["fromAccount", "to", "cc", "bcc", "subject", "body", "attachments"],
+    },
+  }] : []),
 ];
 
 type Json = Record<string, unknown>;
@@ -121,6 +141,15 @@ async function callTool(name: string, args: Json): Promise<{ text: string; isErr
     // Fire-and-forget by contract: the harness returns immediately, the
     // peer turn runs after our current turn finishes.
     return { text: typeof r.message === "string" ? r.message : "Delegation queued." };
+  }
+  if (name === "propose_email_draft" && CAN_STAGE_EMAIL) {
+    const r = await api("/api/internal/mail-drafts", {
+      method: "POST",
+      body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, draft: args }),
+    });
+    return {
+      text: `Exact draft staged for Janua's approval (receipt ${String(r.receiptId)}). Nothing was sent. Do not send through another tool or modify this receipt; create a new proposal for any edit.`,
+    };
   }
   return { text: `Unknown tool: ${name}`, isError: true };
 }

@@ -26,10 +26,19 @@ export interface DeviceRecord {
   /** Full interactive access to a bot's cloud desktop. Deliberately off on
    * every new and migrated device until the computer owner enables it. */
   cloudDesktopAccess: boolean;
+  /** APNs routing data. The device token is not an app credential, but it is
+   * private addressing data and never leaves this process's push path. */
+  push?: PushRegistration;
+}
+
+export interface PushRegistration {
+  token: string;
+  environment: "development" | "production";
+  updatedAt: number;
 }
 
 /** What the UI is allowed to see: a device without its secret. */
-export type PublicDevice = Omit<DeviceRecord, "tokenHash">;
+export type PublicDevice = Omit<DeviceRecord, "tokenHash" | "push">;
 
 /** A pairing window: two short-lived credentials, deliberately single-use.
  *
@@ -52,6 +61,7 @@ export const MAX_PAIRING_ATTEMPTS = 5;
 export const MAX_DEVICES = 20;
 /** lastSeen is a UI nicety, not an audit log — don't write on every request. */
 const LAST_SEEN_WRITE_MS = 60_000;
+const APNS_TOKEN = /^[a-f0-9]{64,256}$/i;
 
 /** Hex digest. Tokens live on disk as one of these and never in the clear. */
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -104,6 +114,11 @@ function normalizeDevice(record: Partial<DeviceRecord> & { id: string; tokenHash
     createdAt,
     lastSeenAt: timestamp(record.lastSeenAt, createdAt),
     cloudDesktopAccess: record.cloudDesktopAccess === true,
+    push:
+      record.push && APNS_TOKEN.test(record.push.token) &&
+      (record.push.environment === "development" || record.push.environment === "production")
+        ? { ...record.push, updatedAt: timestamp(record.push.updatedAt, createdAt) }
+        : undefined,
   };
 }
 
@@ -114,6 +129,7 @@ export class DeviceRegistry {
   private devices: DeviceRecord[] = [];
   private window: PairingWindow | null = null;
   private lastSeenWrites = new Map<string, number>();
+  private activeStreams = new Map<string, number>();
 
   /** Load the paired fleet, normalising as it goes.
    *
@@ -149,7 +165,7 @@ export class DeviceRegistry {
 
   /** Every paired device, without the hash — this is what the page renders. */
   list(): PublicDevice[] {
-    return this.devices.map(({ tokenHash, ...rest }) => rest);
+    return this.devices.map(({ tokenHash, push, ...rest }) => rest);
   }
 
   /** How many phones are paired, against MAX_DEVICES. */
@@ -281,6 +297,60 @@ export class DeviceRegistry {
       throw error;
     }
     return true;
+  }
+
+  /** Attach or refresh this paired device's APNs address. */
+  setPush(id: string, token: unknown, environment: unknown): boolean {
+    const device = this.devices.find((candidate) => candidate.id === id);
+    const cleanToken = String(token ?? "").trim().toLowerCase();
+    if (!device || !APNS_TOKEN.test(cleanToken)) return false;
+    if (environment !== "development" && environment !== "production") return false;
+    const previous = device.push;
+    device.push = { token: cleanToken, environment, updatedAt: Date.now() };
+    try {
+      this.persist();
+    } catch (error) {
+      device.push = previous;
+      throw error;
+    }
+    return true;
+  }
+
+  clearPush(id: string): boolean {
+    const device = this.devices.find((candidate) => candidate.id === id);
+    if (!device?.push) return false;
+    const previous = device.push;
+    delete device.push;
+    try {
+      this.persist();
+    } catch (error) {
+      device.push = previous;
+      throw error;
+    }
+    return true;
+  }
+
+  /** A copy: delivery failures may mutate the registry while a fanout runs. */
+  pushTargets(): Array<{ deviceId: string } & PushRegistration> {
+    return this.devices.flatMap((device) =>
+      device.push && !this.hasActiveStream(device.id)
+        ? [{ deviceId: device.id, ...device.push }]
+        : [],
+    );
+  }
+
+  streamOpened(id: string): void {
+    this.activeStreams.set(id, (this.activeStreams.get(id) ?? 0) + 1);
+  }
+
+  streamClosed(id: string): void {
+    const remaining = (this.activeStreams.get(id) ?? 0) - 1;
+    if (remaining > 0) this.activeStreams.set(id, remaining);
+    else this.activeStreams.delete(id);
+  }
+
+  hasActiveStream(id: string): boolean {
+    return (this.activeStreams.get(id) ?? 0) > 0;
   }
 }
 

@@ -40,7 +40,7 @@ for (const name of names) {
 }
 
 const profiles = {
-  Wormhole: { chiefOfStaff: true, pinned: true, section: "Command", sharedMemoryId: "wormhole" },
+  "The Watcher": { chiefOfStaff: true, pinned: true, section: "Command", sharedMemoryId: "wormhole" },
   Forge: {
     section: "Build",
     sharedMemoryId: "forge",
@@ -101,7 +101,7 @@ if (!room) {
 }
 
 const bulletin =
-  "This is Janua’s core agent room. Wormhole is the default entry point and delegates by specialist charter. " +
+  "This is Janua’s core agent room. The Watcher is the default entry point and delegates by specialist charter. " +
   "If Janua explicitly addresses one member, that member owns the answer and others stay quiet unless tagged or they have one short, materially useful addition. " +
   "Keep replies conversational and compact. Canonical project state outranks failed connector searches. " +
   "Reversible work may proceed; external or hard-to-reverse actions require the exact approval receipt.";
@@ -110,7 +110,7 @@ await api(`/api/groups/${room.id}`, {
   method: "PATCH",
   body: JSON.stringify({
     memberIds,
-    defaultResponder: { kind: "member", botId: byName.get("Wormhole").id },
+    defaultResponder: { kind: "member", botId: byName.get("The Watcher").id },
     bulletin,
   }),
 });

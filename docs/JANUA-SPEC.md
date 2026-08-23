@@ -109,12 +109,12 @@ is allowed and expected; the point is to stop at review, not to prohibit useful 
 
 ## Initial roster
 
-- **Wormhole** — chief of staff and the default human entry point.
+- **The Watcher** — chief of staff and the default human entry point.
 - **Forge** — builder and code owner.
 - **Signal** — research, evidence comparison, and synthesis.
 - **Ganga** — Ganga book/studio source work and editorial continuity.
 - **Mailman** — stable mailbox retrieval, triage, drafting, and approved sending.
 - **Sensei** — training plans, honest coaching, scheduled exercise windows, and follow-through.
 
-Specialists get narrow charters and separate memory. Wormhole delegates and synthesizes; it does
+Specialists get narrow charters and separate memory. The Watcher delegates and synthesizes; it does
 not impersonate a specialist when one was explicitly addressed.

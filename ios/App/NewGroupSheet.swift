@@ -22,7 +22,7 @@ struct NewGroupSheet: View {
                     TextField("Group name (optional)", text: $name)
                         .autocorrectionDisabled()
                 }
-                Section("Bots") {
+                Section("Agents") {
                     ForEach(bots) { bot in
                         Button {
                             if members.contains(bot.id) { members.remove(bot.id) } else { members.insert(bot.id) }

@@ -39,7 +39,7 @@ export interface AgentSpiritProps {
 
 export const AGENT_SPIRIT_META = {
   wormhole: {
-    title: "Wormhole",
+    title: "The Watcher",
     role: "Chief of Staff",
     material: "Folded violet ribbon looping through its own portal",
     accent: "#8a5fd0",

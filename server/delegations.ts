@@ -196,18 +196,20 @@ function acknowledgeDelegation(threadId: string, itemId: string): void {
 
 /** Drop a thread's queued handoffs without running them, telling the user
  * they were dropped. Used when the queueing turn failed or was interrupted. */
-export function discardDelegations(bus: CommsBus, threadId: string): void {
+export function discardDelegations(bus: CommsBus, threadId: string): number {
   const list = pendingDelegations.get(threadId);
-  if (!list?.length) return;
+  if (!list?.length) return 0;
   pendingDelegations.delete(threadId);
   savePending();
   const from = bus.store.botByThread(threadId);
-  if (!from) return;
-  bus.store.appendMessage(threadId, {
-    role: "bot",
-    kind: "activity",
-    tool: { name: `${list.length} queued delegation${list.length > 1 ? "s" : ""} dropped — the turn did not finish`, ok: false },
-  });
+  if (from) {
+    bus.store.appendMessage(threadId, {
+      role: "bot",
+      kind: "activity",
+      tool: { name: `${list.length} queued delegation${list.length > 1 ? "s" : ""} dropped — the turn did not finish`, ok: false },
+    });
+  }
+  return list.length;
 }
 
 async function processOne(

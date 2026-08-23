@@ -7,7 +7,7 @@
     "members": [
       {
         "key": "wormhole",
-        "name": "Wormhole",
+        "name": "The Watcher",
         "title": "Chief of Staff",
         "description": "Own the front door. Keep projects, decisions, owners, and open loops coherent; delegate to the named specialist; synthesize results. Never impersonate a specialist the user explicitly addressed. Never let a failed search or agent run erase canonical project truth. Reversible work may proceed; park external or hard-to-reverse actions for an exact approval.",
         "appearance": { "color": "purple", "mascotExpression": "focused" }

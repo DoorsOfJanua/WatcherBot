@@ -25,7 +25,7 @@ Examples of motion grammar:
 
 - **Mailman:** darts, skids, sorts, briefly vanishes behind an impossible stack of envelopes;
 - **Sensei:** almost motionless at rest, economical anticipations, sudden precise strikes;
-- **Wormhole:** folds its own outline and opens small spatial seams for handoffs;
+- **The Watcher:** folds its own outline and opens small spatial seams for handoffs;
 - **Ganga:** trails an ink ribbon that occasionally resolves into a sentence or scene;
 - **Signal:** tunes, triangulates, and separates weak noise from one clean pulse;
 - **Forge:** heats, measures, strikes, cools, and presents finished work without flourish.

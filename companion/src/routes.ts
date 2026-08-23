@@ -55,6 +55,8 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   // which providers are set up is not reading their keys.
   { method: "GET", path: /^\/api\/config$/ },
   { method: "GET", path: /^\/api\/events$/ },
+  { method: "POST", path: /^\/api\/push\/register$/ },
+  { method: "DELETE", path: /^\/api\/push\/register$/ },
   { method: "GET", path: /^\/api\/instances$/ },
 
   // the fleet, and making a bot

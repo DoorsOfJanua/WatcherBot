@@ -11,6 +11,7 @@ import { memo, useEffect, useState, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
+import { sharedDocumentHref } from "../../shared/shared-document";
 
 // tiny highlight cache so revisiting a thread doesn't re-tokenize settled
 // blocks; keys are content-hashed and capped. Streamed partials may land here
@@ -185,12 +186,14 @@ function ChatMarkdownComponent({ text, streaming = false }: { text: string; stre
             );
           },
           a({ href, children }: { href?: string; children?: ReactNode }) {
+            const resolvedHref = sharedDocumentHref(href);
             return (
               <a
-                href={href}
+                href={resolvedHref}
                 target="_blank"
                 rel="noreferrer"
                 className="break-words text-accent underline decoration-accent/40 hover:decoration-accent"
+                title={resolvedHref !== href ? "Open shared document" : undefined}
               >
                 {children}
               </a>

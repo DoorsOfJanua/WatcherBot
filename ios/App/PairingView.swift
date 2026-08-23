@@ -44,6 +44,7 @@ struct PairingView: View {
                 }
 
             }
+            .watcherRoomSurface()
             .navigationTitle("Pair with a computer")
             .onAppear {
                 discovery.start()
@@ -54,7 +55,7 @@ struct PairingView: View {
             .fullScreenCover(isPresented: $showingScanner) {
                 PairingScannerSheet { payload in
                     guard let url = URL(string: payload), let invite = PairingInvite.parse(url) else {
-                        return "That isn't an OpenMausBot pairing QR code."
+                        return "That isn't an Agent Room pairing QR code."
                     }
                     accept(invite)
                     return nil
@@ -71,7 +72,7 @@ struct PairingView: View {
 
     private var setupSection: some View {
         Section("On your computer") {
-            Label("Open OpenMausBot → Settings → Companion", systemImage: "1.circle.fill")
+            Label("Open Agent Room → Settings → Companion", systemImage: "1.circle.fill")
             Label("Choose Set up a phone", systemImage: "2.circle.fill")
             Button {
                 failure = nil

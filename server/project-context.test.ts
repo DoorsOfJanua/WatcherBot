@@ -20,9 +20,11 @@ function fixture(projects?: FixtureProject[]) {
   const root = mkdtempSync(join(tmpdir(), "myagent-project-context-"));
   roots.push(root);
   const statePath = join(root, "STATE.md");
+  const charterPath = join(root, "CANONICAL.md");
   const registryPath = join(root, "project-registry.json");
   const bindingsPath = join(root, "project-bindings.ndjson");
   writeFileSync(statePath, "# Farmada\n\nThree questionnaires exist. Next: draft Charlie reply.\n");
+  writeFileSync(charterPath, "# Farmada charter\n\nStable artifact: farmada-questionnaires.\n");
   writeFileSync(
     registryPath,
     JSON.stringify({
@@ -33,12 +35,16 @@ function fixture(projects?: FixtureProject[]) {
           name: "Farmada",
           aliases: ["farmada vragenlijst", "farmada questionnaires"],
           statePath,
+          charterPath,
+          workspace: root,
+          ownerAgentIds: ["mailroom"],
+          accent: "#ffb454",
           critical: true,
         },
       ],
     }),
   );
-  return { root, statePath, registryPath, bindingsPath };
+  return { root, statePath, charterPath, registryPath, bindingsPath };
 }
 
 afterEach(() => {
@@ -54,6 +60,8 @@ describe("project context", () => {
     expect(first.projectId).toBe("farmada");
     expect(first.newlyBound).toBe(true);
     expect(first.systemPrompt).toContain("Three questionnaires exist");
+    expect(first.systemPrompt).toContain("Stable artifact: farmada-questionnaires");
+    expect(first.systemPrompt).toContain("shared across Telegram, MyAgentRoom, Claude CLI and Codex");
     expect(first.systemPrompt).toContain("zero-result or failed search must never erase this state");
 
     const continued = provider.forTurn("thread-1", "continue");
@@ -105,6 +113,22 @@ describe("project context", () => {
       }),
     );
     expect(() => loadProjectRegistry(files.registryPath)).toThrow(/absolute path/);
+  });
+
+  it("accepts the shared AgentHQ registry superset without creating a second schema", () => {
+    const files = fixture();
+    const project = loadProjectRegistry(files.registryPath).projects[0];
+    expect(project.workspace).toBe(files.root);
+    expect(project.charterPath).toBe(files.charterPath);
+    expect(project.ownerAgentIds).toEqual(["mailroom"]);
+  });
+
+  it("marks state truncation honestly while keeping the charter first", () => {
+    const files = fixture();
+    writeFileSync(files.statePath, `# State\n${"x".repeat(20_000)}`);
+    const prompt = new ProjectContextProvider(files).forTurn("thread-large", "Farmada").systemPrompt;
+    expect(prompt.indexOf("<project_charter>")).toBeLessThan(prompt.indexOf("<project_state>"));
+    expect(prompt).toContain("State was truncated at 16000 bytes");
   });
 
   it("does not guess when a new thread names multiple projects", () => {

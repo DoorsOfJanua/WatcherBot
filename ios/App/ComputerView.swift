@@ -130,7 +130,7 @@ struct ComputerView: View {
             // An idle bot is not being screenshotted at all, so this would
             // otherwise be an indefinite spinner with no explanation.
             if current.busy != true {
-                Text("This bot's computer is only captured while it is working.")
+                Text("This agent's computer is only captured while it is working.")
                     .font(.system(size: 13))
                     .foregroundStyle(Color.white.opacity(0.45))
                     .multilineTextAlignment(.center)

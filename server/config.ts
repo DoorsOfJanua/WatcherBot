@@ -60,6 +60,9 @@ const localVmConfigSchema = z.object({
     .max(MAX_LOCAL_VM_MAX_INSTANCES)
     .optional(),
 });
+const appearanceConfigSchema = z.object({
+  avatarStyle: z.enum(["classic", "spirits"]),
+});
 const instanceConfigSchema = z.object({
   driver: z.string().min(1),
   displayName: optionalText,
@@ -87,6 +90,8 @@ const appConfigSchema = z.object({
   imageGen: z.object({ key: optionalText }).optional(),
   /** Non-secret profile details shown in the sidebar. */
   profile: z.object({ name: optionalText, email: optionalText }).optional(),
+  /** Shared visual preference used by desktop and paired phone clients. */
+  appearance: appearanceConfigSchema.optional(),
   rooms: roomConfigSchema.optional(),
   localVm: localVmConfigSchema.optional(),
   instances: instanceConfigMapSchema.optional(),
@@ -104,6 +109,7 @@ export interface AppConfig {
   tts?: { provider?: "elevenlabs" | "xai"; key?: string; voice?: string };
   imageGen?: { key?: string };
   profile?: { name?: string; email?: string };
+  appearance?: { avatarStyle: "classic" | "spirits" };
   rooms?: { turnTimeoutMinutes: number };
   /** Shared preserves the historical singleton. Per-bot gives every bot a
    * separate container, durable workspace, viewer and lease. */
@@ -265,7 +271,7 @@ export function saveConfig(patch: Partial<AppConfig>): void {
     /* first write */
   }
   const checkedPatch = appConfigSchema.partial().parse(patch);
-  for (const key of ["xai", "composio", "box", "opencodeGo", "tts", "imageGen", "profile", "rooms", "localVm"] as const) {
+  for (const key of ["xai", "composio", "box", "opencodeGo", "tts", "imageGen", "profile", "appearance", "rooms", "localVm"] as const) {
     const section = checkedPatch[key];
     if (!section) continue;
     const current = jsonObjectSchema.safeParse(disk[key]);

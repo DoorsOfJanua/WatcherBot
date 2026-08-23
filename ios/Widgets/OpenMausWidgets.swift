@@ -48,11 +48,11 @@ struct BotActivityWidget: Widget {
                     }
                 }
             } compactLeading: {
-                MausFaceStill(color: context.attributes.color, state: MausState(rawValue: context.state.face) ?? .idle, size: 24)
+                ActivityAvatar(context: context, size: 24)
             } compactTrailing: {
                 compactTrailing(context)
             } minimal: {
-                MausFaceStill(color: context.attributes.color, state: MausState(rawValue: context.state.face) ?? .idle, size: 22)
+                ActivityAvatar(context: context, size: 22)
             }
             .keylineTint(MausPalette.color(context.attributes.color))
         }
@@ -157,7 +157,32 @@ private struct OrbitingFace: View {
                     Color(hex: "#FACC15"), Color(hex: "#FB923C"), Color(hex: "#F43F5E"), Color(hex: "#A855F7"),
                 ], center: .center))
                 .frame(width: size + 4, height: size + 4)
-            MausFaceStill(color: context.attributes.color, state: MausState(rawValue: context.state.face) ?? .idle, size: size, comets: true, at: Date())
+            ActivityAvatar(context: context, size: size, comets: true)
+        }
+    }
+}
+
+private struct ActivityAvatar: View {
+    let context: ActivityViewContext<BotActivityAttributes>
+    let size: CGFloat
+    var comets = false
+
+    var body: some View {
+        let state = MausState(rawValue: context.state.face) ?? .idle
+        if let raw = context.attributes.spirit, let spirit = SpiritKind(rawValue: raw) {
+            SpiritAvatar(
+                spirit: spirit,
+                size: size,
+                state: state,
+                animated: false,
+                comets: comets,
+                palette: context.attributes.spiritPalette,
+                geometry: context.attributes.spiritGeometry,
+                temperament: context.attributes.spiritTemperament,
+                label: context.attributes.name
+            )
+        } else {
+            MausFaceStill(color: context.attributes.color, state: state, size: size, comets: comets, at: Date())
         }
     }
 }

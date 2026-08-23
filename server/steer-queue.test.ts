@@ -16,7 +16,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { drainSteeredMessages, queueSteeredMessage, _queuedCount, type SteerStore } from "./steer-queue.ts";
+import { discardSteeredMessages, drainSteeredMessages, queueSteeredMessage, _queuedCount, type SteerStore } from "./steer-queue.ts";
 import type { BotRecord, Message } from "./store.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
@@ -107,6 +107,22 @@ describe("steer-queue module", () => {
   it("fires nothing when nothing is queued", () => {
     const run = vi.fn();
     drainSteeredMessages(fakeStore([fakeBot("bot-c", "thread-c", false)]), run);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("emergency stop keeps queued words but prevents their follow-up turn", () => {
+    const bot = fakeBot("bot-stop", "thread-stop", true);
+    const store = fakeStore([bot]);
+    queueSteeredMessage(store, bot, "keep these words");
+
+    expect(discardSteeredMessages(store)).toBe(1);
+    expect(store.messages[0]).toMatchObject({ text: "keep these words" });
+    expect(store.messages[0]?.queued).toBeUndefined();
+    expect(_queuedCount("thread-stop")).toBe(0);
+
+    const run = vi.fn();
+    bot.busy = false;
+    drainSteeredMessages(store, run);
     expect(run).not.toHaveBeenCalled();
   });
 

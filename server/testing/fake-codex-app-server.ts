@@ -4,7 +4,7 @@
 // initialize/thread/turn handshake, then plays a scripted turn. Like the
 // real app-server, it never exits on its own — the driver kills it.
 //
-//   FAKE_CODEX_MODE   happy (default) | approval | resume | stream | windows-command |
+//   FAKE_CODEX_MODE   happy (default) | approval | mcp-approval | mail-proposal | resume | stream | windows-command |
 //                     logged-in-stdout | logged-out | unauthorized
 //   FAKE_CODEX_DUMP   path to write {argv, env, calls, decision} as JSON
 //
@@ -143,7 +143,24 @@ process.stdin.on("data", (chunk) => {
           : "ls -la";
         notify("item/started", { item: { id: "i1", type: "commandExecution", command } });
         notify("item/started", { item: { id: "w1", type: "webSearch", query: "OpenMausBot" } });
-        if (mode === "approval" || mode === "windows-command") {
+        if (mode === "mcp-approval" || mode === "mail-proposal") {
+          out({
+            jsonrpc: "2.0",
+            id: 100,
+            method: "mcpServer/elicitation/request",
+            params: {
+              threadId: "codex-thread-1",
+              turnId: "turn-1",
+              serverName: "agents",
+              mode: "form",
+              _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"] },
+              message: mode === "mail-proposal"
+                ? 'Allow the agents MCP server to run tool "propose_email_draft"?'
+                : 'Allow the agents MCP server to run tool "ask_bot"?',
+              requestedSchema: { type: "object", properties: {} },
+            },
+          });
+        } else if (mode === "approval" || mode === "windows-command") {
           const approvalCommand = mode === "windows-command" ? command : "rm -rf scratch";
           out({ jsonrpc: "2.0", id: 100, method: "execCommandApproval", params: { command: approvalCommand } });
           // turn continues from the approval response handler above

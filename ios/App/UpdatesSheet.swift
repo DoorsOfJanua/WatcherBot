@@ -32,7 +32,7 @@ struct UpdatesSheet: View {
                     ContentUnavailableView(
                         "Nothing needs you",
                         systemImage: "checkmark.circle",
-                        description: Text("When a bot stops for an answer, is mid-task, or finishes something, it shows up here.")
+                        description: Text("When an agent stops for an answer, is mid-task, or finishes something, it shows up here.")
                     )
                     .padding(.top, 24)
                 } else {

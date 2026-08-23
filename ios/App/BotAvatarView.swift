@@ -27,6 +27,18 @@ struct BotAvatarView: View {
                     .scaledToFill()
                     .frame(width: size, height: size)
                     .clipShape(mask)
+            } else if let spirit = SpiritKind.forBot(bot) {
+                SpiritAvatar(
+                    spirit: spirit,
+                    size: size,
+                    state: state,
+                    animated: animated,
+                    comets: comets,
+                    palette: bot.spiritPalette,
+                    geometry: bot.spiritGeometry,
+                    temperament: bot.spiritTemperament,
+                    label: "\(bot.name) spirit"
+                )
             } else {
                 MausAvatar(color: bot.color, size: size, state: state, animated: animated, comets: comets)
             }
@@ -70,7 +82,17 @@ struct ChatAvatarView: View {
         case let .bot(bot):
             BotAvatarView(bot: bot, size: size, state: state, animated: animated, comets: comets)
         case .room:
-            MausAvatar(color: "blue", size: size, state: state, animated: animated, comets: comets)
+            SpiritAvatar(
+                spirit: .watcher,
+                size: size,
+                state: state,
+                animated: animated,
+                comets: comets,
+                palette: "violet",
+                geometry: "lens",
+                temperament: "mystic",
+                label: "Watcher room"
+            )
         }
     }
 }

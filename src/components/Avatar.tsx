@@ -16,7 +16,9 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { MAUS_COLORS, type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
-import { MailmanSpirit } from "./MailmanSpirit";
+import { LivingHoodSpirit } from "./spirits/LivingHoodSpirit";
+import { useAvatarStyle } from "./AvatarAppearance";
+import { agentSpiritForBot } from "@/lib/agent-spirit-identity";
 import {
   CursorAvatar,
   DEFAULT_SILHOUETTE,
@@ -29,6 +31,9 @@ import {
   type BotAvatarCrop,
   type BotAvatarState,
   type BotSpirit,
+  type BotSpiritGeometry,
+  type BotSpiritPalette,
+  type BotSpiritTemperament,
 } from "../../shared/bot-avatar";
 
 const RiveAvatar = lazy(() => import("./RiveAvatar").then((module) => ({ default: module.RiveAvatar })));
@@ -238,6 +243,10 @@ export type BotAvatarProps = Omit<MausAvatarProps, "color"> & {
     avatarUrl?: string | null;
     avatarCrop?: BotAvatarCrop;
     spirit?: BotSpirit | null;
+    spiritPalette?: BotSpiritPalette;
+    spiritGeometry?: BotSpiritGeometry;
+    spiritTemperament?: BotSpiritTemperament;
+    sharedMemoryId?: string;
     activity?: "working" | "waiting-on-you" | "idle" | "no-signal" | "dead";
   };
   /** Optional explicit state for a Rive asset; otherwise bot activity/state is mapped. */
@@ -276,29 +285,32 @@ function riveStateFor(
  * so an old/corrupt profile can never leave a broken-image icon in the app.
  */
 export function BotAvatar({ bot, size = 44, label, riveState, ...mascotProps }: BotAvatarProps) {
+  const avatarStyle = useAvatarStyle();
   const profile = botAvatarProfile(bot);
   const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => setImageFailed(false), [profile.avatarUrl]);
 
   if (profile.avatarCrop === "mascot" || !profile.avatarUrl || imageFailed) {
-    if (profile.spirit === "mailman") {
-      const spiritState =
-        bot.activity === "working"
-          ? "working"
-          : bot.activity === "waiting-on-you"
-            ? "waiting"
-            : bot.activity === "no-signal" || bot.activity === "dead"
-              ? "failure"
-              : mascotProps.state;
+    // The room-wide family is the one real toggle. A bot remembers which
+    // spirit it is inside the Spirits family, but that choice must not make
+    // the Classic switch appear broken.
+    const agentSpirit = avatarStyle === "spirits"
+      ? (profile.spirit ?? agentSpiritForBot(bot))
+      : null;
+    if (agentSpirit) {
       return (
-        <MailmanSpirit
-          state={spiritState}
+        <LivingHoodSpirit
+          spirit={agentSpirit}
+          state={riveStateFor(bot, mascotProps.state ?? "idle", riveState)}
           size={size}
+          animated={mascotProps.animated ?? true}
           label={label ?? bot.name}
           motion={mascotProps.motion}
           motionKey={mascotProps.motionKey}
-          animated={mascotProps.animated ?? true}
+          palette={profile.spiritPalette}
+          geometry={profile.spiritGeometry}
+          temperament={profile.spiritTemperament}
         />
       );
     }
@@ -364,4 +376,25 @@ export function InitialsAvatar({
       {initials}
     </div>
   );
+}
+
+/** Janua's own place in the room: initials in Classic, The Watcher in the
+ * Agent Spirits family. This is a user identity, deliberately not a worker
+ * bot that can accidentally receive delegated tasks. */
+export function UserAvatar({
+  initials,
+  size = 32,
+}: {
+  initials: string;
+  size?: number;
+}) {
+  const avatarStyle = useAvatarStyle();
+  if (avatarStyle === "spirits") {
+    return (
+      <span className="inline-flex shrink-0" title="The Watcher">
+        <LivingHoodSpirit spirit="watcher" state="idle" size={size} label="The Watcher" />
+      </span>
+    );
+  }
+  return <InitialsAvatar initials={initials} size={size} />;
 }

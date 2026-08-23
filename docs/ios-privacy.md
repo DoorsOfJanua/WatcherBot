@@ -1,18 +1,19 @@
-# OpenMausMobile privacy
+# Agent Room privacy
 
-OpenMausMobile is a companion for an OpenMausBot service chosen and operated by the user.
+Agent Room is a companion for an OpenMausBot service chosen and operated by the user.
 
 ## Data handling
 
 - The app stores the selected computer address in iOS preferences and its pairing token in the iOS Keychain.
 - Messages, approvals, transcript searches, exports, and screen images travel directly between the phone and that computer.
 - OpenMausBot stores transcripts on that computer. The app does not send the developer a cloud copy.
+- If the owner enables notifications and configures Apple Push Notification service credentials on that computer, the computer sends the notification title/body and the phone's APNs device token directly to Apple for delivery. No developer-hosted relay receives them.
 - The app contains no advertising, analytics, tracking, or third-party SDKs.
 - The app does not sell personal information.
 
 Local-network connections should only be used on a network the user trusts. For remote access, the project recommends Tailscale so traffic is protected by the user's tailnet. Tailscale is a separate service with its own privacy terms.
 
-If optional hosted services are introduced later, this policy and the App Store privacy disclosure will be updated before those services ship.
+If other hosted services are introduced later, this policy and the App Store privacy disclosure will be updated before those services ship.
 
 ## Control and deletion
 

@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronLeft, Crown, FolderOpen, X } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, useStore, type Bot } from "@/state/store";
 import type { BotSpirit } from "../../shared/bot-avatar";
 import { stateForBot } from "@/lib/mascot";
@@ -28,6 +28,67 @@ function Field({
       <div className="mb-1.5 text-[13px] text-ink-secondary">{label}</div>
       {children}
     </label>
+  );
+}
+
+/**
+ * Profile prose stays local while the user is typing. Committing each
+ * keystroke to the global bot store used to re-render the entire profile —
+ * including the animated spirit workshop above it — which made the panel
+ * visibly jump under the cursor. Blur is a clear save boundary and still
+ * fires before closing/switching the panel.
+ */
+function DraftProfileField({
+  label,
+  value,
+  maxLength,
+  placeholder,
+  multiline = false,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  maxLength: number;
+  placeholder: string;
+  multiline?: boolean;
+  onCommit: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const editing = useRef(false);
+
+  useEffect(() => {
+    if (!editing.current) setDraft(value);
+  }, [value]);
+
+  const commit = () => {
+    editing.current = false;
+    if (draft !== value) onCommit(draft);
+  };
+
+  return (
+    <Field label={label}>
+      {multiline ? (
+        <textarea
+          className={cn(inputCls, "min-h-[96px] resize-none")}
+          maxLength={maxLength}
+          placeholder={placeholder}
+          value={draft}
+          onFocus={() => { editing.current = true; }}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+        />
+      ) : (
+        <input
+          className={inputCls}
+          maxLength={maxLength}
+          placeholder={placeholder}
+          value={draft}
+          onFocus={() => { editing.current = true; }}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+        />
+      )}
+    </Field>
   );
 }
 
@@ -416,7 +477,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
   const localSelectable = localComputerSelectable({ capabilities, providerSupportsLocal });
   const [localAutoWarning, setLocalAutoWarning] = useState<"auto" | "local" | null>(null);
   const localDisabledReason = localComputerDisabledReason({ capabilities, providerSupportsLocal });
-  const patch = (
+  const patch = useCallback((
     p: Partial<
       Omit<Pick<Bot,
         | "name"
@@ -432,6 +493,9 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
         | "mascotExpression"
         | "avatarUrl"
         | "avatarCrop"
+        | "spiritPalette"
+        | "spiritGeometry"
+        | "spiritTemperament"
         | "autoApprove"
         | "speakReplies"
         | "voice"
@@ -441,7 +505,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
         | "modelSelection"
       >, "spirit">
     > & { acknowledgeLocalAuto?: boolean; spirit?: BotSpirit | null },
-  ) => dispatch({ type: "updateBot", botId: bot.id, patch: p });
+  ) => dispatch({ type: "updateBot", botId: bot.id, patch: p }), [bot.id, dispatch]);
   const activeState = stateForBot(bot);
   const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const engine = state.instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId);
@@ -485,32 +549,31 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
             onPatch={patch}
           />
 
-          <Field label="Name">
-            <input
-              className={inputCls}
-              maxLength={BOT_PROFILE_LIMITS.name}
-              value={bot.name}
-              onChange={(e) => patch({ name: e.target.value })}
-            />
-          </Field>
-          <Field label="Title">
-            <input
-              className={inputCls}
-              maxLength={BOT_PROFILE_LIMITS.title}
-              placeholder="Describe what your agent does"
-              value={bot.title}
-              onChange={(e) => patch({ title: e.target.value })}
-            />
-          </Field>
-          <Field label="Description">
-            <textarea
-              className={cn(inputCls, "min-h-[96px] resize-none")}
-              maxLength={BOT_PROFILE_LIMITS.description}
-              placeholder="What this agent is for"
-              value={bot.description}
-              onChange={(e) => patch({ description: e.target.value })}
-            />
-          </Field>
+          <DraftProfileField
+            key={`${bot.id}-name`}
+            label="Name"
+            value={bot.name}
+            maxLength={BOT_PROFILE_LIMITS.name}
+            placeholder="Agent name"
+            onCommit={(name) => patch({ name })}
+          />
+          <DraftProfileField
+            key={`${bot.id}-title`}
+            label="Title"
+            value={bot.title}
+            maxLength={BOT_PROFILE_LIMITS.title}
+            placeholder="Describe what this agent does"
+            onCommit={(title) => patch({ title })}
+          />
+          <DraftProfileField
+            key={`${bot.id}-description`}
+            label="Description"
+            value={bot.description}
+            maxLength={BOT_PROFILE_LIMITS.description}
+            placeholder="What this agent is for"
+            multiline
+            onCommit={(description) => patch({ description })}
+          />
 
           <ContactChannels bot={bot} onPatch={patch} />
 

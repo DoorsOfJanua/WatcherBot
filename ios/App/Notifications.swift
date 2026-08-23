@@ -1,16 +1,41 @@
 import Foundation
 import UserNotifications
 import CompanionCore
+import UIKit
 
-/// The on-device notification surface. Delivery comes from live or replayed
-/// companion frames; a future APNs relay can feed the same categories and
-/// userInfo without changing the rest of the app.
+final class AgentRoomAppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        NotificationCoordinator.shared.received(deviceToken: deviceToken)
+    }
+
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        NotificationCoordinator.shared.remoteRegistrationFailed(error)
+    }
+}
+
+/// The on-device notification surface. Foreground/replayed companion frames
+/// and closed-app APNs delivery share the same categories and navigation ids.
 final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate {
     static let shared = NotificationCoordinator()
     private let center = UNUserNotificationCenter.current()
     /// Set by `Session`; kept as an id-only value so the notification layer
     /// does not know about SwiftUI navigation or mutable fleet state.
     var responseHandler: ((NotificationTarget) -> Void)?
+    var deviceTokenHandler: ((String, String) -> Void)?
+    private(set) var remoteDeviceToken: String?
+    private(set) var remoteEnvironment: String = {
+#if DEBUG
+        "development"
+#else
+        "production"
+#endif
+    }()
 
     private override init() {
         super.init()
@@ -23,6 +48,21 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
 
     func requestAuthorization() async -> Bool {
         (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) == true
+    }
+
+    @MainActor
+    func registerForRemoteNotifications() {
+        UIApplication.shared.registerForRemoteNotifications()
+    }
+
+    func received(deviceToken: Data) {
+        let token = deviceToken.map { String(format: "%02x", $0) }.joined()
+        remoteDeviceToken = token
+        deviceTokenHandler?(token, remoteEnvironment)
+    }
+
+    func remoteRegistrationFailed(_ error: Error) {
+        NSLog("Agent Room could not register with APNs: %@", error.localizedDescription)
     }
 
     func deliver(_ notification: NotificationFrame, sequence: Int?) {

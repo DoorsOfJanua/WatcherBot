@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowDown,
   Brain,
+  Braces,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -53,7 +54,9 @@ import { COMPACT_BUBBLE, COMPACT_SQUARE } from "@/lib/compact-chip";
 import { useFocusMessage } from "@/lib/focus-message";
 import { webhookMessageView } from "@/lib/webhook-message";
 import { attachmentBasename, splitAttachedImages } from "@/lib/composer-attachments";
+import { groupTranscriptActivity, type ActivityGroup } from "@/lib/activity-groups";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
+import { workingPhrase } from "@/lib/work-language";
 import {
   TRANSCRIPT_WINDOW_SIZE,
   expandWindowStart,
@@ -528,6 +531,55 @@ function ActivityChip({ message }: { message: Message }) {
   );
 }
 
+/** Consecutive tool calls are evidence, not dialogue. Keep one quiet row in
+ * the conversation and reveal the exact Bash/read/write trail on demand. */
+function ActivityGroupRow({ bot, group }: { bot: Bot; group: ActivityGroup }) {
+  const [open, setOpen] = useState(false);
+  const active = group.messages.some((message) => message.tool?.ok === undefined);
+  const failed = group.messages.some((message) => message.tool?.ok === false);
+  const label = active
+    ? workingPhrase(bot, group.id)
+    : failed
+      ? "Work under the hood needs attention"
+      : "Worked under the hood";
+
+  return (
+    <div className="flex w-full justify-start">
+      <div className="max-w-[70%] min-w-[240px]">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          className={cn(
+            "flex w-full items-center gap-2 rounded-xl border border-hairline/35 bg-panel px-3 py-2 text-left text-[13px] transition-colors hover:bg-raised/70",
+            failed ? "text-danger" : "text-ink-secondary hover:text-ink",
+          )}
+        >
+          {active ? (
+            <Loader2 size={13} className="shrink-0 animate-spin" />
+          ) : failed ? (
+            <X size={13} className="shrink-0" />
+          ) : (
+            <Braces size={13} className="shrink-0" />
+          )}
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+          <span className="shrink-0 text-[11px] tabular-nums text-ink-secondary/70">
+            {group.messages.length} {group.messages.length === 1 ? "step" : "steps"}
+          </span>
+          <ChevronDown size={13} className={cn("shrink-0 transition-transform", open && "rotate-180")} />
+        </button>
+        {open && (
+          <div className="mt-1.5 flex flex-col gap-1.5 rounded-xl border border-hairline/25 bg-inset/35 p-2">
+            {group.messages.map((message) => (
+              <ActivityChip key={message.id} message={message} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ScreenFrame({ png, mime }: { png: string; mime?: string }) {
   return (
     <div className="flex justify-start">
@@ -602,6 +654,7 @@ const MessagesList = memo(function MessagesList({
   onRegenerate: () => void;
 }) {
   const { dispatch } = useStore();
+  const transcriptItems = useMemo(() => groupTranscriptActivity(messages), [messages]);
   return (
     <>
       {messages.length === 0 && !bot.busy && (
@@ -618,10 +671,17 @@ const MessagesList = memo(function MessagesList({
           </div>
         </div>
       )}
-      {messages.map((m, i) => {
-        const prev = messages[i - 1];
+      {transcriptItems.map((item, i) => {
+        const m = item.kind === "activity-group" ? item.messages[0] : item;
+        const previousItem = transcriptItems[i - 1];
+        const prev = previousItem
+          ? previousItem.kind === "activity-group"
+            ? previousItem.messages.at(-1)
+            : previousItem
+          : undefined;
         const newDay = !prev || new Date(prev.at).toDateString() !== new Date(m.at).toDateString();
         const row = (() => {
+          if (item.kind === "activity-group") return <ActivityGroupRow bot={bot} group={item} />;
           switch (m.kind) {
             case "connector":
               return m.connector ? <ConnectorCard botId={bot.id} threadId={bot.threadId} message={m} /> : null;
@@ -663,7 +723,7 @@ const MessagesList = memo(function MessagesList({
         })();
         if (!row) return null;
         return (
-          <div key={m.id} className="contents" data-mid={m.id}>
+          <div key={item.kind === "activity-group" ? item.id : m.id} className="contents" data-mid={m.id}>
             {newDay && <DaySeparator at={m.at} />}
             {row}
           </div>
@@ -911,14 +971,14 @@ export function ChatView({ bot }: { bot: Bot }) {
         <div className="flex min-w-0 items-center gap-2.5 rounded-lg px-1.5 py-1" style={noDrag}>
           <button
             onClick={() => dispatch({ type: "toggleSettings", open: true })}
-            className="flex size-10 shrink-0 items-center justify-center rounded-lg hover:bg-raised/50"
+            className="flex size-12 shrink-0 items-center justify-center rounded-lg hover:bg-raised/50"
             title="Open agent profile"
             aria-label={`Open ${bot.name}'s profile`}
           >
             <BotAvatar
               bot={bot}
               state={stateForBot({ ...bot, messages })}
-              size={28}
+              size={36}
               motion={mascotMotion?.kind ?? "none"}
               motionKey={mascotMotion?.nonce ?? 0}
             />

@@ -96,6 +96,35 @@ final class ProfileClientTests: XCTestCase {
         XCTAssertEqual(body["avatarCrop"] as? String, "rounded")
     }
 
+    func testCreateAgentSendsTheAuthoredLivingIdentity() async throws {
+        ProfileRequestStub.responseBody = Self.botResponse
+
+        _ = try await client.createBot(profile: NewAgentProfile(
+            name: "Archivist",
+            title: "Keeps the record",
+            description: "Preserve decisions and their evidence.",
+            spirit: "signal",
+            spiritPalette: "lunar",
+            spiritGeometry: "constellation",
+            spiritTemperament: "focused",
+            color: "blue"
+        ))
+
+        let request = try XCTUnwrap(ProfileRequestStub.capturedRequest)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/api/bots")
+        let data = try XCTUnwrap(ProfileRequestStub.capturedBody)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(body["name"] as? String, "Archivist")
+        XCTAssertEqual(body["title"] as? String, "Keeps the record")
+        XCTAssertEqual(body["description"] as? String, "Preserve decisions and their evidence.")
+        XCTAssertEqual(body["spirit"] as? String, "signal")
+        XCTAssertEqual(body["spiritPalette"] as? String, "lunar")
+        XCTAssertEqual(body["spiritGeometry"] as? String, "constellation")
+        XCTAssertEqual(body["spiritTemperament"] as? String, "focused")
+        XCTAssertEqual(body["color"] as? String, "blue")
+    }
+
     func testProfileClientEncodesAnExplicitAvatarClearAsNull() async throws {
         ProfileRequestStub.responseBody = Self.botResponse
 

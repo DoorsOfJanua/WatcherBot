@@ -6,17 +6,20 @@ import {
   botAvatarUrlFromStoredPath,
   botAvatarUrlSchema,
   BOT_AVATAR_STATE_VALUES,
+  BOT_SPIRIT_GEOMETRIES,
+  BOT_SPIRIT_PALETTES,
+  BOT_SPIRIT_TEMPERAMENTS,
   botSpiritSchema,
   BOT_SPIRITS,
   isRiveAvatarUrl,
 } from "../shared/bot-avatar.ts";
 
 describe("bot avatar profile schema", () => {
-  it("accepts only the first original spirit and preserves it through normalization", () => {
-    expect(BOT_SPIRITS).toEqual(["mailman"]);
-    expect(botSpiritSchema.safeParse("mailman").success).toBe(true);
+  it("accepts the original branded spirit family and preserves it through normalization", () => {
+    expect(BOT_SPIRITS).toEqual(["wormhole", "sensei", "mailman", "ganga", "signal", "forge"]);
+    for (const spirit of BOT_SPIRITS) expect(botSpiritSchema.safeParse(spirit).success).toBe(true);
     expect(botSpiritSchema.safeParse("cursor").success).toBe(false);
-    expect(botAvatarProfile({ spirit: "mailman" }).spirit).toBe("mailman");
+    expect(botAvatarProfile({ spirit: "signal" }).spirit).toBe("signal");
     expect(botAvatarProfile({ spirit: "cursor" }).spirit).toBeUndefined();
   });
 
@@ -25,6 +28,28 @@ describe("bot avatar profile schema", () => {
       expect(botAvatarCropSchema.parse(crop)).toBe(crop);
     }
     expect(botAvatarCropSchema.safeParse("hexagon").success).toBe(false);
+  });
+
+  it("normalizes bounded spirit art direction", () => {
+    expect(BOT_SPIRIT_PALETTES).toContain("ember");
+    expect(BOT_SPIRIT_PALETTES).toContain("oilchrome");
+    expect(BOT_SPIRIT_GEOMETRIES).toContain("constellation");
+    expect(BOT_SPIRIT_GEOMETRIES).toContain("labyrinth");
+    expect(BOT_SPIRIT_TEMPERAMENTS).toContain("fierce");
+    expect(BOT_SPIRIT_TEMPERAMENTS).toContain("mystic");
+    expect(botAvatarProfile({
+      spirit: "forge",
+      spiritPalette: "ivory",
+      spiritGeometry: "orbit",
+      spiritTemperament: "quiet",
+    })).toMatchObject({
+      spirit: "forge",
+      spiritPalette: "ivory",
+      spiritGeometry: "orbit",
+      spiritTemperament: "quiet",
+    });
+    expect(botAvatarProfile({ spiritPalette: "neon", spiritGeometry: "hex", spiritTemperament: "chaos" }))
+      .toMatchObject({ spiritPalette: "native", spiritGeometry: "native", spiritTemperament: "native" });
   });
 
   it("only accepts app-owned raster or Rive attachments", () => {
@@ -53,7 +78,7 @@ describe("bot avatar profile schema", () => {
 
   it("falls back safely for malformed persisted data", () => {
     expect(botAvatarProfile({ avatarUrl: "https://example.test/pixel.png", avatarCrop: "round" }))
-      .toEqual({ avatarCrop: "mascot" });
+      .toEqual({ avatarCrop: "mascot", spiritPalette: "native", spiritGeometry: "native", spiritTemperament: "native" });
   });
 
   it("publishes the stable animated state contract", () => {
