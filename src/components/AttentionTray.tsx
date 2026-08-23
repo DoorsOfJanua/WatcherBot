@@ -75,6 +75,20 @@ function AttentionGlyph({ item }: { item: AttentionItem }) {
   );
 }
 
+function attentionMotion(item: AttentionItem): { state: "alerting" | "listening" | "working" | "surprised" | "happy"; motion: "alert" | "surprise" | "working" | "success" | "launch" } {
+  const words = `${item.title} ${item.summary}`.toLowerCase();
+  if (item.kind === "routine" && /meeting|calendar|appointment|event/.test(words)) {
+    return { state: "listening", motion: "launch" };
+  }
+  if (item.kind === "routine" || item.kind === "approval" || /urgent|overdue|asap|critical/.test(words)) {
+    return { state: "alerting", motion: "alert" };
+  }
+  if (item.kind === "question") return { state: "surprised", motion: "surprise" };
+  if (item.kind === "working") return { state: "working", motion: "working" };
+  if (item.kind === "mail") return { state: "happy", motion: "launch" };
+  return { state: "listening", motion: "success" };
+}
+
 function MailDrafts({ item, onOpen }: { item: AttentionItem; onOpen: (item: AttentionItem) => void }) {
   if (!item.children?.length) return null;
   return (
@@ -279,6 +293,10 @@ export function AttentionTray({ bot }: { bot: Bot }) {
 
   const quiet = count === 0 && working === 0;
   const triggerLabel = count > 0 ? `${count} need${count === 1 ? "s" : ""} you` : working > 0 ? `${working} working` : "All quiet";
+  const leadItem = items.find((item) => item.actionable) ?? items[0];
+  const leadBot = leadItem ? state.bots.find((candidate) => candidate.id === leadItem.botId) : undefined;
+  const leadSignal = leadItem ? attentionMotion(leadItem) : undefined;
+  const isUrgent = leadItem?.priority === "blocking" || leadSignal?.state === "alerting";
 
   return (
     <div ref={rootRef} className="absolute top-[68px] right-4 z-30 max-w-[calc(100%-2rem)]">
@@ -296,12 +314,23 @@ export function AttentionTray({ bot }: { bot: Bot }) {
         className={cn(
           "attention-tray-trigger ml-auto flex h-10 items-center gap-2 rounded-2xl border px-2.5 text-[12.5px] font-medium backdrop-blur-xl transition hover:-translate-y-0.5",
           count > 0
-            ? "border-accent/30 bg-panel/90 text-ink"
+            ? cn("border-accent/30 bg-panel/90 text-ink", isUrgent && "attention-tray-trigger--urgent")
             : "border-hairline/35 bg-panel/75 text-ink-secondary",
         )}
       >
-        <span className={cn("flex size-6 items-center justify-center rounded-lg", count > 0 ? "bg-accent/12 text-accent" : "bg-raised/70")}>
-          {quiet ? <CheckCircle2 size={14} /> : count > 0 ? <Inbox size={14} className="attention-tray-beacon" /> : <Loader2 size={14} className="animate-spin" />}
+        <span className={cn("relative flex size-7 items-center justify-center rounded-lg", count > 0 ? "bg-accent/12 text-accent" : "bg-raised/70")}>
+          {leadBot && leadSignal ? (
+            <span className={cn("attention-tray-lead-avatar", isUrgent && "attention-tray-lead-avatar--urgent")}>
+              <BotAvatar
+                bot={leadBot}
+                size={29}
+                state={leadSignal.state}
+                motion={leadSignal.motion}
+                motionKey={leadItem?.at ?? 0}
+                label={`${leadBot.name} needs your attention`}
+              />
+            </span>
+          ) : quiet ? <CheckCircle2 size={14} /> : count > 0 ? <Inbox size={14} className="attention-tray-beacon" /> : <Loader2 size={14} className="animate-spin" />}
         </span>
         <span>{triggerLabel}</span>
         <ChevronDown size={13} className={cn("transition-transform duration-300", expanded && "rotate-180")} />
