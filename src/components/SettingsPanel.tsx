@@ -628,30 +628,30 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
           <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
             <div>
               <div className="text-[15px] font-medium text-ink">
-                Ask me before contacting other bots
+                Allow agent-to-agent messaging
               </div>
               <div className="mt-0.5 text-[13px] text-ink-secondary">
                 {bot.approvePeerComms
-                  ? "This bot will stop and ask before it reaches out to another bot."
-                  : "Let this bot talk to teammates on its own, without a confirmation step."}
+                  ? "Off — this bot will ask before it reaches out to a teammate."
+                  : "On — this bot can coordinate with teammates without interrupting you."}
               </div>
             </div>
             <button
               role="switch"
-              aria-checked={Boolean(bot.approvePeerComms)}
-              aria-label="Ask me before contacting other bots"
-              disabled={!bot.approvePeerComms && !canCoordinate}
-              onClick={() => patch({ approvePeerComms: !bot.approvePeerComms })}
-              title={!bot.approvePeerComms && !canCoordinate ? "This engine cannot contact other bots" : undefined}
+              aria-checked={!bot.approvePeerComms}
+              aria-label="Allow agent-to-agent messaging"
+              disabled={bot.approvePeerComms !== true && !canCoordinate}
+              onClick={() => patch({ approvePeerComms: bot.approvePeerComms !== true })}
+              title={bot.approvePeerComms !== true && !canCoordinate ? "This engine cannot contact other bots" : undefined}
               className={cn(
                 "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-                bot.approvePeerComms ? "bg-accent" : "bg-raised",
+                !bot.approvePeerComms ? "bg-accent" : "bg-raised",
               )}
             >
               <span
                 className={cn(
                   "absolute top-[3px] size-5 rounded-full bg-white transition-all",
-                  bot.approvePeerComms ? "left-[21px]" : "left-[3px]",
+                  !bot.approvePeerComms ? "left-[21px]" : "left-[3px]",
                 )}
               />
             </button>
