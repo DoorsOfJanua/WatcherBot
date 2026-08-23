@@ -901,8 +901,25 @@ bus.subscribe((event: RuntimeEvent) => {
   if (!bot && !group) return;
   const speaker = group ? groupSpeakers.get(event.threadId) : undefined;
 
+  const addDelightEmoticon = (text: string): string => {
+    const latestUser = [...store.messagesFor(event.threadId)]
+      .reverse()
+      .find((message) => message.role === "user" && message.kind === "text")?.text ?? "";
+    if (!latestUser || /```|[\u{1F300}-\u{1FAFF}]|(?:^|\s)(?::[-^']?[)D]|[;][-^']?[)])(?=\s|$)/u.test(text)) return text;
+    if (!/(?:\b(?:love|like|great|good|nice|cool|awesome|amazing|perfect|brilliant|beautiful|fun|exactly|works|thank(?:s| you)?)\b|!{2,}|\bwoo+\b)/i.test(latestUser)) return text;
+    const emoticon = /\b(?:love|awesome|amazing|perfect|brilliant|beautiful)\b/i.test(latestUser)
+      ? " ✨"
+      : /\b(?:fun|haha|lol)\b/i.test(latestUser)
+        ? " :D"
+        : " :)";
+    return `${text.trimEnd()}${emoticon}`;
+  };
+
   const pushMessage = (m: Omit<Message, "id" | "at">) => {
-    const message = store.appendMessage(event.threadId, group && m.role === "bot" ? { ...m, from: speaker } : m);
+    const prepared = m.role === "bot" && m.kind === "text" && m.text
+      ? { ...m, text: addDelightEmoticon(m.text) }
+      : m;
+    const message = store.appendMessage(event.threadId, group && prepared.role === "bot" ? { ...prepared, from: speaker } : prepared);
     return message;
   };
 
@@ -1578,8 +1595,6 @@ async function startTurn(
     `You are ${bot.name}, a personal bot in MyAgent Room (a private OpenMausBot fork).`,
     bot.title && `Role: ${bot.title}.`,
     bot.description && `About: ${bot.description}`,
-    "Before substantial work, begin with one brief acknowledgement (no more than 12 words) that shows you understood the request or noticed something useful. Then continue with the work in the same turn. Skip this for simple conversational replies or very short answers. Never claim an action is complete before doing it.",
-    "When the human clearly expresses approval, delight, or excitement, respond warmly with one or two fitting emoticons or emoji (for example :), :D, ✨, or 🔥) alongside your brief reply. Do not add decorative emoji to every message.",
   ]
     .filter(Boolean)
     .join(" ");
@@ -2094,8 +2109,6 @@ async function runGroupMemberTurn(
     `Room members: ${roster}, and ${userName} (the human).`,
     group.bulletin.trim() && `Room bulletin (shared instructions for everyone):\n${group.bulletin.trim()}`,
     `Reply as yourself, briefly and conversationally. To bring a teammate in, mention them like @Name — they'll see the conversation and respond.`,
-    "Before substantial work, begin with one brief acknowledgement (no more than 12 words) that shows you understood the request or noticed something useful. Then continue with the work in the same turn. Skip this for simple conversational replies or very short answers. Never claim an action is complete before doing it.",
-    "When the human clearly expresses approval, delight, or excitement, respond warmly with one or two fitting emoticons or emoji (for example :), :D, ✨, or 🔥) alongside your brief reply. Do not add decorative emoji to every message.",
   ]
     .filter(Boolean)
     .join("\n");
