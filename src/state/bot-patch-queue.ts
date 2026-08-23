@@ -1,8 +1,10 @@
 import type { Bot, BotAnnouncement } from "./store";
+import type { BotSpirit } from "../../shared/bot-avatar";
 
 /** Every field written through the desktop's broad bot PATCH boundary. */
 export type BotUpdatePatch = Partial<
-  Pick<
+  Omit<
+    Pick<
     Bot,
     | "name"
     | "title"
@@ -15,6 +17,10 @@ export type BotUpdatePatch = Partial<
     | "mascotExpression"
     | "avatarUrl"
     | "avatarCrop"
+    | "spirit"
+    | "spiritPalette"
+    | "spiritGeometry"
+    | "spiritTemperament"
     | "autoApprove"
     | "speakReplies"
     | "voice"
@@ -28,14 +34,21 @@ export type BotUpdatePatch = Partial<
     | "browser"
     | "browserProfile"
     | "modelSelection"
+    >,
+    "spirit"
   >
 > & {
+  /** null clears the selected original spirit while retaining the field's
+   * small validated enum on the wire. */
+  spirit?: BotSpirit | null;
   /** Rides the PATCH body only: the server's proof that the local-auto
    * warning dialog was shown (see server/index.ts's consent gate). It must
    * reach the wire inside the coalesced body and must never fold into bot
    * state — the queue strips it from every overlay it hands back. */
   acknowledgeLocalAuto?: boolean;
 };
+
+type StateBotUpdatePatch = Omit<BotUpdatePatch, "spirit"> & { spirit?: BotSpirit };
 
 interface BotPatchQueueEntry {
   botId: string;
@@ -57,14 +70,14 @@ export interface BotPatchQueueOptions {
     signal: AbortSignal,
   ) => Promise<BotAnnouncement>;
   reconcile: (botId: string, signal: AbortSignal) => Promise<BotAnnouncement | null>;
-  onAuthoritative: (bot: BotAnnouncement, optimisticOverlay: BotUpdatePatch) => void;
+  onAuthoritative: (bot: BotAnnouncement, optimisticOverlay: StateBotUpdatePatch) => void;
   onError: (error: Error) => void;
 }
 
 export interface BotPatchQueue {
   enqueue: (botId: string, patch: BotUpdatePatch, fallback: BotAnnouncement) => void;
   flush: (botId: string) => Promise<void>;
-  overlayFor: (botId: string) => BotUpdatePatch;
+  overlayFor: (botId: string) => StateBotUpdatePatch;
   cancel: (botId: string) => void;
   /** Undo a dispose. Exists for React StrictMode, whose dev-mode mount probe
    * runs the effect cleanup once against the SAME memoized queue — without
@@ -77,9 +90,18 @@ const hasFields = (patch: BotUpdatePatch): boolean => Object.keys(patch).length 
 
 /** What may fold back into renderer bot state: everything except the consent
  * flag, which is wire-only. One strip point covers both overlay paths. */
-const stateOverlay = (patch: BotUpdatePatch): BotUpdatePatch => {
-  const { acknowledgeLocalAuto: _ack, ...fields } = patch;
-  return fields;
+const stateOverlay = (patch: BotUpdatePatch): StateBotUpdatePatch => {
+  const { acknowledgeLocalAuto: _ack, spirit, ...fields } = patch;
+  // Preserve omission. An overlay is spread over an authoritative bot, so
+  // returning `spirit: undefined` for a palette/geometry/emotion-only edit
+  // erases the chosen character from the renderer even though the server
+  // still has it. Only an explicit spirit mutation may enter the overlay.
+  return {
+    ...fields,
+    ...(Object.prototype.hasOwnProperty.call(patch, "spirit")
+      ? { spirit: spirit === null ? undefined : spirit }
+      : {}),
+  };
 };
 
 /**

@@ -222,6 +222,34 @@ describe("bot patch queue", () => {
     for (const overlay of overlays) expect(overlay).not.toHaveProperty("acknowledgeLocalAuto");
   });
 
+  it("never erases a spirit from overlays for color, geometry, or emotion edits", async () => {
+    const authoritative = vi.fn();
+    const queue = createBotPatchQueue({
+      send: async (_botId, patch) => bot({ spirit: "wormhole", ...patch }),
+      reconcile: async () => bot({ spirit: "wormhole" }),
+      onAuthoritative: authoritative,
+      onError: vi.fn(),
+    });
+
+    queue.enqueue("bot-1", { spiritPalette: "violet" }, bot({ spirit: "wormhole" }));
+    queue.enqueue("bot-1", { spiritGeometry: "flower" }, bot({ spirit: "wormhole" }));
+    queue.enqueue("bot-1", { spiritTemperament: "fierce" }, bot({ spirit: "wormhole" }));
+
+    const pendingOverlay = queue.overlayFor("bot-1");
+    expect(pendingOverlay).toEqual({
+      spiritPalette: "violet",
+      spiritGeometry: "flower",
+      spiritTemperament: "fierce",
+    });
+    expect(pendingOverlay).not.toHaveProperty("spirit");
+
+    await vi.advanceTimersByTimeAsync(400);
+    await queue.flush("bot-1");
+    const settledOverlay = authoritative.mock.calls.at(-1)?.[1];
+    expect(settledOverlay).toEqual({});
+    expect(settledOverlay).not.toHaveProperty("spirit");
+  });
+
   it("revive undoes a dispose, so StrictMode's dev probe cannot kill saving", async () => {
     // StrictMode mounts, runs the cleanup once against the same memoized
     // queue, and mounts again. dispose → revive must leave a working queue.
