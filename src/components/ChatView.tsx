@@ -35,7 +35,7 @@ import {
   type Message,
 } from "@/state/store";
 import { EngineSetup } from "./EngineSetup";
-import { BotAvatar, MausAvatar } from "./Avatar";
+import { BotAvatar } from "./Avatar";
 import { stateForBot } from "@/lib/mascot";
 import { showWorkingDots } from "@/lib/turn-tail";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -490,12 +490,16 @@ function Bubble({
 
 /** A tool run: spinner while live, check/cross once settled. */
 function ActivityChip({ message }: { message: Message }) {
-  const { dispatch } = useStore();
+  const { state, dispatch } = useStore();
   const tool = message.tool;
   if (!tool) return null;
   // bot⇄bot comm chip: opens the channel where the exchange lives
   const comm = message.comm;
   if (comm) {
+    // Resolve the live bot rather than rendering the legacy generic mascot.
+    // This keeps delegation receipts visually tied to the recipient's chosen
+    // Watcher spirit even after they change its palette or geometry.
+    const peer = state.bots.find((bot) => bot.id === comm.withBotId);
     return (
       <div className="flex justify-start">
         <button
@@ -503,7 +507,16 @@ function ActivityChip({ message }: { message: Message }) {
           title={`Open the conversation with ${comm.withName}`}
           className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
-          <MausAvatar color={comm.withColor} state="happy" size={16} />
+          {peer ? (
+            <BotAvatar bot={peer} state="happy" size={20} animated={false} />
+          ) : (
+            <span
+              aria-hidden="true"
+              className="flex size-5 items-center justify-center rounded-full border border-hairline/50 bg-raised"
+            >
+              <Webhook size={12} />
+            </span>
+          )}
           <span className="max-w-[480px] truncate">{tool.name}</span>
           <ChevronRight size={13} />
         </button>
