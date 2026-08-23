@@ -81,6 +81,21 @@ final class ProfileClientTests: XCTestCase {
         XCTAssertEqual(body["voice"] as? String, "", "empty explicitly selects the workspace default")
     }
 
+    func testProfilePatchPersistsTheAuthoredLivingSpirit() throws {
+        let data = try JSONEncoder().encode(BotProfilePatch(
+            spirit: "watcher",
+            spiritPalette: "oilchrome",
+            spiritGeometry: "portal",
+            spiritTemperament: "fierce"
+        ))
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(body["spirit"] as? String, "watcher")
+        XCTAssertEqual(body["spiritPalette"] as? String, "oilchrome")
+        XCTAssertEqual(body["spiritGeometry"] as? String, "portal")
+        XCTAssertEqual(body["spiritTemperament"] as? String, "fierce")
+    }
+
     func testProfileClientSendsOnlyFieldsOwnedByTheAction() async throws {
         ProfileRequestStub.responseBody = Self.botResponse
 

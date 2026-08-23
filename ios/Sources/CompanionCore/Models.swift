@@ -543,6 +543,12 @@ public struct BotProfilePatch: Encodable, Sendable {
     public var avatarCrop: AvatarCrop?
     public var voice: String?
     public var speakReplies: Bool?
+    /// Authored living-spirit identity. These are optional so older clients
+    /// can continue making narrow profile edits without resetting the art.
+    public var spirit: String?
+    public var spiritPalette: String?
+    public var spiritGeometry: String?
+    public var spiritTemperament: String?
 
     /// `avatarUrl` needs three wire states: omitted, a stored path, or JSON
     /// null to clear. A nested optional would technically represent that, but
@@ -560,7 +566,11 @@ public struct BotProfilePatch: Encodable, Sendable {
         avatarUrl: AvatarURL? = nil,
         avatarCrop: AvatarCrop? = nil,
         voice: String? = nil,
-        speakReplies: Bool? = nil
+        speakReplies: Bool? = nil,
+        spirit: String? = nil,
+        spiritPalette: String? = nil,
+        spiritGeometry: String? = nil,
+        spiritTemperament: String? = nil
     ) {
         self.name = name
         self.title = title
@@ -570,10 +580,15 @@ public struct BotProfilePatch: Encodable, Sendable {
         self.avatarCrop = avatarCrop
         self.voice = voice
         self.speakReplies = speakReplies
+        self.spirit = spirit
+        self.spiritPalette = spiritPalette
+        self.spiritGeometry = spiritGeometry
+        self.spiritTemperament = spiritTemperament
     }
 
     private enum CodingKeys: String, CodingKey {
         case name, title, description, notifications, avatarUrl, avatarCrop, voice, speakReplies
+        case spirit, spiritPalette, spiritGeometry, spiritTemperament
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -591,6 +606,10 @@ public struct BotProfilePatch: Encodable, Sendable {
         try values.encodeIfPresent(avatarCrop, forKey: .avatarCrop)
         try values.encodeIfPresent(voice, forKey: .voice)
         try values.encodeIfPresent(speakReplies, forKey: .speakReplies)
+        try values.encodeIfPresent(spirit, forKey: .spirit)
+        try values.encodeIfPresent(spiritPalette, forKey: .spiritPalette)
+        try values.encodeIfPresent(spiritGeometry, forKey: .spiritGeometry)
+        try values.encodeIfPresent(spiritTemperament, forKey: .spiritTemperament)
     }
 }
 

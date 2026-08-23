@@ -18,6 +18,10 @@ struct AgentProfileView: View {
     @State private var crop: AvatarCrop
     @State private var voice: String
     @State private var speakReplies: Bool
+    @State private var spirit: SpiritKind
+    @State private var spiritPalette: String
+    @State private var spiritGeometry: String
+    @State private var spiritTemperament: String
     @State private var photo: PhotosPickerItem?
     @State private var prompt = ""
     @State private var voices: [Voice] = []
@@ -35,6 +39,10 @@ struct AgentProfileView: View {
         _crop = State(initialValue: bot.avatarCrop ?? .mascot)
         _voice = State(initialValue: bot.voice ?? "")
         _speakReplies = State(initialValue: bot.speakReplies == true)
+        _spirit = State(initialValue: SpiritKind.forBot(bot) ?? .wormhole)
+        _spiritPalette = State(initialValue: bot.spiritPalette ?? "native")
+        _spiritGeometry = State(initialValue: bot.spiritGeometry ?? "native")
+        _spiritTemperament = State(initialValue: bot.spiritTemperament ?? "native")
         _baseline = State(initialValue: ProfileFormSnapshot(bot: bot))
     }
 
@@ -101,6 +109,54 @@ struct AgentProfileView: View {
                     TextField("What this agent does", text: $description, axis: .vertical)
                         .lineLimit(3...8)
                     Toggle("Agent notifications", isOn: $notifications)
+                }
+
+                Section {
+                    HStack {
+                        Spacer()
+                        SpiritAvatar(
+                            spirit: spirit,
+                            size: 112,
+                            state: .happy,
+                            animated: true,
+                            palette: spiritPalette,
+                            geometry: spiritGeometry,
+                            temperament: spiritTemperament,
+                            label: "Selected living spirit"
+                        )
+                        Spacer()
+                    }
+                    .listRowBackground(Color.clear)
+                    Picker("Spirit", selection: $spirit) {
+                        Text("Wormhole").tag(SpiritKind.wormhole)
+                        Text("Sensei").tag(SpiritKind.sensei)
+                        Text("Mailman").tag(SpiritKind.mailman)
+                        Text("Ganga").tag(SpiritKind.ganga)
+                        Text("Signal").tag(SpiritKind.signal)
+                        Text("Forge").tag(SpiritKind.forge)
+                    }
+                    Picker("Color", selection: $spiritPalette) {
+                        ForEach(Self.spiritPalettes, id: \.value) { option in
+                            Text(option.label).tag(option.value)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    Picker("Geometry", selection: $spiritGeometry) {
+                        ForEach(Self.spiritGeometries, id: \.value) { option in
+                            Text(option.label).tag(option.value)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    Picker("Temperament", selection: $spiritTemperament) {
+                        ForEach(Self.spiritTemperaments, id: \.value) { option in
+                            Text(option.label).tag(option.value)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                } header: {
+                    Text("Living spirit")
+                } footer: {
+                    Text("This identity is saved on the paired computer and shared by desktop, phone, and rooms.")
                 }
 
                 Section {
@@ -192,7 +248,11 @@ struct AgentProfileView: View {
             // Empty is the server's explicit "use workspace default" value;
             // nil would mean the voice field is not part of this patch.
             voice: voice == baseline.voice ? nil : voice,
-            speakReplies: savedSpeakReplies == baseline.speakReplies ? nil : savedSpeakReplies
+            speakReplies: savedSpeakReplies == baseline.speakReplies ? nil : savedSpeakReplies,
+            spirit: spirit.rawValue == baseline.spirit ? nil : spirit.rawValue,
+            spiritPalette: spiritPalette == baseline.spiritPalette ? nil : spiritPalette,
+            spiritGeometry: spiritGeometry == baseline.spiritGeometry ? nil : spiritGeometry,
+            spiritTemperament: spiritTemperament == baseline.spiritTemperament ? nil : spiritTemperament
         )
     }
 
@@ -306,8 +366,67 @@ struct AgentProfileView: View {
         crop = bot.avatarCrop ?? .mascot
         voice = bot.voice ?? ""
         speakReplies = bot.speakReplies == true
+        spirit = SpiritKind.forBot(bot) ?? .wormhole
+        spiritPalette = bot.spiritPalette ?? "native"
+        spiritGeometry = bot.spiritGeometry ?? "native"
+        spiritTemperament = bot.spiritTemperament ?? "native"
         baseline = ProfileFormSnapshot(bot: bot)
     }
+
+    private struct SpiritOption {
+        let value: String
+        let label: String
+    }
+
+    private static let spiritPalettes = [
+        SpiritOption(value: "native", label: "Original"),
+        SpiritOption(value: "violet", label: "Violet"),
+        SpiritOption(value: "jade", label: "Jade"),
+        SpiritOption(value: "rose", label: "Rose"),
+        SpiritOption(value: "aqua", label: "Aqua"),
+        SpiritOption(value: "azure", label: "Azure"),
+        SpiritOption(value: "ember", label: "Ember"),
+        SpiritOption(value: "ivory", label: "Ivory"),
+        SpiritOption(value: "ultraviolet", label: "Ultraviolet"),
+        SpiritOption(value: "solar", label: "Solar"),
+        SpiritOption(value: "acid", label: "Acid"),
+        SpiritOption(value: "lunar", label: "Lunar"),
+        SpiritOption(value: "oilchrome", label: "Oil chrome"),
+    ]
+
+    private static let spiritGeometries = [
+        SpiritOption(value: "native", label: "Signature"),
+        SpiritOption(value: "flower", label: "Flower"),
+        SpiritOption(value: "merkaba", label: "Merkaba"),
+        SpiritOption(value: "vesica", label: "Vesica"),
+        SpiritOption(value: "yantra", label: "Yantra"),
+        SpiritOption(value: "seed", label: "Seed"),
+        SpiritOption(value: "metatron", label: "Metatron"),
+        SpiritOption(value: "lens", label: "Lens"),
+        SpiritOption(value: "orbit", label: "Orbit"),
+        SpiritOption(value: "constellation", label: "Stars"),
+        SpiritOption(value: "torus", label: "Torus"),
+        SpiritOption(value: "spiral", label: "Spiral"),
+        SpiritOption(value: "lotus", label: "Lotus"),
+        SpiritOption(value: "enneagram", label: "Enneagram"),
+        SpiritOption(value: "labyrinth", label: "Labyrinth"),
+        SpiritOption(value: "portal", label: "Portal"),
+    ]
+
+    private static let spiritTemperaments = [
+        SpiritOption(value: "native", label: "Signature"),
+        SpiritOption(value: "quiet", label: "Quiet"),
+        SpiritOption(value: "focused", label: "Focused"),
+        SpiritOption(value: "expressive", label: "Expressive"),
+        SpiritOption(value: "playful", label: "Playful"),
+        SpiritOption(value: "fierce", label: "Fierce"),
+        SpiritOption(value: "curious", label: "Curious"),
+        SpiritOption(value: "mischievous", label: "Mischievous"),
+        SpiritOption(value: "tender", label: "Tender"),
+        SpiritOption(value: "mystic", label: "Mystic"),
+        SpiritOption(value: "melancholic", label: "Melancholic"),
+        SpiritOption(value: "radiant", label: "Radiant"),
+    ]
 }
 
 private struct ProfileFormSnapshot {
@@ -318,6 +437,10 @@ private struct ProfileFormSnapshot {
     var crop: AvatarCrop
     var voice: String
     var speakReplies: Bool
+    var spirit: String
+    var spiritPalette: String
+    var spiritGeometry: String
+    var spiritTemperament: String
 
     init(bot: Bot) {
         name = bot.name
@@ -327,6 +450,10 @@ private struct ProfileFormSnapshot {
         crop = bot.avatarCrop ?? .mascot
         voice = bot.voice ?? ""
         speakReplies = bot.speakReplies == true
+        spirit = bot.spirit ?? SpiritKind.forBot(bot)?.rawValue ?? SpiritKind.wormhole.rawValue
+        spiritPalette = bot.spiritPalette ?? "native"
+        spiritGeometry = bot.spiritGeometry ?? "native"
+        spiritTemperament = bot.spiritTemperament ?? "native"
     }
 }
 
