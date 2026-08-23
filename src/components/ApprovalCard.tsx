@@ -212,33 +212,22 @@ export function ApprovalCard({
         {card.tool && <span className="shrink-0 font-mono text-[11px] text-ink-secondary">{card.tool}</span>}
       </div>
 
-      {editingDraft && card.requestId ? (
-        <MailDraftEditor
-          requestId={card.requestId}
-          onClose={(notice) => {
-            setEditingDraft(false);
-            setSavedNotice(notice);
+      {/* The conversation keeps a concise summary; the full email opens in a
+          focused editor so recipients and body are easy to read. */}
+      <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-inset px-3 py-2 font-mono text-[12.5px] leading-relaxed text-ink">
+        {card.subtitle}
+      </pre>
+      {revisableEmail && card.requestId && (
+        <button
+          type="button"
+          onClick={() => {
+            setSavedNotice("");
+            setEditingDraft(true);
           }}
-        />
-      ) : (
-        <>
-          {/* what, exactly */}
-          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-inset px-3 py-2 font-mono text-[12.5px] leading-relaxed text-ink">
-            {card.subtitle}
-          </pre>
-          {revisableEmail && card.requestId && (
-            <button
-              type="button"
-              onClick={() => {
-                setSavedNotice("");
-                setEditingDraft(true);
-              }}
-              className="mt-2 flex min-h-11 items-center gap-2 rounded-full border border-hairline/50 px-3.5 text-[13px] font-medium text-ink hover:bg-raised focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-            >
-              <Pencil size={14} /> {settled ? "Revise draft" : "Edit draft"}
-            </button>
-          )}
-        </>
+          className="mt-2 flex min-h-11 items-center gap-2 rounded-full border border-hairline/50 px-3.5 text-[13px] font-medium text-ink hover:bg-raised focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          <Pencil size={14} /> {settled ? "Revise draft" : "Edit draft"}
+        </button>
       )}
 
       {savedNotice && <div role="status" className="mt-2 flex items-center gap-1.5 text-[12.5px] text-success"><Check size={13} /> {savedNotice}</div>}
@@ -251,7 +240,7 @@ export function ApprovalCard({
 
       {/* The decision lives in the composer (one place to answer, and it
           can't be scrolled past); here we only record what happened. */}
-      {!editingDraft && <div className="mt-3 flex items-center gap-1.5 text-[13px] text-ink-secondary">
+      <div className="mt-3 flex items-center gap-1.5 text-[13px] text-ink-secondary">
         {settled === "allow" ? (
           <>
             <Check size={14} className="text-success" /> {card.tool === "email.send" ? "Approved and sent" : "Allowed"}
@@ -269,7 +258,41 @@ export function ApprovalCard({
             <ShieldCheck size={14} className="text-accent" /> Waiting for your answer below
           </>
         )}
-      </div>}
+      </div>
+
+      {editingDraft && card.requestId && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/35 p-4 backdrop-blur-sm" role="presentation">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Edit email draft"
+            className="max-h-[min(880px,calc(100vh-2rem))] w-full max-w-[760px] overflow-y-auto rounded-[28px] border border-hairline/50 bg-panel p-5 shadow-2xl shadow-black/25 sm:p-7"
+          >
+            <div className="mb-1 flex items-start justify-between gap-4">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-accent">Email draft</div>
+                <h2 className="mt-1 text-[21px] font-semibold text-ink">Make it sound like you</h2>
+                <p className="mt-1 text-[12.5px] text-ink-secondary">Review the exact recipients and wording before anything is sent.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingDraft(false)}
+                aria-label="Close email draft editor"
+                className="flex size-9 shrink-0 items-center justify-center rounded-full text-ink-secondary hover:bg-raised hover:text-ink"
+              >
+                <X size={17} />
+              </button>
+            </div>
+            <MailDraftEditor
+              requestId={card.requestId}
+              onClose={(notice) => {
+                setEditingDraft(false);
+                setSavedNotice(notice);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -696,6 +696,14 @@ struct MessageRow: View {
             }
         }
         .contextMenu {
+            if message.kind == .text,
+               let text = message.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !text.isEmpty {
+                Button("Copy", systemImage: "doc.on.doc") {
+                    UIPasteboard.general.string = message.text
+                }
+                Divider()
+            }
             ForEach(Self.reactionChoices, id: \.self) { emoji in
                 Button(emoji) { Task { await session.react(to: message, in: chat.threadId, emoji: emoji) } }
             }
@@ -903,23 +911,17 @@ struct CardView: View {
                 }
 
                 if canReviseEmail(card), let requestId = card.requestId {
-                    if editingMail {
-                        MailDraftEditorView(requestId: requestId, tint: tint) {
-                            editingMail = false
-                        }
-                    } else {
-                        Button {
-                            editingMail = true
-                        } label: {
-                            Label(card.isPending ? "Edit draft" : "Revise draft", systemImage: "pencil")
-                                .font(.system(size: 15, weight: .semibold))
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 40)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(tint)
-                        .background(Capsule().fill(tint.opacity(0.12)))
+                    Button {
+                        editingMail = true
+                    } label: {
+                        Label(card.isPending ? "Edit draft" : "Revise draft", systemImage: "pencil")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 40)
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(tint)
+                    .background(Capsule().fill(tint.opacity(0.12)))
                 }
 
                 if card.isPending, !editingMail {
@@ -987,7 +989,28 @@ struct CardView: View {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .strokeBorder(card.isPending ? tint : .clear, lineWidth: 1.5)
             }
+            .sheet(isPresented: $editingMail) {
+                NavigationStack {
+                    MailDraftEditorView(requestId: requestIdForMail(card), tint: tint) {
+                        editingMail = false
+                    }
+                    .padding(.horizontal, 4)
+                    .navigationTitle("Edit email draft")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close") { editingMail = false }
+                        }
+                    }
+                }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+            }
         }
+    }
+
+    private func requestIdForMail(_ card: OptionCard) -> String {
+        card.requestId ?? ""
     }
 }
 
