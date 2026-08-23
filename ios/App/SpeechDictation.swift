@@ -12,7 +12,7 @@ final class SpeechDictation: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var tapInstalled = false
-    private var accumulated = ""
+    private var timeline: [SpeechSegment] = []
 
     func start(onTranscript: @escaping @MainActor (String) -> Void) async throws {
         guard !isRecording else { return }
@@ -27,7 +27,7 @@ final class SpeechDictation: ObservableObject {
         else { throw DictationError.unavailable }
 
         stop()
-        accumulated = ""
+        timeline = []
 
         let audioSession = AVAudioSession.sharedInstance()
         try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers])
@@ -49,11 +49,8 @@ final class SpeechDictation: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 if let result {
-                    self.accumulated = Self.merge(
-                        previous: self.accumulated,
-                        incoming: result.bestTranscription.formattedString
-                    )
-                    onTranscript(self.accumulated)
+                    self.merge(result.bestTranscription.segments)
+                    onTranscript(self.renderedTimeline)
                     if result.isFinal { self.stop() }
                 } else if error != nil {
                     self.stop()
@@ -97,47 +94,50 @@ final class SpeechDictation: ObservableObject {
         }
     }
 
-    /// SFSpeechRecognizer usually grows one hypothesis, but can restart with
-    /// only the newest phrase after a pause. Preserve the earlier phrase while
-    /// still accepting ordinary revisions to the words currently being heard.
-    private static func merge(previous: String, incoming: String) -> String {
-        let before = clean(previous)
-        let next = clean(incoming)
-        guard !next.isEmpty else { return before }
-        guard !before.isEmpty else { return next }
-
-        let oldFolded = before.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-        let newFolded = next.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-        if newFolded.hasPrefix(oldFolded) { return next }
-        if oldFolded.hasPrefix(newFolded) { return before }
-
-        let oldWords = before.split(separator: " ").map(String.init)
-        let newWords = next.split(separator: " ").map(String.init)
-        var prefix = 0
-        while prefix < min(oldWords.count, newWords.count), folded(oldWords[prefix]) == folded(newWords[prefix]) {
-            prefix += 1
+    /// Merge by position in the recording, not by the current text. Apple's
+    /// recognizer can restart its visible hypothesis after a pause and return
+    /// only the newest phrase. Those words have later timestamps, so they are
+    /// appended. Genuine corrections occupy the same audio interval and
+    /// replace only that interval.
+    private func merge(_ segments: [SFTranscriptionSegment]) {
+        guard !segments.isEmpty else { return }
+        let incoming = segments.map {
+            SpeechSegment(
+                start: $0.timestamp,
+                end: $0.timestamp + max($0.duration, 0.04),
+                text: $0.substring
+            )
         }
-        if prefix >= 2 || (prefix == 1 && min(oldWords.count, newWords.count) <= 3) { return next }
+        guard let first = incoming.first, let last = incoming.last else { return }
+        let replacementStart = first.start - 0.08
+        let replacementEnd = last.end + 0.08
 
-        var overlap = 0
-        for size in stride(from: min(oldWords.count, newWords.count, 6), through: 1, by: -1) {
-            if oldWords.suffix(size).map(folded) == newWords.prefix(size).map(folded) {
-                overlap = size
-                break
-            }
+        // Keep anything clearly before or after the interval Apple supplied.
+        // In particular, never delete the earlier sentence merely because a
+        // later callback contains only the words spoken after a pause.
+        timeline.removeAll { segment in
+            segment.start < replacementEnd && segment.end > replacementStart
         }
-        let addition = newWords.dropFirst(overlap).joined(separator: " ")
-        return addition.isEmpty ? before : "\(before) \(addition)"
+        timeline.append(contentsOf: incoming)
+        timeline.sort { left, right in
+            if abs(left.start - right.start) < 0.001 { return left.end < right.end }
+            return left.start < right.start
+        }
     }
 
-    private static func clean(_ value: String) -> String {
-        value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    private var renderedTimeline: String {
+        timeline.map(\.text)
+            .joined(separator: " ")
+            .replacingOccurrences(of: #"\s+([,.!?;:])"#, with: "$1", options: .regularExpression)
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
     }
+}
 
-    private static func folded(_ value: String) -> String {
-        value.trimmingCharacters(in: .punctuationCharacters)
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-    }
+private struct SpeechSegment {
+    let start: TimeInterval
+    let end: TimeInterval
+    let text: String
 }
 
 private enum DictationError: LocalizedError {
