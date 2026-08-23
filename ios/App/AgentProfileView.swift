@@ -236,6 +236,10 @@ struct AgentProfileView: View {
 
     private func profilePatch() -> BotProfilePatch {
         let savedSpeakReplies = config.map { $0.canSpeak(agentVoice: voice) && speakReplies } ?? speakReplies
+        // Choosing a living spirit is an explicit switch away from a stored
+        // uploaded avatar. Clear the image in the same atomic PATCH so the
+        // renderer cannot immediately fall back to the old icon.
+        let spiritChanged = spirit.rawValue != baseline.spirit
         return BotProfilePatch(
             // The shared server contract owns the 100/200/4000 limits. Do not
             // silently apply narrower iOS-only limits to a user's profile.
@@ -244,7 +248,8 @@ struct AgentProfileView: View {
             description: description == baseline.description
                 ? nil : description.trimmingCharacters(in: .whitespacesAndNewlines),
             notifications: notifications == baseline.notifications ? nil : notifications,
-            avatarCrop: crop == baseline.crop ? nil : crop,
+            avatarUrl: spiritChanged ? .clear : nil,
+            avatarCrop: spiritChanged ? .mascot : (crop == baseline.crop ? nil : crop),
             // Empty is the server's explicit "use workspace default" value;
             // nil would mean the voice field is not part of this patch.
             voice: voice == baseline.voice ? nil : voice,
