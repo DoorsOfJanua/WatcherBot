@@ -94,6 +94,6 @@ export function selectBundledSkills(
 export function renderSkillInstructions(selected: readonly BundledSkill[]): string {
   if (!selected.length) return "";
   return selected.map(({ manifest, instructions }) =>
-    `\n\n<openmaus-skill id=${JSON.stringify(manifest.id)} version=${JSON.stringify(manifest.version)}>\n${instructions}\n</openmaus-skill>`,
+    `\n\n<watcherbot-skill id=${JSON.stringify(manifest.id)} version=${JSON.stringify(manifest.version)}>\n${instructions}\n</watcherbot-skill>`,
   ).join("");
 }

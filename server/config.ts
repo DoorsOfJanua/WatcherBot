@@ -1,4 +1,4 @@
-// Config + data dirs. One file, ~/.openmausbot/config.json, env fallbacks:
+// Config + data dirs. One file, ~/.myagent-room/config.json, env fallbacks:
 //   { "xai": {"key":"xai-…"}, "composio": {"apiKey":"ak_…"}, "box": {"token":"…"},
 //     "instances": { "<instanceId>": {"driver":"grok", …} } }
 import { readFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
@@ -148,16 +148,16 @@ export function localVmMaxInstances(cfg: AppConfig): number {
   return cfg.localVm?.maxInstances ?? DEFAULT_LOCAL_VM_MAX_INSTANCES;
 }
 
-// MYAGENT_ROOM_DATA_DIR keeps this fork's state separate. OMB_DATA_DIR stays
-// supported for upstream tests and compatibility harnesses.
+// MYAGENT_ROOM_DATA_DIR is the explicit data-dir override. OMB_DATA_DIR stays
+// supported as a legacy environment alias so existing installations survive.
 export const DATA_DIR =
-  process.env.MYAGENT_ROOM_DATA_DIR ?? process.env.OMB_DATA_DIR ?? join(homedir(), ".openmausbot");
-const LEGACY_DATA_DIR = join(homedir(), ".opengrokbot");
+  process.env.MYAGENT_ROOM_DATA_DIR ?? process.env.OMB_DATA_DIR ?? join(homedir(), ".myagent-room");
+const LEGACY_DATA_DIR = join(homedir(), ".openmausbot");
 export const EVENTS_DIR = join(DATA_DIR, "events");
 export const NATIVE_DIR = join(DATA_DIR, "native");
 
 export function ensureDirs() {
-  // one-time migration from the pre-rename data dir — bots, transcripts,
+  // one-time migration from the old data dir — bots, transcripts,
   // config and keys all carry over
   if (!existsSync(DATA_DIR) && existsSync(LEGACY_DATA_DIR)) {
     try {
@@ -259,7 +259,7 @@ export const PROVIDER_CREDENTIAL_ENV = [
   "CURSOR_AUTH_TOKEN",
 ] as const;
 
-/** Merge a partial config into ~/.openmausbot/config.json (secrets never
+/** Merge a partial config into ~/.myagent-room/config.json (secrets never
  * echoed back — callers report configured-or-not booleans only). */
 export function saveConfig(patch: Partial<AppConfig>): void {
   const p = join(DATA_DIR, "config.json");

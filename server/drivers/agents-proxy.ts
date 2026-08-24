@@ -19,6 +19,7 @@
 //   OMB_BOT_ID       the calling bot's id (excluded from list_bots; sender)
 //   OMB_COMMS_TOKEN  shared secret for the localhost-only internal endpoints
 //   OMB_TURN_DEPTH   this turn's comms depth (the harness refuses recursion)
+import { request as httpRequest } from "node:http";
 import readline from "node:readline";
 
 const HARNESS = process.env.OMB_HARNESS_URL ?? "http://127.0.0.1:8799";
@@ -32,7 +33,7 @@ const TOOLS = [
   {
     name: "list_bots",
     description:
-      "List the other bots (agents) in this OpenMausBot workspace you can message, with their model and whether they're busy. Call this before ask_bot to discover who's available.",
+      "List the other bots (agents) in this WatcherBot Room workspace you can message, with their model and whether they're busy. Call this before ask_bot to discover who's available.",
     inputSchema: { type: "object", properties: {} },
   },
   {
@@ -99,6 +100,42 @@ async function api(path: string, init?: RequestInit): Promise<Json> {
   return body;
 }
 
+/** POST that may legitimately wait many minutes for its response — the
+ * outer hop of a deep ask_bot chain outlives global fetch's built-in
+ * 5-minute undici headersTimeout. Loopback only, so plain node:http with
+ * no socket timeout is the correct transport, not a bigger fetch timeout. */
+function longPost(path: string, body: Json): Promise<Json> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(HARNESS + path);
+    const req = httpRequest(
+      {
+        host: url.hostname,
+        port: url.port,
+        path: url.pathname,
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${TOKEN}` },
+      },
+      (res) => {
+        let data = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => {
+          let parsed: Json = {};
+          try {
+            parsed = JSON.parse(data) as Json;
+          } catch {
+            /* non-JSON body — treated as empty, status decides below */
+          }
+          if ((res.statusCode ?? 500) >= 400) reject(new Error(String(parsed.error ?? `HTTP ${res.statusCode}`)));
+          else resolve(parsed);
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end(JSON.stringify(body));
+  });
+}
+
 async function callTool(name: string, args: Json): Promise<{ text: string; isError?: boolean }> {
   if (name === "list_bots") {
     const r = await api(`/api/internal/agents?self=${encodeURIComponent(BOT_ID)}`);
@@ -115,9 +152,12 @@ async function callTool(name: string, args: Json): Promise<{ text: string; isErr
     const toBotId = String(args.bot_id ?? "").trim();
     const message = String(args.message ?? "").trim();
     if (!toBotId || !message) return { text: "ask_bot needs bot_id and message.", isError: true };
-    const r = await api(`/api/internal/ask-bot`, {
-      method: "POST",
-      body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, toBotId, message, depth: DEPTH }),
+    const r = await longPost(`/api/internal/ask-bot`, {
+      fromBotId: BOT_ID,
+      fromThreadId: THREAD_ID,
+      toBotId,
+      message,
+      depth: DEPTH,
     });
     if (r.busy) return { text: `That bot is busy right now — try again after it finishes.` };
     if (r.error) return { text: `Couldn't reach that bot: ${r.error}`, isError: true };

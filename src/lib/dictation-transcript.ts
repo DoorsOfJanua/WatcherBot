@@ -29,6 +29,11 @@ export function mergeDictationTranscript(previous: string, incoming: string): st
     return next;
   }
 
+  // A pause makes the recognizer restart and re-send a phrase it already
+  // delivered. The stitching overlap below only looks a few words back, so
+  // without this a repeat longer than that window lands in the composer twice.
+  if (endsWithPhrase(oldWords, newWords)) return before;
+
   // A restarted phrase sometimes repeats the final word or two. Remove that
   // overlap before appending so "the door" + "door is open" stays natural.
   const overlap = suffixPrefixOverlap(oldWords, newWords);
@@ -64,6 +69,15 @@ function commonPrefix(a: string[], b: string[]): number {
   let count = 0;
   while (count < a.length && count < b.length && foldedWord(a[count]) === foldedWord(b[count])) count += 1;
   return count;
+}
+
+/** Whether every word of `b` is already sitting at the end of `a`. */
+function endsWithPhrase(a: string[], b: string[]): boolean {
+  if (b.length === 0 || b.length > a.length) return false;
+  return a.slice(-b.length).every((word, index) => {
+    const left = foldedWord(word);
+    return Boolean(left) && left === foldedWord(b[index]);
+  });
 }
 
 function suffixPrefixOverlap(a: string[], b: string[]): number {

@@ -243,7 +243,7 @@ export async function prepareProjectSession(
     if (existing && supportsMultiAccount(existing)) {
       return {
         apiKey: trimmed,
-        userId: existing.config?.user_id ?? current.userId ?? `openmausbot_${randomUUID()}`,
+        userId: existing.config?.user_id ?? current.userId ?? `watcherbotroom_${randomUUID()}`,
         sessionId: existing.session_id,
       };
     }
@@ -253,7 +253,7 @@ export async function prepareProjectSession(
     priorUserId = existing?.config?.user_id ?? priorUserId;
   }
 
-  const userId = priorUserId ?? `openmausbot_${randomUUID()}`;
+  const userId = priorUserId ?? `watcherbotroom_${randomUUID()}`;
   const res = await fetch(`${apiBase()}/tool_router/session`, {
     method: "POST",
     headers: projectHeaders(trimmed, true),
@@ -688,6 +688,7 @@ const CURATED: ToolkitCard[] = [
   { slug: "googlesheets", label: "Google Sheets", blurb: "Read and update spreadsheets", domain: "sheets.google.com", logo: null },
   { slug: "googledocs", label: "Google Docs", blurb: "Read and write documents", domain: "docs.google.com", logo: null },
   { slug: "googledrive", label: "Google Drive", blurb: "Browse and manage files", domain: "drive.google.com", logo: null },
+  { slug: "excel", label: "Microsoft Excel", blurb: "Read and update workbooks", domain: "microsoft.com", logo: null },
   { slug: "notion", label: "Notion", blurb: "Pages and databases", domain: "notion.so", logo: null },
   { slug: "linear", label: "Linear", blurb: "Issues and project tracking", domain: "linear.app", logo: null },
   { slug: "sentry", label: "Sentry", blurb: "Errors and alerts", domain: "sentry.io", logo: null },

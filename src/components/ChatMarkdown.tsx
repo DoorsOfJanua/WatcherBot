@@ -7,11 +7,13 @@
 // fence is very likely complete), then highlights and caches — so the settled
 // bubble, a fresh component instance, mounts straight from cache instead of
 // popping from plain to highlighted.
-import { memo, useEffect, useState, type ReactNode } from "react";
+import { memo, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
 import { sharedDocumentHref } from "../../shared/shared-document";
+import { addReadableEmphasis } from "../lib/readable-emphasis";
+import { MAUS_COLORS, type MausColor } from "../lib/mascot";
 
 // tiny highlight cache so revisiting a thread doesn't re-tokenize settled
 // blocks; keys are content-hashed and capped. Streamed partials may land here
@@ -152,9 +154,12 @@ function Spoiler({ children }: { children?: ReactNode }) {
   );
 }
 
-function ChatMarkdownComponent({ text, streaming = false }: { text: string; streaming?: boolean }) {
+function ChatMarkdownComponent({ text, streaming = false, accentColor }: { text: string; streaming?: boolean; accentColor?: MausColor }) {
   return (
-    <div className="chat-md min-w-0 [&>*+*]:mt-2">
+    <div
+      className="chat-md min-w-0 [&>*+*]:mt-2"
+      style={accentColor ? ({ "--agent-accent": MAUS_COLORS[accentColor] } as CSSProperties) : undefined}
+    >
       <Markdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -185,6 +190,9 @@ function ChatMarkdownComponent({ text, streaming = false }: { text: string; stre
               <code className="rounded bg-inset px-1 py-px text-[13px]">{children}</code>
             );
           },
+          strong({ children }: { children?: ReactNode }) {
+            return <strong className="chat-highlight rounded px-0.5 font-semibold">{children}</strong>;
+          },
           a({ href, children }: { href?: string; children?: ReactNode }) {
             const resolvedHref = sharedDocumentHref(href);
             return (
@@ -194,7 +202,7 @@ function ChatMarkdownComponent({ text, streaming = false }: { text: string; stre
                 rel="noreferrer"
                 className="break-words text-accent underline decoration-accent/40 hover:decoration-accent"
                 title={resolvedHref !== href ? "Open shared document" : undefined}
-              >
+        >
                 {children}
               </a>
             );
@@ -251,7 +259,7 @@ function ChatMarkdownComponent({ text, streaming = false }: { text: string; stre
           },
         }}
       >
-        {text}
+        {addReadableEmphasis(text)}
       </Markdown>
     </div>
   );

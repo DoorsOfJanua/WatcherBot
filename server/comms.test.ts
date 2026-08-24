@@ -147,6 +147,11 @@ describe("comms e2e (fake ACP fleet)", () => {
       HOME: home,
       USERPROFILE: home,
       OMB_PORT: String(PORT),
+      // The fixture fleet's behavior is written against peer-invoked turns
+      // being inert (no agents integration). Production defaults to deeper
+      // chains, so pin the guard boundary at 1 here — the guard MECHANISM
+      // is what these tests exercise, at whatever depth it sits.
+      OMB_MAX_COMMS_DEPTH: "1",
     };
     if (process.env.PATH) env.PATH = process.env.PATH;
     // Without SystemRoot, winsock fails to initialize in the child.
@@ -763,19 +768,20 @@ describe("comms e2e (fake ACP fleet)", () => {
 
   // ── depth guard regression ───────────────────────────────────────────
   // A bot invoked via ask_bot or delegate_bot runs at depth=1, which equals
-  // MAX_COMMS_DEPTH. The depth guard in startTurn must refuse to inject
-  // the agents integration, so B's CLI sees no agents mcpServer and falls
-  // through to its plain happy text — NOT a "one hop" error from a depth-1
-  // ask_bot. If the guard were removed, B's fake (also in ask-peer mode)
-  // would call ask_bot, the harness would refuse recursion, and B's reply
-  // would contain "peer error: ... one hop". The absence of that error is
-  // the regression signal.
+  // MAX_COMMS_DEPTH here (this suite boots with OMB_MAX_COMMS_DEPTH=1).
+  // The depth guard in startTurn must refuse to inject the agents
+  // integration, so B's CLI sees no agents mcpServer and falls through to
+  // its plain happy text — NOT a hop-limit error from a depth-1 ask_bot.
+  // If the guard were removed, B's fake (also in ask-peer mode) would call
+  // ask_bot, the harness would refuse recursion, and B's reply would
+  // contain `peer error: ... limited to 1 hop`. The absence of that error
+  // is the regression signal.
   it("does not inject the agents integration into a depth-1 turn", async () => {
     const seeded = (await api("GET", "/api/bots")).body.bots[0];
     await api("PATCH", `/api/bots/${seeded.id}`, { hidden: true });
     // A runs delegate-peer and hands off to B, which runs ask-peer. If the
     // depth guard broke, B's depth-1 turn would call ask_bot and its reply
-    // would carry the "one hop" refusal — the regression signal.
+    // would carry the hop-limit refusal — the regression signal.
     const selection = { instanceId: "grok", model: "fake-model" };
     const askerSelection = { instanceId: "askerDelegate", model: "fake-model" };
     const helper = (await api("POST", "/api/bots")).body.bot;
@@ -811,10 +817,10 @@ describe("comms e2e (fake ACP fleet)", () => {
       (m: any) => m.role === "bot" && m.kind === "text" && m.text?.includes("hello from fake acp"),
     );
     // If the guard were broken, B would have called ask_bot at depth=1 and
-    // received "message chains are limited to one hop" back from the
-    // harness. That error text would surface here as `peer error: ... one hop`.
+    // received "message chains are limited to 1 hop" back from the
+    // harness. That error text would surface here as `peer error: ...`.
     expect(reply.text).toContain("hello from fake acp");
-    expect(reply.text).not.toContain("one hop");
+    expect(reply.text).not.toContain("limited to");
     expect(reply.text).not.toContain("peer error");
   }, 45_000);
 });

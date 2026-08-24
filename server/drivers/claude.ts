@@ -97,7 +97,7 @@ export interface ClaudeConfig {
 
 // model catalog ported from upstream packages/contracts/src/model.ts
 export const STATIC_CLAUDE_MODELS: ModelCatalog = {
-  default: "claude-sonnet-5",
+  default: "claude-opus-5",
   options: [
     { id: "claude-fable-5", label: "Claude Fable 5" },
     { id: "claude-opus-5", label: "Claude Opus 5" },
@@ -201,27 +201,76 @@ type AskBehavior = "allow" | "deny" | "answer";
 type AskResolutionSource = "user" | "timeout" | "system";
 
 const DENY_TIMEOUT_NOTE =
-  "OpenMausBot: nobody answered this permission request in time. Skip this action and finish what you can without it.";
-const QUESTION_TIMEOUT_NOTE = "OpenMausBot: nobody answered in time. Use your best judgment and continue.";
-const DUPLICATE_ASK_ID_NOTE = "OpenMausBot: duplicate ask id — skipping this request.";
+  "WatcherBot Room: nobody answered this permission request in time. Skip this action and finish what you can without it.";
+const QUESTION_TIMEOUT_NOTE = "WatcherBot Room: nobody answered in time. Use your best judgment and continue.";
+const DUPLICATE_ASK_ID_NOTE = "WatcherBot Room: duplicate ask id — skipping this request.";
 
 /** The system-source reply for an ask that outlives the turn — used both to
  * drain in-flight `pending` asks on close() and to answer one that arrives
  * on an already-closed broker (see the `closed` branch below). */
 function systemEndedReply(kind: Ask["kind"]): { behavior: AskBehavior; message: string } {
   return kind === "question"
-    ? { behavior: "answer", message: "OpenMausBot: the turn is ending — wrap up." }
-    : { behavior: "deny", message: "OpenMausBot: the turn ended" };
+    ? { behavior: "answer", message: "WatcherBot Room: the turn is ending — wrap up." }
+    : { behavior: "deny", message: "WatcherBot Room: the turn ended" };
 }
 
-/** One human-readable line for an ask — what the card subtitle shows. */
-function askSummary(ask: Ask): string {
-  const input = ask.input ?? {};
+const SKILL_LABELS: Record<string, string> = {
+  schedule: "scheduling",
+  email: "email",
+  gmail: "Gmail",
+  browser: "browser",
+  playwright: "browser automation",
+  research: "research",
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value !== "string") return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Turn an internal skill payload into a sentence a human can approve. */
+function skillAskSummary(input: Record<string, unknown>): string | null {
+  const skill = typeof input.skill === "string" ? input.skill.trim() : "";
+  const args = typeof input.args === "string" ? input.args.trim() : "";
+  if (!skill || !args) return null;
+
+  const label = SKILL_LABELS[skill.toLowerCase()] ?? skill.replace(/[-_]+/g, " ");
+  let purpose = args
+    .replace(/^investigate only\s*[:,]?\s*/i, "")
+    .replace(/\s*\(?do not create anything yet\)?\s*[:,-]?\s*/i, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!purpose) purpose = "check whether this can be done";
+  purpose = purpose.replace(/^can\s+(?:(?:the|this|same)\s+)?skill\s+/i, "");
+  if (!/^[a-z]/.test(purpose)) purpose = purpose.charAt(0).toLowerCase() + purpose.slice(1);
+  const suffix = /(?:nothing will be created|do not create anything) yet/i.test(args)
+    ? " Nothing will be created yet."
+    : "";
+  return `Investigate whether the ${label} skill can ${purpose.replace(/[.!?]+$/, "")}.${suffix}`.slice(0, 300);
+}
+
+/** One human-readable line for an ask — what the card subtitle shows.
+ * Never expose an opaque JSON payload in the approval UI. */
+export function askSummary(ask: Ask): string {
+  const input = asRecord(ask.input) ?? {};
   if (typeof input.question === "string") return input.question.slice(0, 300);
+  const skillSummary = skillAskSummary(input);
+  if (skillSummary) return skillSummary;
   if (typeof input.command === "string") return input.command.slice(0, 200);
   if (typeof input.url === "string") return input.url.slice(0, 200);
-  const text = JSON.stringify(input);
-  return text === "{}" ? (ask.tool ?? "tool") : text.slice(0, 200);
+  if (typeof input.action === "string") return `The agent wants to ${input.action}.`.slice(0, 300);
+  if (typeof input.operation === "string") return `The agent wants to ${input.operation}.`.slice(0, 300);
+  return `The agent wants to use ${String(ask.tool || "a tool").replace(/^mcp:/, "")}.`;
 }
 
 export function permissionSocketPath(threadId: string) {
@@ -538,6 +587,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         // whole-message frames, so the bubble grows as the model writes
         "--include-partial-messages",
         "--permission-mode", config.permissionMode === "auto" ? "acceptEdits" : config.permissionMode,
+        // The CLI's native session-messaging tools reach OTHER Claude Code
+        // sessions on this machine, not this workspace's bots. A bot told
+        // "reply to @Poppy" with no agents MCP mounted (the recursion stop)
+        // improvises with SendMessage and gets "No agent named 'Poppy' is
+        // reachable" — so the pair is banned outright: peer comms go through
+        // mcp__agents or not at all.
+        "--disallowedTools", "SendMessage,ListAgents",
       ];
       const turnEnvironment: NodeJS.ProcessEnv = { ...process.env, ...input.environment };
       const turnModel = await resolveClaudeTurnModel(turn.model, turnEnvironment);
@@ -554,6 +610,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         mcpServers.composio = { ...turn.integrations.composio };
         allowed.push("mcp__composio");
       }
+      if (turn.integrations?.calendar) {
+        mcpServers.calendar = { ...turn.integrations.calendar };
+        allowed.push("mcp__calendar");
+      }
       if (turn.integrations?.computer) {
         mcpServers.computer = {
           command: process.execPath,
@@ -569,7 +629,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           env: local.env,
         };
         // The isolated Local VM preserves the established pre-allow behavior.
-        // Host tools always route through OpenMausBot's permission broker.
+        // Host tools always route through WatcherBot Room's permission broker.
         if (!controlsHost) allowed.push("mcp__computer");
       }
       // peer-agent comms (list_bots/ask_bot) — the harness builds the whole
@@ -579,6 +639,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (turn.integrations?.agents) {
         mcpServers.agents = { ...turn.integrations.agents };
         allowed.push("mcp__agents");
+      }
+      for (const [name, server] of Object.entries(turn.integrations?.projectMcps ?? {})) {
+        mcpServers[name] = { ...server };
+        allowed.push(`mcp__${name}`);
       }
       if (turn.integrations?.phone) {
         mcpServers.phone = { ...turn.integrations.phone };

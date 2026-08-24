@@ -9,8 +9,8 @@ artifactName: MyAgent-Room-${version}-${arch}.${ext}
 # --publish never, and must be uploaded to the GitHub release alongside the
 # artifacts — a release missing latest.yml leaves every Windows install
 # stranded on its installed version.
-# This private fork has no release feed yet. Do not point installations at
-# upstream OpenMausBot artifacts; enable a Janua-owned updater only after a
+# This private build has no release feed yet. Do not point installations at
+# an external artifact feed; enable a Janua-owned updater only after a
 # signed release pipeline exists.
 
 directories:
@@ -32,7 +32,7 @@ files:
   - "!electron/resources/speech-helper"
   - "!electron/resources/speech-helper.swift"
   - "!electron/resources/speech-helper-Info.plist"
-  - "!electron/resources/OpenMausBot Speech.app/**"
+  - "!electron/resources/WatcherBot Speech.app/**"
   - "!**/node_modules/**"
   - package.json
 
@@ -41,9 +41,9 @@ asar: true
 extraResources:
   # Ship the app's own license terms in every desktop distribution.
   - from: LICENSE
-    to: licenses/OpenMausBot-LICENSE.txt
+    to: licenses/WatcherBot-LICENSE.txt
   - from: NOTICE
-    to: licenses/OpenMausBot-NOTICE.txt
+    to: licenses/WatcherBot-NOTICE.txt
   - from: JANUA-NOTICE.md
     to: licenses/MyAgent-Room-NOTICE.md
   - from: dist
@@ -77,8 +77,8 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   # the dictation helper is a signed background app — Windows and Linux never see it
   extraResources:
-    - from: electron/resources/OpenMausBot Speech.app
-      to: OpenMausBot Speech.app
+    - from: electron/resources/WatcherBot Speech.app
+      to: WatcherBot Speech.app
     # CUA must live outside ASAR. prepare-cua stages the signed executable and
     # a self-contained JS/native SDK bundle selected for macOS arm64.
     # ${arch} resolves per built arch — each bundle carries its own natives
@@ -124,8 +124,7 @@ nsis:
   perMachine: false
   shortcutName: MyAgent Room
   # Versioned, like the .dmg. The README's /latest/download/ button needs a
-  # STABLE filename, so ship a second copy named OpenMausBot-setup.exe on the
-  # release — the same trick as OpenMausBot.dmg beside OpenMausBot-${version}.dmg.
+  # STABLE filename for the release download.
   artifactName: MyAgent-Room-${version}-setup.${ext}
 
 linux:

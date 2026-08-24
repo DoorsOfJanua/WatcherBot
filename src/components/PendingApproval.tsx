@@ -4,16 +4,16 @@
 // is being asked, and the send row is replaced by the decisions.
 //
 // Faithful details worth keeping: one at a time with an "n of N" counter,
-// the detail printed raw in a monospace block that is NEVER truncated
-// (it scrolls instead), and the buttons ordered least-destructive-last so
-// the primary action sits under your thumb.
+// and the buttons ordered least-destructive-last so the primary action
+// sits under your thumb. The ask itself is plain words; the raw command
+// sits one line below, and the Code toggle opens the full untruncated
+// monospace block for anyone who wants to read exactly what will run.
 import { memo } from "react";
 import { useStore, type Bot, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
-
-interface ApprovalLabels {
-  [tool: string]: string;
-}
+import { approvalAsk } from "../../shared/tool-label";
+import { useDevMode } from "@/lib/display-mode";
+import { DevModeToggle } from "./DevModeToggle";
 
 export interface Pending {
   message: Message;
@@ -39,19 +39,6 @@ export function pendingApprovals(messages: Message[]): Pending[] {
     }));
 }
 
-function label(tool: string): string {
-  const nice: ApprovalLabels = {
-    Bash: "Command approval requested",
-    shell: "Command approval requested",
-    Read: "File-read approval requested",
-    Write: "File-change approval requested",
-    Edit: "File-change approval requested",
-    edit: "File-change approval requested",
-    "email.send": "Exact email ready to review",
-  };
-  return nice[tool] ?? "Approval requested";
-}
-
 export const PendingApprovalPanel = memo(function PendingApprovalPanel({
   pending,
   count,
@@ -61,22 +48,38 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
   count: number;
   index: number;
 }) {
+  const dev = useDevMode();
+  const ask = approvalAsk(pending.tool, pending.detail);
   return (
-    <div className="rounded-t-2xl border-b border-hairline/50 bg-raised/40 px-4 py-3">
+    <div className="rounded-t-2xl border-b border-hairline/50 bg-raised/40 px-4 py-2.5">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] uppercase tracking-[0.18em] text-ink-secondary">Pending approval</span>
+        <span className="text-[11px] uppercase tracking-[0.18em] text-ink-secondary">Approval</span>
         {count > 1 && (
           <span className="rounded-full bg-raised px-1.5 py-0.5 text-[11px] tabular-nums text-ink-secondary">
             {index + 1} of {count}
           </span>
         )}
-        <span className="text-[13px] text-ink">{label(pending.tool)}</span>
-        <span className="font-mono text-[11px] text-ink-secondary">{pending.tool}</span>
+        <span className="text-[13.5px] text-ink">
+          Asking to <span className="font-medium">{ask.ask}</span>
+          {ask.gist && <span className="text-ink-secondary"> · {ask.gist}</span>}
+        </span>
+        <DevModeToggle className="ml-auto" />
       </div>
-      {/* never truncated — long commands wrap and scroll */}
-      <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-ink">
-        {pending.detail}
-      </pre>
+      {dev ? (
+        <>
+          <div className="mt-1.5 font-mono text-[11px] text-ink-secondary">{pending.tool}</div>
+          {/* never truncated in code view — long commands wrap and scroll */}
+          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-ink">
+            {pending.detail}
+          </pre>
+        </>
+      ) : (
+        pending.detail && (
+          <div className="mt-1.5 truncate font-mono text-[11px] text-ink-secondary/80" title={pending.detail}>
+            {pending.detail}
+          </div>
+        )
+      )}
       {pending.held && <div className="mt-2 text-[12px] text-warning">{pending.held}</div>}
     </div>
   );

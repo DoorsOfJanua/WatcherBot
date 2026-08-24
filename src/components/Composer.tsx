@@ -137,8 +137,15 @@ export function Composer({
   useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
+    // Measuring needs height:auto, which resets scrollTop. Past the max height
+    // the box scrolls, so without restoring the view every keystroke snaps back
+    // to the first line and the words being written sit below the fold. Only
+    // follow the caret when it is at the end: an edit higher up must not yank
+    // the person to the bottom.
+    const followCaret = el.selectionStart === el.value.length;
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
+    if (followCaret) el.scrollTop = el.scrollHeight;
   }, [text]);
 
   const pickMention = (peer: MentionChoice) => {

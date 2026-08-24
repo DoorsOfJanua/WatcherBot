@@ -31,7 +31,7 @@ describe("readClaudeModelCatalog", () => {
     );
 
     expect(readClaudeModelCatalog({ HOME: home })).toEqual({
-      default: "claude-sonnet-5",
+      default: "claude-opus-5",
       options: [
         ...STATIC_CLAUDE_MODELS.options,
         { id: "my-local-opus", label: "Local Opus", custom: true },

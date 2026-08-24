@@ -134,7 +134,7 @@ export function isImageFile(file: { type: string; size: number }): boolean {
 }
 
 /** Persist a pasted image server-side and return the attachment chip data.
- * The server writes ~/.openmausbot/attachments/<uuid>.<ext> and answers
+ * The server writes ~/.myagent-room/attachments/<uuid>.<ext> and answers
  * with the path; the prompt references that path so every CLI can open it. */
 export async function imageAttachmentFromFile(file: File): Promise<ImageAttachment | null> {
   if (!isImageFile(file)) return null;

@@ -16,10 +16,35 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ensureDirs } from "../config.ts";
 import type { ProviderInstance } from "../contracts.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
-import { ClaudeDriver, permissionSocketPath } from "./claude.ts";
+import { ClaudeDriver, askSummary, permissionSocketPath } from "./claude.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-claude-cli.ts");
+
+describe("permission summaries", () => {
+  it("turns skill payloads into plain language instead of exposing JSON", () => {
+    const summary = askSummary({
+      id: "approval-1",
+      kind: "permission",
+      tool: "mcp:agents",
+      input: {
+        skill: "schedule",
+        args: "Investigate only, do not create anything yet: can this skill set up a durable recurring routine for Sensei to send reminders?",
+      },
+      at: Date.now(),
+    });
+
+    expect(summary).toContain("scheduling skill");
+    expect(summary).toContain("Nothing will be created yet");
+    expect(summary).not.toContain('"skill"');
+    expect(summary).not.toContain("{ ");
+  });
+
+  it("does not fall back to raw JSON for unknown payloads", () => {
+    const summary = askSummary({ id: "approval-2", kind: "permission", tool: "mcp:agents", input: { opaque: true }, at: Date.now() });
+    expect(summary).toBe("The agent wants to use agents.");
+  });
+});
 
 /** Connect to a broker socket and resolve once the connection is live. */
 function connectSocket(path: string): Promise<Socket> {

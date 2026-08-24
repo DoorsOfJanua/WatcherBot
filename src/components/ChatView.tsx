@@ -58,6 +58,8 @@ import { attachmentBasename, splitAttachedImages } from "@/lib/composer-attachme
 import { groupTranscriptActivity, type ActivityGroup } from "@/lib/activity-groups";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
 import { workingPhrase } from "@/lib/work-language";
+import { useDevMode } from "@/lib/display-mode";
+import { DevModeToggle } from "./DevModeToggle";
 import {
   TRANSCRIPT_WINDOW_SIZE,
   expandWindowStart,
@@ -90,20 +92,44 @@ function DaySeparator({ at }: { at: number }) {
   );
 }
 
-/** Hover/focus-revealed copy control shared by user + bot bubbles. */
+/** Always-discoverable copy control shared by user + bot bubbles. */
 function CopyButton({ text, className }: { text: string; className?: string }) {
   const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    let succeeded = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      succeeded = true;
+    } catch {
+      // Electron and older browser permission policies can reject the modern
+      // clipboard API. Keep a local fallback so the visible button never
+      // becomes a promise the app cannot keep.
+      const field = document.createElement("textarea");
+      field.value = text;
+      field.setAttribute("readonly", "");
+      field.style.position = "fixed";
+      field.style.opacity = "0";
+      document.body.append(field);
+      field.select();
+      try {
+        succeeded = document.execCommand("copy");
+      } finally {
+        field.remove();
+      }
+    }
+    if (!succeeded) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  };
+
   return (
     <button
-      onClick={() => {
-        void navigator.clipboard?.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1200);
-      }}
-      aria-label="Copy message"
-      title="Copy message"
+      onClick={() => void copy()}
+      aria-label={copied ? "Copied message" : "Copy message"}
+      title={copied ? "Copied" : "Copy message"}
       className={cn(
-        "rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100",
+        "message-copy-button flex size-7 shrink-0 items-center justify-center rounded-lg text-ink-secondary opacity-55 transition hover:bg-raised hover:text-ink hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100",
         className,
       )}
     >
@@ -421,7 +447,21 @@ function Bubble({
             </>
           ) : (
             <MessageBoundary fallbackText={text}>
-              <ChatMarkdown text={text} />
+              <>
+                {message.automation && (
+                  <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary/75">
+                    <Clock size={12} aria-hidden="true" />
+                    <span>
+                      {message.automation.source === "schedule"
+                        ? "Automated · scheduled"
+                        : message.automation.source === "webhook"
+                          ? "Automated · webhook"
+                          : "Automated · run"}
+                    </span>
+                  </div>
+                )}
+                <ChatMarkdown text={text} accentColor={bot.color} />
+              </>
             </MessageBoundary>
           )}
         </div>
@@ -491,6 +531,7 @@ function Bubble({
 /** A tool run: spinner while live, check/cross once settled. */
 function ActivityChip({ message }: { message: Message }) {
   const { state, dispatch } = useStore();
+  const dev = useDevMode();
   const tool = message.tool;
   if (!tool) return null;
   // bot⇄bot comm chip: opens the channel where the exchange lives
@@ -539,7 +580,12 @@ function ActivityChip({ message }: { message: Message }) {
         ) : (
           <Check size={13} className="text-success" />
         )}
-        <span className="max-w-[480px] truncate font-mono">{tool.name}</span>
+        <span
+          className={cn("max-w-[480px] truncate", dev && tool.detail && "font-mono text-[12px]")}
+          title={tool.detail}
+        >
+          {dev && tool.detail ? tool.detail : tool.name}
+        </span>
       </div>
     </div>
   );
@@ -547,12 +593,14 @@ function ActivityChip({ message }: { message: Message }) {
 
 /** Consecutive tool calls are evidence, not dialogue. Keep one quiet row in
  * the conversation and reveal the exact Bash/read/write trail on demand. */
-function ActivityGroupRow({ bot, group }: { bot: Bot; group: ActivityGroup }) {
+export function ActivityGroupRow({ bot, group }: { bot?: Bot; group: ActivityGroup }) {
   const [open, setOpen] = useState(false);
   const active = group.messages.some((message) => message.tool?.ok === undefined);
   const failed = group.messages.some((message) => message.tool?.ok === false);
   const label = active
-    ? workingPhrase(bot, group.id)
+    ? bot
+      ? workingPhrase(bot, group.id)
+      : "Working"
     : failed
       ? "Work under the hood needs attention"
       : "Worked under the hood";
@@ -584,6 +632,8 @@ function ActivityGroupRow({ bot, group }: { bot: Bot; group: ActivityGroup }) {
         </button>
         {open && (
           <div className="mt-1.5 flex flex-col gap-1.5 rounded-xl border border-hairline/25 bg-inset/35 p-2">
+            {/* the revealed trail is where someone decides they want raw argv */}
+            <DevModeToggle className="self-end" />
             {group.messages.map((message) => (
               <ActivityChip key={message.id} message={message} />
             ))}
@@ -606,7 +656,7 @@ function ScreenFrame({ png, mime }: { png: string; mime?: string }) {
   );
 }
 
-function StreamingBubble({ text }: { text: string }) {
+function StreamingBubble({ text, accentColor }: { text: string; accentColor?: Bot["color"] }) {
   // markdown re-parses on a deferred value: when tokens arrive faster than
   // the parser keeps up, React lags the parse instead of janking the frame
   const deferred = useDeferredValue(text);
@@ -614,7 +664,7 @@ function StreamingBubble({ text }: { text: string }) {
     <div className="flex w-full justify-start">
       <div className="max-w-[70%] rounded-2xl bg-card px-4 py-2.5 text-[15px] leading-relaxed text-ink">
         <MessageBoundary fallbackText={deferred}>
-          <ChatMarkdown text={deferred} streaming />
+          <ChatMarkdown text={deferred} streaming accentColor={accentColor} />
         </MessageBoundary>
         <span className="animate-caret ml-0.5 inline-block h-[14px] w-[2px] bg-ink align-middle" />
       </div>
@@ -737,7 +787,13 @@ const MessagesList = memo(function MessagesList({
         })();
         if (!row) return null;
         return (
-          <div key={item.kind === "activity-group" ? item.id : m.id} className="contents" data-mid={m.id}>
+          <div
+            key={item.kind === "activity-group" ? item.id : m.id}
+            className="contents"
+            data-mid={m.id}
+            // jump-to-message must find steps folded into the group too
+            data-mids={item.kind === "activity-group" ? item.messages.map((msg) => msg.id).join(" ") : undefined}
+          >
             {newDay && <DaySeparator at={m.at} />}
             {row}
           </div>
@@ -1156,7 +1212,7 @@ export function ChatView({ bot }: { bot: Bot }) {
           )}
           {reasoning && bot.busy && <ThinkingStrip text={reasoning} active={!streaming} />}
           {streaming ? (
-            <StreamingBubble text={streaming} />
+            <StreamingBubble text={streaming} accentColor={bot.color} />
           ) : (
             showWorkingDots(bot.busy, streaming, messages.at(-1)) && (
               <div className="flex justify-start">

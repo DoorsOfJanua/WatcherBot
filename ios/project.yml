@@ -76,8 +76,6 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
         # Without these two, NWBrowser returns no results at all — silently.
         # It looks exactly like "no computers on this network", which is a
         # confusing hour if you don't know to look here.

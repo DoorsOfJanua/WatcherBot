@@ -64,12 +64,14 @@ export interface Message {
   role: "bot" | "user";
   kind: "text" | "options" | "activity" | "screen" | "connector";
   text?: string;
+  /** Provenance for unattended work, shown as a compact chat badge. */
+  automation?: { source: "schedule" | "manual" | "webhook" };
   card?: OptionCardData;
   connector?: ConnectorCardData;
   /** activity messages: tool name + outcome. `spoken` is the server's
    * narration of the same chip ("reading a file"), used by call mode. */
   /** `setup` marks an error fixed by installing something, not by retrying. */
-  tool?: { name: string; ok?: boolean; spoken?: string; setup?: boolean };
+  tool?: { name: string; ok?: boolean; spoken?: string; setup?: boolean; detail?: string };
   /** user messages sent into a running turn — the model saw it mid-turn */
   steered?: boolean;
   /** screen messages: a frame of the bot's computer (base64) */

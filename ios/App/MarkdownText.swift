@@ -21,12 +21,31 @@ struct MarkdownText: View {
     var caret: Bool = false
 
     var body: some View {
-        let blocks = Markdown.blocks(source)
+        let blocks = Markdown.blocks(readableSource)
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { item in
                 view(for: item.element, tail: caret && item.offset == blocks.count - 1)
             }
         }
+    }
+
+    /// Emphasize only structural labels, so long replies become easier to
+    /// scan without painting ordinary prose or code in bright colors.
+    private var readableSource: String {
+        let labels = ["Important", "Decision", "Next step", "Warning", "Status", "Result", "Evidence", "Action", "Approval", "Blocked", "Priority", "Today", "Tomorrow", "Current state", "What changed", "Need from you"]
+        var fenced = false
+        return source.split(separator: "\n", omittingEmptySubsequences: false).map { raw in
+            let line = String(raw)
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                fenced.toggle()
+                return line
+            }
+            guard !fenced, !line.contains("**") else { return line }
+            for label in labels where line.range(of: "^\\s*\(label):", options: .regularExpression) != nil {
+                return line.replacingOccurrences(of: "^\\s*\(label):", with: "**\(label)**:", options: .regularExpression)
+            }
+            return line
+        }.joined(separator: "\n")
     }
 
     @ViewBuilder

@@ -31,7 +31,9 @@ export function groupTranscriptActivity(messages: Message[]): TranscriptItem[] {
     if (isCollapsibleActivity(message)) {
       if (
         previous?.kind === "activity-group" &&
-        sameDay(previous.messages.at(-1)!, message)
+        sameDay(previous.messages.at(-1)!, message) &&
+        // in a room, runs from different bots never merge into one row
+        previous.messages.at(-1)!.from?.botId === message.from?.botId
       ) {
         previous.messages.push(message);
       } else {

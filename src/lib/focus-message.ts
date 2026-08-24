@@ -49,7 +49,11 @@ export function useFocusMessage(threadId: string, ready: boolean) {
     let target: HTMLElement | null = null;
     const attempt = () => {
       if (cancelled) return;
-      const wrapper = document.querySelector<HTMLElement>(`[data-mid="${CSS.escape(focus.messageId)}"]`);
+      // a message folded into a collapsed activity group has no data-mid of
+      // its own; its group row lists every member id in data-mids
+      const wrapper =
+        document.querySelector<HTMLElement>(`[data-mid="${CSS.escape(focus.messageId)}"]`) ??
+        document.querySelector<HTMLElement>(`[data-mids~="${CSS.escape(focus.messageId)}"]`);
       target = wrapper?.lastElementChild as HTMLElement | null;
       if (!target) {
         if (tries++ < 20) retryTimer = setTimeout(attempt, 100);

@@ -28,6 +28,11 @@ struct ChatView: View {
     @State private var shareFile: ShareFile?
     @StateObject private var dictation = SpeechDictation()
     @State private var dictationBase = ""
+    @State private var composerHeight: CGFloat = 44
+    /// The text of the send currently in flight. The draft stays visible
+    /// until the companion accepts it, so without this a second tap of the
+    /// send button (or Return) would dispatch the same message twice.
+    @State private var sendingText: String?
     @FocusState private var composerFocused: Bool
     /// The opening beat: the island grows with the bot's face in it, then
     /// shrinks away as the face settles into the header. `facePhase` is 1
@@ -204,6 +209,7 @@ struct ChatView: View {
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) {
                     composerFocused = false
+                    dismissKeyboard()
                 }
                 .onChange(of: transcript.last?.id) { _, _ in
                     guard let last = transcript.last else { return }
@@ -524,9 +530,25 @@ struct ChatView: View {
     private func submit() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        // The draft is still on screen while its send is in flight; a second
+        // Return or send tap with the same text is a repeat, not a new message.
+        guard sendingText != text else { return }
         dictation.stop()
-        draft = ""
-        Task { await session.send(text, to: current) }
+        // Keep the draft visible until the companion confirms that the
+        // message was accepted. If the request fails, the user can retry;
+        // if they keep typing while it is in flight, never erase their new
+        // text when the older send eventually succeeds.
+        sendingText = text
+        Task { @MainActor in
+            let sent = await session.send(text, to: current)
+            // clear the guard only if it is still ours — an older send's
+            // completion must not disarm the guard for a newer in-flight one
+            if sendingText == text { sendingText = nil }
+            guard sent else { return }
+            if draft.trimmingCharacters(in: .whitespacesAndNewlines) == text {
+                draft = ""
+            }
+        }
     }
 
     private func toggleDictation() {
@@ -547,6 +569,28 @@ struct ChatView: View {
         }
     }
 
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+    }
+
+    /// A user's edit is authoritative. If they touch the text while the
+    /// microphone is live, stop that recognition session before its next
+    /// partial hypothesis can overwrite the correction.
+    private var composerText: Binding<String> {
+        Binding(
+            get: { draft },
+            set: { value in
+                if dictation.isRecording, value != draft { dictation.stop() }
+                draft = value
+            }
+        )
+    }
+
     // MARK: - Composer
 
     /// A round + and a glass pill with the send button inside it.
@@ -555,6 +599,7 @@ struct ChatView: View {
             HStack(alignment: .bottom, spacing: 10) {
                 Button {
                     composerFocused = false
+                    dismissKeyboard()
                     withAnimation(.snappy(duration: 0.28)) { showingPlus.toggle() }
                 } label: {
                     Image(systemName: "plus")
@@ -570,25 +615,31 @@ struct ChatView: View {
                 .accessibilityLabel(showingPlus ? "Close" : "More")
 
                 HStack(alignment: .bottom, spacing: 6) {
-                    TextField("Ask \(current.name)", text: $draft, axis: .vertical)
-                        .lineLimit(1...5)
-                        .font(.system(size: 17))
-                        .padding(.leading, 16)
-                        .padding(.vertical, 11)
-                        .focused($composerFocused)
-                        .submitLabel(.send)
-                        // Return sends, Shift+Return breaks the line — the shape
-                        // every chat app has. `.ignored` hands the keypress back to
-                        // the text field, which is what inserts the newline; there is
-                        // no way to type one otherwise once Return is claimed.
-                        .onKeyPress(.return, phases: .down) { press in
-                            guard !press.modifiers.contains(.shift) else { return .ignored }
-                            submit()
-                            return .handled
+                    ZStack(alignment: .topLeading) {
+                        ScrollableComposerTextView(
+                            text: composerText,
+                            isFocused: Binding(
+                                get: { composerFocused },
+                                set: { composerFocused = $0 }
+                            ),
+                            measuredHeight: $composerHeight,
+                            onSubmit: submit
+                        )
+                        .frame(height: composerHeight)
+
+                        if draft.isEmpty {
+                            Text("Ask \(current.name)")
+                                .font(.system(size: 17))
+                                .foregroundStyle(Color(uiColor: .placeholderText))
+                                // matches the text view's textContainerInset,
+                                // so the caret sits exactly on the placeholder
+                                .padding(.leading, 16)
+                                .padding(.top, 10)
+                                .allowsHitTesting(false)
                         }
-                        // software keyboards have no Shift+Return, so their Return
-                        // key is a send — which is what `.submitLabel(.send)` promises
-                        .onSubmit(submit)
+                    }
+                    .frame(minWidth: 0, maxWidth: .infinity)
+                    .layoutPriority(1)
 
                     Button(action: toggleDictation) {
                         Image(systemName: dictation.isRecording ? "stop.fill" : "mic.fill")
@@ -628,6 +679,170 @@ struct ChatView: View {
         .padding(.horizontal, 12)
         .padding(.top, 6)
         .padding(.bottom, 8)
+    }
+}
+
+/// A chat composer that grows through five lines, then becomes a real nested
+/// scroll view. SwiftUI's axis-based TextField stops growing but does not
+/// consistently hand touch scrolling to its text surface on iPhone.
+private struct ScrollableComposerTextView: UIViewRepresentable {
+    @Binding var text: String
+    @Binding var isFocused: Bool
+    @Binding var measuredHeight: CGFloat
+    let onSubmit: () -> Void
+
+    private let minimumHeight: CGFloat = 44
+    private let maximumHeight: CGFloat = 124
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    func makeUIView(context: Context) -> ComposerUITextView {
+        let view = ComposerUITextView()
+        view.delegate = context.coordinator
+        view.backgroundColor = .clear
+        view.font = .systemFont(ofSize: 17)
+        view.textColor = .label
+        view.tintColor = .label
+        view.textContainerInset = UIEdgeInsets(top: 10, left: 16, bottom: 10, right: 4)
+        view.textContainer.lineFragmentPadding = 0
+        view.textContainer.lineBreakMode = .byWordWrapping
+        view.textContainer.widthTracksTextView = true
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.isScrollEnabled = false
+        view.keyboardDismissMode = .interactive
+        view.returnKeyType = .send
+        view.autocorrectionType = .yes
+        view.spellCheckingType = .yes
+        view.smartQuotesType = .yes
+        view.smartDashesType = .yes
+        view.showsVerticalScrollIndicator = false
+        view.onHardwareSubmit = onSubmit
+        // The first `updateUIView` runs before layout, when the width is
+        // still zero and the height cannot be measured. Re-measure once a
+        // real width exists, so a preserved multiline draft (a failed send,
+        // a restored session) opens at its true height instead of one line.
+        view.onWidthChange = { [weak view] in
+            guard let view else { return }
+            context.coordinator.resize(view)
+        }
+        return view
+    }
+
+    func updateUIView(_ view: ComposerUITextView, context: Context) {
+        context.coordinator.parent = self
+        view.onHardwareSubmit = onSubmit
+
+        if view.text != text {
+            view.text = text
+            view.selectedRange = NSRange(location: (text as NSString).length, length: 0)
+        }
+
+        if isFocused, !view.isFirstResponder {
+            DispatchQueue.main.async {
+                guard context.coordinator.parent.isFocused else { return }
+                view.becomeFirstResponder()
+            }
+        }
+
+        context.coordinator.resize(view)
+    }
+
+    static func dismantleUIView(_ view: ComposerUITextView, coordinator: Coordinator) {
+        view.resignFirstResponder()
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: ScrollableComposerTextView
+
+        init(parent: ScrollableComposerTextView) {
+            self.parent = parent
+        }
+
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            if !parent.isFocused { parent.isFocused = true }
+        }
+
+        func textViewDidEndEditing(_ textView: UITextView) {
+            if parent.isFocused { parent.isFocused = false }
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            parent.text = textView.text
+            resize(textView)
+        }
+
+        func textView(
+            _ textView: UITextView,
+            shouldChangeTextIn range: NSRange,
+            replacementText replacement: String
+        ) -> Bool {
+            let isShiftNewline = (textView as? ComposerUITextView)?.isInsertingShiftNewline == true
+            if replacement == "\n", !isShiftNewline {
+                parent.onSubmit()
+                return false
+            }
+            return true
+        }
+
+        func resize(_ textView: UITextView) {
+            guard textView.bounds.width > 0 else { return }
+            let fitting = textView.sizeThatFits(
+                CGSize(width: textView.bounds.width, height: .greatestFiniteMagnitude)
+            ).height
+            let target = min(parent.maximumHeight, max(parent.minimumHeight, ceil(fitting)))
+            let shouldScroll = fitting > parent.maximumHeight + 0.5
+
+            textView.isScrollEnabled = shouldScroll
+            textView.alwaysBounceVertical = shouldScroll
+            textView.showsVerticalScrollIndicator = shouldScroll
+
+            if abs(parent.measuredHeight - target) > 0.5 {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.parent.measuredHeight = target
+                }
+            }
+            if shouldScroll {
+                DispatchQueue.main.async {
+                    textView.scrollRangeToVisible(textView.selectedRange)
+                }
+            }
+        }
+    }
+}
+
+/// Hardware Return sends; Shift-Return inserts a line break. Software Return
+/// continues through the delegate and sends, matching the keyboard's label.
+private final class ComposerUITextView: UITextView {
+    var onHardwareSubmit: (() -> Void)?
+    var onWidthChange: (() -> Void)?
+    fileprivate var isInsertingShiftNewline = false
+    private var lastLayoutWidth: CGFloat = 0
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if abs(bounds.width - lastLayoutWidth) > 0.5 {
+            lastLayoutWidth = bounds.width
+            onWidthChange?()
+        }
+    }
+
+    override var keyCommands: [UIKeyCommand]? {
+        [
+            UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(submitFromHardware)),
+            UIKeyCommand(input: "\r", modifierFlags: [.shift], action: #selector(insertShiftNewline)),
+        ]
+    }
+
+    @objc private func submitFromHardware() {
+        onHardwareSubmit?()
+    }
+
+    @objc private func insertShiftNewline() {
+        isInsertingShiftNewline = true
+        insertText("\n")
+        isInsertingShiftNewline = false
     }
 }
 

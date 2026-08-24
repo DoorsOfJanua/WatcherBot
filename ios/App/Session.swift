@@ -471,7 +471,8 @@ final class Session: ObservableObject {
     // the source of truth, and a phone that draws its own version of events
     // is a phone that disagrees with the laptop.
 
-    func send(_ text: String, to chat: Chat) async {
+    @discardableResult
+    func send(_ text: String, to chat: Chat) async -> Bool {
         await perform {
             switch chat {
             case let .bot(bot): try await $0.send(text: text, toBot: bot.id)
@@ -949,14 +950,18 @@ final class Session: ObservableObject {
         }
     }
 
-    private func perform(quietly: Bool = false, _ body: (CompanionClient) async throws -> Void) async {
-        guard let client else { return }
+    @discardableResult
+    private func perform(quietly: Bool = false, _ body: (CompanionClient) async throws -> Void) async -> Bool {
+        guard let client else { return false }
         do {
             try await body(client)
+            return true
         } catch let error as APIError where error.isUnauthorized {
             status = .unauthorized
+            return false
         } catch {
             if !quietly { actionError = error.localizedDescription }
+            return false
         }
     }
 }

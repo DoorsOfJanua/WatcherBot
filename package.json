@@ -3,17 +3,17 @@
   "private": true,
   "version": "0.1.27",
   "description": "Janua's persistent local-first room for a team of AI agents.",
-  "homepage": "https://github.com/milind-soni/OpenMausBot",
+  "homepage": "https://github.com/DoorsOfJanua/WatcherBotRoom",
   "repository": {
     "type": "git",
-    "url": "https://github.com/milind-soni/OpenMausBot.git"
+    "url": "https://github.com/DoorsOfJanua/WatcherBotRoom.git"
   },
   "author": {
     "name": "Milind Soni",
     "email": "46266943+milind-soni@users.noreply.github.com"
   },
   "license": "Apache-2.0",
-  "desktopName": "com.openmausbot.app.desktop",
+  "desktopName": "com.janua.watcherbotroom.desktop",
   "type": "module",
   "main": "electron/main.mjs",
   "engines": {
@@ -25,12 +25,14 @@
     "lint": "oxlint .",
     "check:contrast": "node scripts/check-contrast.mjs",
     "dev": "vite",
-    "docs:dev": "pnpm --filter @openmausbot/docs dev",
-    "docs:build": "pnpm --filter @openmausbot/docs build",
-    "docs:preview": "pnpm --filter @openmausbot/docs preview",
+    "docs:dev": "pnpm --filter @watcherbotroom/docs dev",
+    "docs:build": "pnpm --filter @watcherbotroom/docs build",
+    "docs:preview": "pnpm --filter @watcherbotroom/docs preview",
     "companion": "node --experimental-strip-types companion/src/index.ts",
     "dev:server": "node --experimental-strip-types server/index.ts",
     "dev:janua": "MYAGENT_ROOM_DATA_DIR=$HOME/.myagent-room node --experimental-strip-types server/index.ts",
+    "calendar:auth": "node --experimental-strip-types server/local-calendar-mcp.ts --auth",
+    "automation:health": "node scripts/automation-health.mjs",
     "bootstrap:janua": "node scripts/bootstrap-janua-team.mjs",
     "dev:desktop": "electron .",
     "build": "tsc -b && tsc -p tsconfig.server.json && vite build",
@@ -67,9 +69,11 @@
     "broker:deploy": "wrangler deploy --config cloudflare/composio-broker/wrangler.jsonc"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@rive-app/react-canvas": "4.32.1",
     "@trycua/cua-driver": "0.20.0",
     "clsx": "^2.1.1",
+    "googleapis": "^176.0.0",
     "lucide-react": "^0.539.0",
     "posthog-js": "^1.415.6",
     "qrcode.react": "^4.2.0",

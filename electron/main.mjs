@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, desktopCapturer, dialog, ipcMain, safeStorage, screen, session, shell, systemPreferences, utilityProcess } from "electron";
+import { app, BrowserWindow, clipboard, desktopCapturer, dialog, ipcMain, Menu, safeStorage, screen, session, shell, systemPreferences, utilityProcess } from "electron";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
@@ -14,6 +14,7 @@ import capabilitiesModule from "./capabilities.cjs";
 const { desktopCapabilities, nativeDesktopActions } = capabilitiesModule;
 const nativeActions = nativeDesktopActions(process.platform);
 const require = createRequire(import.meta.url);
+const { textContextMenuTemplate } = require("./context-menu.cjs");
 const { createDisplayMediaGuard, invokeDisplayMediaCallback, selectCaptureSource } = require(
   "./screen-preview.cjs",
 );
@@ -35,7 +36,7 @@ let desktopViewerContextId = null;
 
 // GNOME groups the window with its installed desktop entry only when both
 // identities match. This must run before Electron becomes ready.
-if (process.platform === "linux") app.setDesktopName("com.openmausbot.app.desktop");
+if (process.platform === "linux") app.setDesktopName("com.janua.watcherbotroom.desktop");
 
 // Packaged: the harness server ships in Resources (compiled JS, zero deps)
 // and runs on Electron's own Node via utilityProcess. It serves the built
@@ -182,8 +183,8 @@ async function ensureManagedComposioCredentials() {
 }
 
 // The packaged app has no terminal: everything about the server child's life
-// goes to server.log in the OS log dir (~/Library/Logs/OpenMausBot on macOS,
-// Console.app-visible; %APPDATA%\OpenMausBot\logs on Windows), which is also
+// goes to server.log in the OS log dir (~/Library/Logs/WatcherBotRoom on macOS,
+// Console.app-visible; %APPDATA%\WatcherBotRoom\logs on Windows), which is also
 // why stdio is piped, not inherited — under a Finder/Explorer launch the
 // parent's stdio leads nowhere and a failed boot is otherwise undiagnosable.
 const LOG_DIR = app.getPath("logs");
@@ -258,7 +259,7 @@ async function startServerOn(port) {
       const res = await fetch(`http://127.0.0.1:${port}/api/health`);
       if (res.ok) {
         const body = await res.json().catch(() => null);
-        if (body?.app === "openmausbot" && body.pid === proc.pid && body.static) return proc;
+        if (body?.app === "watcherbotroom" && body.pid === proc.pid && body.static) return proc;
         break; // someone else owns this port — try the next one
       }
     } catch {
@@ -372,7 +373,7 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
       sandbox: true,
       // Keep provider cookies away from the app renderer and discard them on
       // app exit. The secret-bearing URL is sufficient to authenticate.
-      partition: "openmausbot-desktop-viewer",
+      partition: "watcherbotroom-desktop-viewer",
     },
   });
   desktopViewerWindow = viewer;
@@ -464,6 +465,12 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  win.webContents.on("context-menu", (_event, params) => {
+    const template = textContextMenuTemplate(params);
+    if (template.length === 0) return;
+    Menu.buildFromTemplate(template).popup({ window: win });
   });
 
   // Packaged CI smoke hook. It validates the real renderer/preload bridge and
@@ -643,7 +650,7 @@ ipcMain.handle("desktop:open-external", async (_event, rawUrl) => {
 
 // The Box VNC viewer must be a top-level page for its token exchange. A
 // sandboxed modal BrowserWindow satisfies that requirement while keeping the
-// live desktop inside OpenMausBot instead of sending the person to a browser.
+// live desktop inside WatcherBot Room instead of sending the person to a browser.
 ipcMain.handle("desktop-viewer:open", (event, rawUrl, title, contextId) => {
   const owner = BrowserWindow.fromWebContents(event.sender);
   return openDesktopViewer(owner, rawUrl, title, contextId);

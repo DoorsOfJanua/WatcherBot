@@ -353,19 +353,32 @@ describe("CodexDriver turns (fake app-server)", () => {
     await create({ mode: "mcp-approval" });
     const dump = join(scratch, "mcp-approval.json");
     process.env.FAKE_CODEX_DUMP = dump;
-    await instance.adapter.sendTurn({ threadId: "t-mcp-approval", text: "ask a peer" });
+    await instance.adapter.sendTurn({ threadId: "t-mcp-approval", text: "check my calendar" });
     const opened = await recorder.until((e) => e.type === "request.opened");
-    expect(opened).toMatchObject({ requestType: "permission", tool: "mcp:agents" });
+    expect(opened).toMatchObject({ requestType: "permission", tool: "mcp:calendar" });
     expect(await instance.adapter.respondToRequest("t-mcp-approval", opened.requestId!, { behavior: "allow" })).toBe("allowed-once");
     await recorder.until((e) => e.type === "turn.completed");
     expect(JSON.parse(readFileSync(dump, "utf8")).decision).toEqual({ action: "accept", content: {}, _meta: null });
   });
 
-  it("auto-accepts only Mailman's local draft proposal so the exact send card is the one human approval", async () => {
+  it("auto-accepts Mailman's local draft proposal so the exact send card is the one human approval", async () => {
     await create({ mode: "mail-proposal" });
     const dump = join(scratch, "mail-proposal.json");
     process.env.FAKE_CODEX_DUMP = dump;
     await instance.adapter.sendTurn({ threadId: "t-mail-proposal", text: "stage an email" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.some((e) => e.type === "request.opened")).toBe(false);
+    expect(JSON.parse(readFileSync(dump, "utf8")).decision).toEqual({ action: "accept", content: {}, _meta: null });
+  });
+
+  it("auto-accepts agents-server calls so the harness peer gate is the one human approval", async () => {
+    // ask_bot on the harness-owned "agents" server is re-gated by the
+    // per-bot peer-approval card; a driver-level card here would be a
+    // double approval that asks on every single peer message.
+    await create({ mode: "agents-ask" });
+    const dump = join(scratch, "agents-ask.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: "t-agents-ask", text: "ask a peer" });
     await recorder.until((e) => e.type === "turn.completed");
     expect(recorder.events.some((e) => e.type === "request.opened")).toBe(false);
     expect(JSON.parse(readFileSync(dump, "utf8")).decision).toEqual({ action: "accept", content: {}, _meta: null });

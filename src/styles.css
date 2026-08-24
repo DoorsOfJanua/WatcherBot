@@ -262,6 +262,16 @@ body {
   overflow: hidden;
 }
 
+/* Copy is a core message action, so it cannot depend on hover. Pointer users
+   get a quiet always-present mark; touch users get a full 44pt target. */
+@media (hover: none), (pointer: coarse) {
+  .message-copy-button {
+    width: 44px;
+    height: 44px;
+    opacity: 0.78;
+  }
+}
+
 /* Keep focus visible after components clear the browser outline. These
    unlayered rules outrank Tailwind utilities without needing !important. */
 :focus-visible {
@@ -839,6 +849,15 @@ body {
    ───────────────────────────────────────────────────────────────────────── */
 .bg-accent {
   color: var(--color-accent-ink);
+}
+
+/* Markdown emphasis carries the speaking agent's identity. The tint is
+   intentionally soft: bold remains the primary signal, while the color makes
+   important words scannable without turning the transcript into a rainbow. */
+.chat-highlight {
+  background: color-mix(in srgb, var(--agent-accent, var(--color-accent)) 17%, transparent);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 .bg-danger {
   color: var(--color-danger-ink);

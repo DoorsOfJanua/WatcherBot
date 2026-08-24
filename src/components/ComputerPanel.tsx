@@ -92,6 +92,11 @@ function routineScheduleLabel(routine: Routine) {
       : days.join(",") === "1,2,3,4,5"
         ? "Weekdays"
         : days.map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ");
+  if (routine.schedule.type === "interval") {
+    const every = routine.schedule.everyMinutes;
+    const cycle = every % 60 === 0 ? (every === 60 ? "hour" : `${every / 60} h`) : `${every} min`;
+    return `${cadence} · every ${cycle}`;
+  }
   const [hour, minute] = routine.schedule.time.split(":").map(Number);
   return `${cadence} · ${new Date(2000, 0, 1, hour, minute).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
@@ -618,7 +623,7 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
   };
 
   const openVmSettings = () => {
-    window.sessionStorage.setItem("openmausbot.settings.section", "computer");
+    window.sessionStorage.setItem("watcherbotroom.settings.section", "computer");
     dispatch({ type: "toggleAppSettings", open: true });
   };
 

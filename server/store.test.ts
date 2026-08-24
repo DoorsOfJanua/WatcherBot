@@ -542,6 +542,15 @@ describe("Store redacts bot-authored secrets on write", () => {
     expect(reply.text).toContain("«redacted");
     const chip = store.appendMessage(bot.threadId, { role: "bot", kind: "activity", tool: { name: `Bash: export TOKEN=${key}`, ok: true } });
     expect(chip.tool?.name).not.toContain(key);
+    // the raw command line now rides in `detail` (the chip name is a
+    // pre-chosen phrase) — a key there would persist and replay in the clear
+    const detailed = store.appendMessage(bot.threadId, {
+      role: "bot",
+      kind: "activity",
+      tool: { name: "Ran a command", detail: `curl -H "Authorization: Bearer ${key}"`, ok: true },
+    });
+    expect(detailed.tool?.detail).not.toContain(key);
+    expect(detailed.tool?.detail).toContain("«redacted");
     const card = store.appendMessage(bot.threadId, {
       role: "bot",
       kind: "options",

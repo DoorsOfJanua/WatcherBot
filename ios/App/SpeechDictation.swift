@@ -1,4 +1,5 @@
 import AVFoundation
+import CompanionCore
 import Foundation
 import Speech
 
@@ -12,7 +13,8 @@ final class SpeechDictation: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var tapInstalled = false
-    private var timeline: [SpeechSegment] = []
+    private var transcript = DictationTranscript()
+    private var recognitionID: UUID?
 
     func start(onTranscript: @escaping @MainActor (String) -> Void) async throws {
         guard !isRecording else { return }
@@ -27,7 +29,9 @@ final class SpeechDictation: ObservableObject {
         else { throw DictationError.unavailable }
 
         stop()
-        timeline = []
+        transcript.reset()
+        let recognitionID = UUID()
+        self.recognitionID = recognitionID
 
         let audioSession = AVAudioSession.sharedInstance()
         try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers])
@@ -35,6 +39,8 @@ final class SpeechDictation: ObservableObject {
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
+        request.taskHint = .dictation
+        request.addsPunctuation = true
         if recognizer.supportsOnDeviceRecognition { request.requiresOnDeviceRecognition = true }
         self.request = request
 
@@ -47,10 +53,16 @@ final class SpeechDictation: ObservableObject {
 
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.recognitionID == recognitionID else { return }
                 if let result {
-                    self.merge(result.bestTranscription.segments)
-                    onTranscript(self.renderedTimeline)
+                    let segments = result.bestTranscription.segments.map {
+                        DictationSegment(
+                            start: $0.timestamp,
+                            end: $0.timestamp + max($0.duration, 0.04),
+                            text: $0.substring
+                        )
+                    }
+                    onTranscript(self.transcript.update(with: segments))
                     if result.isFinal { self.stop() }
                 } else if error != nil {
                     self.stop()
@@ -69,6 +81,7 @@ final class SpeechDictation: ObservableObject {
     }
 
     func stop() {
+        recognitionID = nil
         if engine.isRunning { engine.stop() }
         if tapInstalled {
             engine.inputNode.removeTap(onBus: 0)
@@ -94,50 +107,6 @@ final class SpeechDictation: ObservableObject {
         }
     }
 
-    /// Merge by position in the recording, not by the current text. Apple's
-    /// recognizer can restart its visible hypothesis after a pause and return
-    /// only the newest phrase. Those words have later timestamps, so they are
-    /// appended. Genuine corrections occupy the same audio interval and
-    /// replace only that interval.
-    private func merge(_ segments: [SFTranscriptionSegment]) {
-        guard !segments.isEmpty else { return }
-        let incoming = segments.map {
-            SpeechSegment(
-                start: $0.timestamp,
-                end: $0.timestamp + max($0.duration, 0.04),
-                text: $0.substring
-            )
-        }
-        guard let first = incoming.first, let last = incoming.last else { return }
-        let replacementStart = first.start - 0.08
-        let replacementEnd = last.end + 0.08
-
-        // Keep anything clearly before or after the interval Apple supplied.
-        // In particular, never delete the earlier sentence merely because a
-        // later callback contains only the words spoken after a pause.
-        timeline.removeAll { segment in
-            segment.start < replacementEnd && segment.end > replacementStart
-        }
-        timeline.append(contentsOf: incoming)
-        timeline.sort { left, right in
-            if abs(left.start - right.start) < 0.001 { return left.end < right.end }
-            return left.start < right.start
-        }
-    }
-
-    private var renderedTimeline: String {
-        timeline.map(\.text)
-            .joined(separator: " ")
-            .replacingOccurrences(of: #"\s+([,.!?;:])"#, with: "$1", options: .regularExpression)
-            .split(whereSeparator: \.isWhitespace)
-            .joined(separator: " ")
-    }
-}
-
-private struct SpeechSegment {
-    let start: TimeInterval
-    let end: TimeInterval
-    let text: String
 }
 
 private enum DictationError: LocalizedError {

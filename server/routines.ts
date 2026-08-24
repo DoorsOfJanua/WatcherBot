@@ -7,7 +7,12 @@ import type { RuntimeEvent } from "./contracts.ts";
 
 export type RoutineSchedule =
   | { type: "once"; at: number }
-  | { type: "daily"; time: string; weekdays: number[] };
+  | { type: "daily"; time: string; weekdays: number[] }
+  /** Recurring watch: every N minutes, optionally boxed into a daily
+   * HH:MM window, on the chosen weekdays. Occurrences are anchored to the
+   * window start (midnight when unset) so runs land on predictable marks
+   * (09:00, 09:30, …) instead of drifting from the creation moment. */
+  | { type: "interval"; everyMinutes: number; start?: string; end?: string; weekdays: number[] };
 
 /** `cloud` runs the agent itself inside the bot's Box VM. `maus` keeps
  * using the provider selected on the MAUS and only borrows its configured
@@ -112,6 +117,13 @@ function cleanDays(days: unknown): number[] {
   return out.length ? out : ALL_DAYS;
 }
 
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function minutesOf(time: string): number {
+  const [hour, minute] = time.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
 function cleanSchedule(schedule: RoutineSchedule): RoutineSchedule {
   if (schedule?.type === "once") {
     const at = Number(schedule.at);
@@ -120,8 +132,22 @@ function cleanSchedule(schedule: RoutineSchedule): RoutineSchedule {
   }
   if (schedule?.type === "daily") {
     const time = String(schedule.time ?? "");
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new Error("Time must use HH:MM");
+    if (!TIME_RE.test(time)) throw new Error("Time must use HH:MM");
     return { type: "daily", time, weekdays: cleanDays(schedule.weekdays) };
+  }
+  if (schedule?.type === "interval") {
+    const everyMinutes = Math.round(Number(schedule.everyMinutes));
+    if (!Number.isFinite(everyMinutes) || everyMinutes < 5 || everyMinutes > 1440) {
+      throw new Error("Repeat every 5 minutes to 24 hours");
+    }
+    const start = schedule.start == null || schedule.start === "" ? undefined : String(schedule.start);
+    const end = schedule.end == null || schedule.end === "" ? undefined : String(schedule.end);
+    if (start !== undefined && !TIME_RE.test(start)) throw new Error("Start time must use HH:MM");
+    if (end !== undefined && !TIME_RE.test(end)) throw new Error("End time must use HH:MM");
+    if (start !== undefined && end !== undefined && minutesOf(end) <= minutesOf(start)) {
+      throw new Error("The end time must be after the start time");
+    }
+    return { type: "interval", everyMinutes, ...(start ? { start } : {}), ...(end ? { end } : {}), weekdays: cleanDays(schedule.weekdays) };
   }
   throw new Error("Choose a supported schedule");
 }
@@ -129,8 +155,29 @@ function cleanSchedule(schedule: RoutineSchedule): RoutineSchedule {
 /** Next wall-clock occurrence in this computer's timezone, strictly after `after`. */
 export function nextOccurrence(schedule: RoutineSchedule, after: number): number | null {
   if (schedule.type === "once") return schedule.at > after ? schedule.at : null;
-  const [hour, minute] = schedule.time.split(":").map(Number);
   const weekdays = new Set(cleanDays(schedule.weekdays));
+  if (schedule.type === "interval") {
+    const every = schedule.everyMinutes * 60_000;
+    for (let offset = 0; offset <= 8; offset++) {
+      const day = new Date(after);
+      day.setDate(day.getDate() + offset);
+      const [startHour, startMinute] = (schedule.start ?? "00:00").split(":").map(Number);
+      const [endHour, endMinute] = (schedule.end ?? "23:59").split(":").map(Number);
+      const windowStart = new Date(day);
+      windowStart.setHours(startHour, startMinute, 0, 0);
+      const windowEnd = new Date(day);
+      windowEnd.setHours(endHour, endMinute, 0, 0);
+      if (!weekdays.has(windowStart.getDay())) continue;
+      let candidate = windowStart.getTime();
+      if (candidate <= after) {
+        const steps = Math.floor((after - candidate) / every) + 1;
+        candidate += steps * every;
+      }
+      if (candidate > after && candidate <= windowEnd.getTime()) return candidate;
+    }
+    return null;
+  }
+  const [hour, minute] = schedule.time.split(":").map(Number);
   for (let offset = 0; offset <= 8; offset++) {
     const d = new Date(after);
     d.setDate(d.getDate() + offset);
@@ -190,7 +237,7 @@ export class RoutineManager {
     for (const run of this.runs) {
       if (run.status === "running" || run.status === "waiting") {
         run.status = "failed";
-        run.error = "OpenMausBot restarted while this routine was running";
+        run.error = "WatcherBot Room restarted while this routine was running";
         run.finishedAt = this.now();
         recovered.push({ ...run });
       }
@@ -470,6 +517,18 @@ export class RoutineManager {
           missed.finishedAt = now;
           missed.error = "This computer was offline for more than 12 hours after the scheduled time";
           this.emitRun(missed);
+        } else if (
+          routine.schedule.type === "interval" &&
+          this.runs.some((r) => r.routineId === routine.id && ["queued", "running", "waiting"].includes(r.status))
+        ) {
+          // A tight interval must not stack work behind a slow or stuck run —
+          // the queue would drain as a burst of stale back-to-back turns.
+          // The skipped occurrence still gets an honest receipt.
+          const skipped = this.newRun(routine, scheduledFor, false);
+          skipped.status = "missed";
+          skipped.finishedAt = now;
+          skipped.error = "Skipped: the previous run of this routine was still going";
+          this.emitRun(skipped);
         } else {
           const run = this.newRun(routine, scheduledFor, false);
           this.emitRun(run);

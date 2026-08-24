@@ -210,7 +210,7 @@ const support = (fetcher: typeof fetch): AcpSupport => ({
   defaultCli: "opencode",
   nativeSource: "opencode-go.acp",
   loginNote:
-    "OpenCode is not signed in — run `opencode auth login` and pick OpenCode, or add an OPENCODE_API_KEY in OpenMausBot settings",
+    "OpenCode is not signed in — run `opencode auth login` and pick OpenCode, or add an OPENCODE_API_KEY in WatcherBot Room settings",
   install: {
     command: {
       darwin: "npm install -g opencode-ai",

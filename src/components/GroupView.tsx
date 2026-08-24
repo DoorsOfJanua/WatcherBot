@@ -18,6 +18,8 @@ import { BotAvatar, MausAvatar } from "./Avatar";
 import { normalizeState } from "@/lib/mascot";
 import { effectiveDefaultResponder, groupResponseHint } from "@/lib/group-routing";
 import { ChatMarkdown } from "./ChatMarkdown";
+import { ActivityGroupRow } from "./ChatView";
+import { groupTranscriptActivity } from "@/lib/activity-groups";
 import { Composer } from "./Composer";
 import { ConnectorCard } from "./ConnectorCard";
 import { GroupCallButton, GroupCallOverlay } from "./GroupCallView";
@@ -27,6 +29,7 @@ import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
 import { useFocusMessage } from "@/lib/focus-message";
 import { shortPath } from "@/lib/short-path";
+import { useDevMode } from "@/lib/display-mode";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
 import { showWorkingDots } from "@/lib/turn-tail";
 import {
@@ -94,14 +97,41 @@ const Transcript = memo(function Transcript({
   messages: Message[];
 }) {
   const memberOf = (id?: string) => members.find((b) => b.id === id);
-  const textMessages = messages;
+  const dev = useDevMode();
+  // tool chatter collapses to one quiet row per run, exactly like 1:1 chat —
+  // a room transcript is conversation, not a command log
+  const items = groupTranscriptActivity(messages);
   return (
     <>
-      {textMessages.map((m, i) => {
-        const prev = textMessages[i - 1];
+      {items.map((item, i) => {
+        const m = item.kind === "activity-group" ? item.messages[0] : item;
+        const prevItem = items[i - 1];
+        const prev = !prevItem
+          ? undefined
+          : prevItem.kind === "activity-group"
+            ? prevItem.messages.at(-1)!
+            : prevItem;
         const newDay = !prev || new Date(prev.at).toDateString() !== new Date(m.at).toDateString();
         const user = m.role === "user";
         const newCluster = !prev || prev.role !== m.role || prev.from?.botId !== m.from?.botId || newDay;
+        if (item.kind === "activity-group") {
+          return (
+            <div
+              key={item.id}
+              className="contents"
+              data-mid={m.id}
+              data-mids={item.messages.map((msg) => msg.id).join(" ")}
+            >
+              {newDay && (
+                <div className="py-3 text-center text-[13px] text-ink-secondary">
+                  {dayLabel(m.at)} {formatTime(m.at)}
+                </div>
+              )}
+              {m.from && newCluster && <ClusterLabel bot={memberOf(m.from.botId)} name={m.from.name} />}
+              <ActivityGroupRow bot={memberOf(m.from?.botId)} group={item} />
+            </div>
+          );
+        }
         const row =
           // a member can hit a permission ask mid-turn; without this the
           // card never rendered here and the bot waited out its timeout.
@@ -122,7 +152,12 @@ const Transcript = memo(function Transcript({
                   m.tool.ok === false ? "text-danger" : "text-ink-secondary",
                 )}
               >
-                <span className="max-w-[480px] truncate font-mono">{m.tool.name}</span>
+                <span
+                  className={cn("max-w-[480px] truncate", dev && m.tool.detail && "font-mono text-[12px]")}
+                  title={m.tool.detail}
+                >
+                  {dev && m.tool.detail ? m.tool.detail : m.tool.name}
+                </span>
               </div>
             </div>
           ) : m.kind === "text" && m.text ? (
@@ -137,7 +172,7 @@ const Transcript = memo(function Transcript({
                   )}
                   title={new Date(m.at).toLocaleString()}
                 >
-                  {user ? m.text : <ChatMarkdown text={m.text} />}
+                  {user ? m.text : <ChatMarkdown text={m.text} accentColor={memberOf(m.from?.botId)?.color} />}
                 </div>
                 {!user && <ReactionBar threadId={group.threadId} message={m} />}
                 <span className="self-end pb-1 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100">

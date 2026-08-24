@@ -190,17 +190,18 @@ export function searchMessages(query: string, limit = 40): SearchHit[] {
   if (!needle) return [];
   // escape LIKE wildcards so a literal % or _ in the query stays literal
   const pattern = `%${needle.replace(/([\\%_])/g, "\\$1")}%`;
-  // text messages by their text; activity chips by the tool name — "which
-  // bot ran that migration" is a tool-name question. The chip's name lives
-  // in the row's json; a JSON1 extract keeps this one query.
+  // text messages by their text; activity chips by the tool name AND the
+  // raw detail — "which bot ran that migration" is a tool-name question,
+  // but since humanized chips moved the raw command/title into tool.detail
+  // the filename or URL someone remembers lives there, not in the name.
   const rows = db()
     .prepare(
-      "SELECT thread_id, id, at, role, kind, text, json_extract(json, '$.tool.name') AS tool_name, json_extract(json, '$.from.name') AS from_name FROM messages " +
+      "SELECT thread_id, id, at, role, kind, text, json_extract(json, '$.tool.name') AS tool_name, json_extract(json, '$.tool.detail') AS tool_detail, json_extract(json, '$.from.name') AS from_name FROM messages " +
         "WHERE (kind = 'text' AND text IS NOT NULL AND lower(text) LIKE ? ESCAPE '\\') " +
-        "   OR (kind = 'activity' AND tool_name IS NOT NULL AND lower(tool_name) LIKE ? ESCAPE '\\') " +
+        "   OR (kind = 'activity' AND ((tool_name IS NOT NULL AND lower(tool_name) LIKE ? ESCAPE '\\') OR (tool_detail IS NOT NULL AND lower(tool_detail) LIKE ? ESCAPE '\\'))) " +
         "ORDER BY at DESC LIMIT ?",
     )
-    .all(pattern, pattern, limit) as Array<{
+    .all(pattern, pattern, pattern, limit) as Array<{
     thread_id: string;
     id: string;
     at: number;
@@ -208,10 +209,17 @@ export function searchMessages(query: string, limit = 40): SearchHit[] {
     kind: string;
     text: string | null;
     tool_name: string | null;
+    tool_detail: string | null;
     from_name: string | null;
   }>;
   return rows.map((row) => {
-    const haystack = row.kind === "activity" ? (row.tool_name ?? "") : (row.text ?? "");
+    // snippet from whichever field actually matched, name first
+    const haystack =
+      row.kind === "activity"
+        ? (row.tool_name ?? "").toLowerCase().includes(needle)
+          ? (row.tool_name ?? "")
+          : (row.tool_detail ?? row.tool_name ?? "")
+        : (row.text ?? "");
     const hitAt = Math.max(0, haystack.toLowerCase().indexOf(needle));
     const start = Math.max(0, hitAt - 60);
     const end = Math.min(haystack.length, hitAt + needle.length + 90);

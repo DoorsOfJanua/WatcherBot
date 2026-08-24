@@ -79,6 +79,8 @@ export interface Message {
   role: "bot" | "user";
   kind: "text" | "options" | "activity" | "screen" | "connector";
   text?: string;
+  /** Provenance for unattended work, retained for the chat UI and audit trail. */
+  automation?: { source: "schedule" | "manual" | "webhook" };
   card?: OptionCardData;
   connector?: ConnectorCardData;
   /** activity messages: tool name + outcome. `spoken` is the same chip as
@@ -87,7 +89,7 @@ export interface Message {
    * for chips not worth interrupting the ear for. */
   /** `setup` marks an error the user fixes by installing or configuring
    * something — the UI offers setup instead of a retry that cannot work. */
-  tool?: { name: string; ok?: boolean; spoken?: string; setup?: boolean };
+  tool?: { name: string; ok?: boolean; spoken?: string; setup?: boolean; detail?: string };
   /** user messages sent INTO a running turn (capabilities.queueing): the
    * model saw it mid-turn, so the transcript marks it — a reader should
    * know the reply above it may already account for this line */
@@ -197,7 +199,16 @@ function redactBotAuthored<T extends Omit<Message, "id" | "at"> & { at?: number 
   if (message.role !== "bot") return message;
   const out = { ...message };
   if (typeof out.text === "string") out.text = redactSecretsInText(out.text);
-  if (out.tool?.name) out.tool = { ...out.tool, name: redactSecretsInText(out.tool.name) };
+  if (out.tool?.name || out.tool?.detail) {
+    // the raw tool title now rides in `detail` (the chip's `name` is a
+    // pre-chosen phrase) — both must pass the scrub, or a command line
+    // carrying a key would persist and replay in the clear
+    out.tool = {
+      ...out.tool,
+      name: redactSecretsInText(out.tool.name),
+      ...(out.tool.detail ? { detail: redactSecretsInText(out.tool.detail) } : {}),
+    };
+  }
   if (out.card) {
     const card = { ...out.card } as OptionCardData & { summary?: string };
     card.title = redactSecretsInText(card.title);
@@ -288,6 +299,11 @@ export interface BotRecord {
    * working instead of stopping to ask. Questions it asks YOU still come
    * through, and a short list of destructive commands still stops it. */
   autoApprove?: boolean;
+  /** Auto mode can be restricted to clearly read-only requests. */
+  autoApproveReadsOnly?: boolean;
+  /** Policy reads: clearly read-only, non-shell requests approve
+   * themselves for every bot. Default on; false turns it off for this bot. */
+  silentReads?: boolean;
   /** Tools this bot may always use without asking, even outside auto mode
    * (set by "Always allow" on an approval card). */
   alwaysAllow?: string[];

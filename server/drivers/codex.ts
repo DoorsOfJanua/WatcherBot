@@ -50,7 +50,7 @@ function decodeConfig(raw: unknown): CodexConfig {
 
 const QUESTION_TIMEOUT_NOTE = "No answer was given — use your best judgment.";
 const DENY_TIMEOUT_NOTE =
-  "OpenMausBot: nobody answered this permission request in time. Skip this action and finish what you can without it.";
+  "WatcherBot Room: nobody answered this permission request in time. Skip this action and finish what you can without it.";
 
 type StdioMcpServer = { command: string; args: string[]; env: Record<string, string> };
 
@@ -144,10 +144,16 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       const env = childEnv();
       const appServerArgs = ["app-server", ...codexLocalProviderArgs(env, turn.model)];
       if (turn.integrations?.composio) {
-        mountMcpServer(appServerArgs, env, "openmausbot_connectors", turn.integrations.composio);
+        mountMcpServer(appServerArgs, env, "watcherbotroom_connectors", turn.integrations.composio);
+      }
+      if (turn.integrations?.calendar) {
+        mountMcpServer(appServerArgs, env, "calendar", turn.integrations.calendar);
       }
       if (turn.integrations?.agents) {
         mountMcpServer(appServerArgs, env, "agents", turn.integrations.agents);
+      }
+      for (const [name, server] of Object.entries(turn.integrations?.projectMcps ?? {})) {
+        mountMcpServer(appServerArgs, env, name, server);
       }
       if (turn.integrations?.computer) {
         const proxyEnv = computerProxyEnv(turn.integrations.computer);
@@ -172,7 +178,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       if (turn.integrations?.phone) {
         const bridge = turn.integrations.phone;
         Object.assign(env, bridge.env);
-        const prefix = "mcp_servers.openmausbot_phone";
+        const prefix = "mcp_servers.watcherbotroom_phone";
         appServerArgs.push(
           "-c", `${prefix}.command=${JSON.stringify(bridge.command)}`,
           "-c", `${prefix}.args=${JSON.stringify(bridge.args)}`,
@@ -232,7 +238,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       const settle = (ok: boolean, stopReason: string | null) => {
         if (state.settled) return;
         state.settled = true;
-        for (const finish of [...asks.values()]) finish("deny", "OpenMausBot: the turn ended", "system");
+        for (const finish of [...asks.values()]) finish("deny", "WatcherBot Room: the turn ended", "system");
         for (const p of rpcPending.values()) p.reject(new Error("turn settled"));
         rpcPending.clear();
         active.delete(threadId);
@@ -252,16 +258,18 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         const isMcpElicitation = method === "mcpServer/elicitation/request";
         const mcpMeta = params._meta ?? params.meta ?? {};
         const isMcpApproval = isMcpElicitation && mcpMeta.codex_approval_kind === "mcp_tool_call";
-        // Mailman's MCP call only freezes a local draft and opens OUR exact
-        // approval card. Asking first whether Codex may call the staging tool
-        // creates a confusing double approval. Auto-accept only this named,
-        // harness-owned proposal call; the later email.send card remains the
-        // sole external-action authority.
-        const isMailProposal =
-          isMcpApproval &&
-          params.serverName === "agents" &&
-          /tool\s+["']propose_email_draft["']/i.test(String(params.message ?? ""));
-        if (isMailProposal) {
+        // The harness owns the "agents" MCP server: every call on it is
+        // either read-only discovery (list_bots) or re-gated by a
+        // harness-native card — ask_bot/delegate_bot behind the per-bot
+        // peer-approval gate (approvePeerComms + its Always allow), and
+        // propose_email_draft behind the exact email.send card. Asking here
+        // first is a confusing double approval that carded every peer
+        // message ("Allow the agents MCP server to run tool ask_bot?"),
+        // and the grant never stuck because the REAL authority is the
+        // harness gate. The Claude driver pre-allows the whole server for
+        // the same reason (allowed.push("mcp__agents")).
+        const isHarnessAgentsCall = isMcpApproval && params.serverName === "agents";
+        if (isHarnessAgentsCall) {
           return send({ jsonrpc: "2.0", id: msg.id, result: { action: "accept", content: {}, _meta: null } });
         }
         const isQuestion = method === "item/tool/requestUserInput" || (isMcpElicitation && !isMcpApproval);
@@ -489,7 +497,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       // handshake + kickoff; any refusal surfaces as failure, not a hang
       (async () => {
         try {
-          await request("initialize", { clientInfo: { name: "openmausbot", version: "1" } });
+          await request("initialize", { clientInfo: { name: "watcherbotroom", version: "1" } });
           send({ jsonrpc: "2.0", method: "initialized", params: {} });
           const cursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
           let codexThreadId: string | null = null;

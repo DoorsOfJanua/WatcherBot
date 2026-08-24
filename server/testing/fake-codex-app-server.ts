@@ -4,7 +4,7 @@
 // initialize/thread/turn handshake, then plays a scripted turn. Like the
 // real app-server, it never exits on its own — the driver kills it.
 //
-//   FAKE_CODEX_MODE   happy (default) | approval | mcp-approval | mail-proposal | resume | stream | windows-command |
+//   FAKE_CODEX_MODE   happy (default) | approval | mcp-approval | mail-proposal | agents-ask | resume | stream | windows-command |
 //                     logged-in-stdout | logged-out | unauthorized
 //   FAKE_CODEX_DUMP   path to write {argv, env, calls, decision} as JSON
 //
@@ -142,8 +142,11 @@ process.stdin.on("data", (chunk) => {
             ].join(" ")
           : "ls -la";
         notify("item/started", { item: { id: "i1", type: "commandExecution", command } });
-        notify("item/started", { item: { id: "w1", type: "webSearch", query: "OpenMausBot" } });
-        if (mode === "mcp-approval" || mode === "mail-proposal") {
+        notify("item/started", { item: { id: "w1", type: "webSearch", query: "WatcherBot Room" } });
+        if (mode === "mcp-approval" || mode === "mail-proposal" || mode === "agents-ask") {
+          // mcp-approval exercises the card path for a third-party MCP
+          // server; the two "agents" modes exercise the harness-owned
+          // whole-server auto-accept (the driver must never card those).
           out({
             jsonrpc: "2.0",
             id: 100,
@@ -151,12 +154,14 @@ process.stdin.on("data", (chunk) => {
             params: {
               threadId: "codex-thread-1",
               turnId: "turn-1",
-              serverName: "agents",
+              serverName: mode === "mcp-approval" ? "calendar" : "agents",
               mode: "form",
               _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"] },
               message: mode === "mail-proposal"
                 ? 'Allow the agents MCP server to run tool "propose_email_draft"?'
-                : 'Allow the agents MCP server to run tool "ask_bot"?',
+                : mode === "agents-ask"
+                  ? 'Allow the agents MCP server to run tool "ask_bot"?'
+                  : 'Allow the calendar MCP server to run tool "calendar_list_events"?',
               requestedSchema: { type: "object", properties: {} },
             },
           });

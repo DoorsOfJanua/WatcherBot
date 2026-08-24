@@ -31,6 +31,21 @@ describe("mergeDictationTranscript", () => {
       "Open the project folder and run the tests",
     );
   });
+
+  it("drops a long phrase the recognizer re-sends after a pause", () => {
+    const spoken = "This text box still is buggy when i use the microphone";
+    const restarted = "When I'm pausing, it shows the last message twice";
+    const afterPause = mergeDictationTranscript(spoken, restarted);
+    expect(afterPause).toBe(`${spoken} ${restarted}`);
+    // the same phrase arriving again must not append a second copy
+    expect(mergeDictationTranscript(afterPause, restarted)).toBe(afterPause);
+  });
+
+  it("still appends a new phrase that merely ends like an earlier one", () => {
+    expect(
+      mergeDictationTranscript("send it to the printer", "then email it to the printer as well"),
+    ).toBe("send it to the printer then email it to the printer as well");
+  });
 });
 
 describe("joinDictation", () => {

@@ -155,7 +155,10 @@ export interface SendTurnInput {
      * bridge harness-controlled lets it turn connection requests into trusted
      * chat cards consistently across provider CLIs. */
     composio?: { command: string; args: string[]; env: Record<string, string> };
-    /** Cloud computer, reached through OpenMausBot's REST-to-MCP adapter.
+    /** Local, owner-authenticated Google Calendar MCP bridge. The bridge
+     * keeps OAuth tokens on this Mac and exposes only calendar tools. */
+    calendar?: { command: string; args: string[]; env: Record<string, string> };
+    /** Cloud computer, reached through WatcherBot Room's REST-to-MCP adapter.
      * `control` is the harness's loopback who-is-driving endpoint: the
      * adapter consults it so a person who takes the wheel in the panel
      * pauses the bot's hands mid-turn instead of typing over them. */
@@ -186,6 +189,9 @@ export interface SendTurnInput {
     /** dweb network daemon: an MCP proxy exposing dweb status, repo, and
      * opencode model access as tools. url is the dweb HTTP base. */
     dweb?: { url: string };
+    /** Project MCP servers are mounted only for the specialist that owns the
+     * project (Gemini/ReplyGuy, Ganga, or Sniper/MFI). */
+    projectMcps?: Record<string, { command: string; args: string[]; env: Record<string, string> }>;
   };
   cwd?: string;
 }

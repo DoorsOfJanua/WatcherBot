@@ -72,6 +72,46 @@ describe("nextOccurrence", () => {
     expect(nextOccurrence({ type: "once", at: 200 }, 100)).toBe(200);
     expect(nextOccurrence({ type: "once", at: 100 }, 100)).toBeNull();
   });
+
+  it("steps an interval on marks anchored to the window start", () => {
+    // Monday 10:07, every 30 min between 09:00 and 22:00 → 10:30, not 10:37
+    const monday = new Date(2026, 7, 17, 10, 7, 0).getTime();
+    const next = nextOccurrence(
+      { type: "interval", everyMinutes: 30, start: "09:00", end: "22:00", weekdays: [1, 2, 3, 4, 5] },
+      monday,
+    )!;
+    const d = new Date(next);
+    expect([d.getDay(), d.getHours(), d.getMinutes()]).toEqual([1, 10, 30]);
+  });
+
+  it("rolls an interval past the window end to the next allowed day's window start", () => {
+    // Monday 22:05 is after the window → Tuesday 09:00
+    const lateMonday = new Date(2026, 7, 17, 22, 5, 0).getTime();
+    const next = nextOccurrence(
+      { type: "interval", everyMinutes: 30, start: "09:00", end: "22:00", weekdays: [1, 2, 3, 4, 5] },
+      lateMonday,
+    )!;
+    const d = new Date(next);
+    expect([d.getDay(), d.getHours(), d.getMinutes()]).toEqual([2, 9, 0]);
+  });
+
+  it("treats an unwindowed interval as anchored to midnight, every day", () => {
+    const at = new Date(2026, 7, 17, 0, 12, 0).getTime();
+    const next = nextOccurrence({ type: "interval", everyMinutes: 15, weekdays: [0, 1, 2, 3, 4, 5, 6] }, at)!;
+    const d = new Date(next);
+    expect([d.getHours(), d.getMinutes()]).toEqual([0, 15]);
+  });
+
+  it("skips days the interval's weekday mask excludes", () => {
+    // Friday 23:00 with a weekday-only mask → Monday's window start
+    const friday = new Date(2026, 7, 21, 23, 0, 0).getTime();
+    const next = nextOccurrence(
+      { type: "interval", everyMinutes: 60, start: "08:00", end: "18:00", weekdays: [1, 2, 3, 4, 5] },
+      friday,
+    )!;
+    const d = new Date(next);
+    expect([d.getDay(), d.getHours(), d.getMinutes()]).toEqual([1, 8, 0]);
+  });
 });
 
 describe("RoutineManager", () => {
@@ -337,6 +377,54 @@ describe("RoutineManager", () => {
 
     expect(h.manager.listRuns()).toHaveLength(1);
     expect(h.manager.listRoutines()[0]!.nextRunAt).toBeGreaterThan(routine.nextRunAt!);
+  });
+
+  it("validates interval schedules on create", () => {
+    const h = harness();
+    expect(() =>
+      h.manager.create({
+        name: "Too tight",
+        prompt: "watch",
+        botId: "maus-1",
+        schedule: { type: "interval", everyMinutes: 2, weekdays: [1] },
+      }),
+    ).toThrow(/5 minutes/);
+    expect(() =>
+      h.manager.create({
+        name: "Backwards window",
+        prompt: "watch",
+        botId: "maus-1",
+        schedule: { type: "interval", everyMinutes: 30, start: "18:00", end: "09:00", weekdays: [1] },
+      }),
+    ).toThrow(/end time/);
+  });
+
+  it("skips an interval firing while the previous run is still active, with an honest receipt", async () => {
+    const start = new Date(2026, 7, 17, 8, 0, 0).getTime(); // Monday
+    const h = harness(start);
+    const routine = h.manager.create({
+      name: "X watch",
+      prompt: "Check for new posts",
+      botId: "maus-1",
+      schedule: { type: "interval", everyMinutes: 30, start: "08:00", end: "22:00", weekdays: [0, 1, 2, 3, 4, 5, 6] },
+    });
+    // creation at 08:00 sharp → first mark strictly after now is 08:30
+    expect(new Date(routine.nextRunAt!).getMinutes()).toBe(30);
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    expect(h.started).toHaveLength(1);
+    expect(h.manager.listRuns()[0]!.status).toBe("running");
+
+    // 09:00 fires while the 08:30 run still owns the bot → missed receipt, no second turn
+    const nextMark = h.manager.listRoutines()[0]!.nextRunAt!;
+    h.setNow(nextMark);
+    await h.manager.tick();
+    expect(h.started).toHaveLength(1);
+    const runs = h.manager.listRuns();
+    expect(runs[0]).toMatchObject({ status: "missed" });
+    expect(runs[0]!.error).toContain("still going");
+    // the definition advanced to the following mark
+    expect(h.manager.listRoutines()[0]!.nextRunAt).toBeGreaterThan(nextMark);
   });
 
   it("records a missed receipt instead of launching very stale work", async () => {
