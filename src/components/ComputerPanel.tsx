@@ -109,7 +109,7 @@ function nextRunLabel(at: number | null) {
   return `${sameDay ? "Today" : date.toLocaleDateString([], { month: "short", day: "numeric" })}, ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
 
-export function ComputerPanel({ bot }: { bot: Bot }) {
+export function ComputerPanel({ bot, embedded = false }: { bot: Bot; embedded?: boolean }) {
   const { state, dispatch } = useStore();
   const { capabilities, ready: capabilitiesReady } = useDesktopCapabilities();
   const localAvailable = capabilities.localComputer.available;
@@ -538,12 +538,12 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
 
       if (window.ogb?.desktopViewer) {
         const opened = await window.ogb.desktopViewer.open(viewerUrl, `${bot.name}'s live desktop`, bot.id);
-        if (!opened) throw new Error("The WatcherBot could not open the live desktop");
+        if (!opened) throw new Error("WatcherBotRoom could not open the live desktop");
       } else if (fallbackTab) {
         fallbackTab.location.replace(viewerUrl);
       } else if (window.ogb?.openExternal) {
         const opened = await window.ogb.openExternal(viewerUrl);
-        if (!opened) throw new Error("The WatcherBot could not open the live desktop link");
+        if (!opened) throw new Error("WatcherBotRoom could not open the live desktop link");
       } else if (!window.open(viewerUrl, "_blank", "noopener")) {
         throw new Error("Your browser blocked the live desktop tab");
       }
@@ -645,7 +645,7 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
 
   return (
     <>
-    <aside className="animate-panel-in flex h-full w-[400px] shrink-0 flex-col border-l border-hairline/40 bg-panel">
+    <aside className={cn("flex h-full min-h-0 w-full shrink-0 flex-col bg-panel", !embedded && "animate-panel-in w-[400px] border-l border-hairline/40")}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3">
         <button
@@ -862,7 +862,7 @@ export function ComputerPanel({ bot }: { bot: Bot }) {
             onClick={() => void openDesktop()}
             disabled={pending === "join"}
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-raised py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
-            title="Open the Local VM's live desktop inside The WatcherBot"
+            title="Open the Local VM's live desktop inside WatcherBotRoom"
           >
             {pending === "join" ? <Loader2 size={14} className="animate-spin" /> : <Monitor size={14} />}
             Open live desktop

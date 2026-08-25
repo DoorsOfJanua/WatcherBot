@@ -8,8 +8,20 @@
 // memory/ holds topic files the bot reads on demand with its ordinary
 // file tools. Plain markdown on purpose — the user can open, edit, or
 // delete anything the bot believes.
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  closeSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { realpathSync } from "node:fs";
+import { join, sep } from "node:path";
 
 import { DATA_DIR } from "./config.ts";
 
@@ -169,4 +181,106 @@ export function memorySystemPrompt(botId: string): string {
     ? ` [MEMORY.md exceeds the ${MEMORY_MAX_LINES}-line/${MEMORY_MAX_BYTES}-byte budget and was cut off here — trim it.]`
     : "";
   return `${guidance}\n\nYour memory (MEMORY.md):\n${memory.text}${truncatedNote}`;
+}
+
+// ── Read-only workspace browsing (the Files surface) ─────────────────────────
+
+export type WorkspaceEntry = {
+  /** Workspace-relative, "/"-separated — never absolute, never escaping. */
+  path: string;
+  kind: "file" | "dir";
+  bytes: number;
+  mtime: number;
+};
+
+/** Listing stays a glance, not an index of everything a bot ever unpacked. */
+export const WORKSPACE_LIST_MAX = 500;
+const WORKSPACE_LIST_DEPTH = 4;
+
+/** Everything the Files surface may show. Symlinks and special files are
+ * invisible — following a link would walk out of the workspace, and showing
+ * it invites a reader to. Dotfiles stay hidden the way a file manager hides
+ * them, which also keeps this listing and readWorkspaceFile agreeing on what
+ * exists: the read gate rejects dot segments by construction. */
+export function listWorkspaceFiles(botId: string) {
+  const entries: WorkspaceEntry[] = [];
+  let truncated = false;
+  const walk = (dir: string, rel: string, depth: number) => {
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      return;
+    }
+    names.sort((a, b) => a.localeCompare(b));
+    for (const name of names) {
+      if (entries.length >= WORKSPACE_LIST_MAX) {
+        truncated = true;
+        return;
+      }
+      if (name.startsWith(".") || name === "node_modules") continue;
+      const abs = join(dir, name);
+      let stat;
+      try {
+        stat = lstatSync(abs);
+      } catch {
+        continue;
+      }
+      const relPath = rel ? `${rel}/${name}` : name;
+      if (stat.isDirectory()) {
+        entries.push({ path: relPath, kind: "dir", bytes: 0, mtime: stat.mtimeMs });
+        if (depth < WORKSPACE_LIST_DEPTH) walk(abs, relPath, depth + 1);
+        else truncated = true;
+      } else if (stat.isFile()) {
+        entries.push({ path: relPath, kind: "file", bytes: stat.size, mtime: stat.mtimeMs });
+      }
+    }
+  };
+  walk(workspaceDir(botId), "", 1);
+  return { entries, truncated };
+}
+
+export const WORKSPACE_PREVIEW_MAX_BYTES = 64 * 1024;
+
+/** Read one workspace file for preview. The path gate mirrors the listing:
+ * plain relative segments, no "..", no dotfiles, no backslashes. Containment
+ * is then enforced on the resolved real path too — a symlinked directory a
+ * bot created must not turn a valid-looking path into a read outside the
+ * workspace. Preview only: the first WORKSPACE_PREVIEW_MAX_BYTES of UTF-8
+ * text; anything with NUL bytes reports as binary instead of garbage. */
+export function readWorkspaceFile(
+  botId: string,
+  relPath: string,
+):
+  | { ok: true; text: string; bytes: number; truncated: boolean }
+  | { ok: false; reason: "invalid-path" | "not-found" | "binary" } {
+  const segments = relPath.split("/");
+  const badSegment = (s: string) => !s || s.startsWith(".") || s.includes("\\");
+  if (segments.length === 0 || segments.some(badSegment)) return { ok: false, reason: "invalid-path" };
+  const root = workspaceDir(botId);
+  let real: string;
+  let rootReal: string;
+  let stat: ReturnType<typeof lstatSync>;
+  try {
+    real = realpathSync(join(root, ...segments));
+    rootReal = realpathSync(root);
+    stat = lstatSync(real);
+  } catch {
+    return { ok: false, reason: "not-found" };
+  }
+  if (real !== rootReal && !real.startsWith(rootReal + sep)) return { ok: false, reason: "invalid-path" };
+  if (!stat.isFile()) return { ok: false, reason: "not-found" };
+  const buffer = Buffer.alloc(Math.min(stat.size, WORKSPACE_PREVIEW_MAX_BYTES + 1));
+  let read = 0;
+  const fd = openSync(real, "r");
+  try {
+    read = readSync(fd, buffer, 0, buffer.length, 0);
+  } finally {
+    closeSync(fd);
+  }
+  const bytes = buffer.subarray(0, Math.min(read, WORKSPACE_PREVIEW_MAX_BYTES));
+  if (bytes.includes(0)) return { ok: false, reason: "binary" };
+  // a multi-byte character sliced at the cap decodes as U+FFFD — drop it
+  const text = bytes.toString("utf8").replace(/�+$/, "");
+  return { ok: true, text, bytes: stat.size, truncated: read > WORKSPACE_PREVIEW_MAX_BYTES };
 }

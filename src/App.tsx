@@ -8,7 +8,7 @@ import { ChatView } from "@/components/ChatView";
 import { GroupView } from "@/components/GroupView";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { PluginsPanel } from "@/components/PluginsPanel";
-import { ComputerPanel } from "@/components/ComputerPanel";
+import { WorkbenchPanel } from "@/components/WorkbenchPanel";
 import { InspectorPanel } from "@/components/InspectorPanel";
 import { SettingsModal } from "@/components/SettingsModal";
 import { UpdateBanner } from "@/components/UpdateBanner";
@@ -134,7 +134,7 @@ function Shell() {
         </main>
       )}
       {state.settingsOpen && bot && <SettingsPanel bot={bot} />}
-      {state.computerOpen && bot && <ComputerPanel bot={bot} />}
+      {state.computerOpen && bot && <WorkbenchPanel bot={bot} />}
       {state.inspectorOpen && bot && <InspectorPanel bot={bot} />}
       {state.appSettingsOpen && <SettingsModal />}
       {state.pluginsOpen && <PluginsPanel />}

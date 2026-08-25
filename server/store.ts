@@ -2,7 +2,7 @@
 // thread→instance binding and per-instance resume cursors — upstream's
 // ProviderSessionDirectory, recipe step 6: persist the binding from day
 // one). messages-<threadId>.json holds the folded transcript.
-import { existsSync, readFileSync, mkdirSync, rmSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, renameSync, rmSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 import { writeFileAtomic } from "./atomic.ts";
@@ -22,6 +22,7 @@ import {
   type BotSpiritPalette,
   type BotSpiritTemperament,
 } from "../shared/bot-avatar.ts";
+import type { ResponseMode } from "../shared/response-mode.ts";
 
 export type MausColor =
   | "green"
@@ -163,6 +164,11 @@ export interface TaskRecord {
   threadId: ThreadId;
   title: string;
   createdAt: number;
+  /** Set when this task is the persistent home of a routine or webhook —
+   * every run of that automation reuses this ONE thread, so its feed (e.g.
+   * Sniper signals) accumulates as one durable transcript instead of
+   * scattering across a new invisible task per delivery. */
+  routineId?: string;
   /** provider-native continuation per instance, for THIS task only */
   resumeCursors: Record<string, unknown>;
   /** which instance dispatched the most recent turn. A cursor alone can't
@@ -265,6 +271,7 @@ export interface BotRecord {
   name: string;
   title: string;
   description: string;
+  responseMode?: ResponseMode;
   /** Optional public routing labels; never credentials and never used to send. */
   email?: string;
   phone?: string;
@@ -448,26 +455,64 @@ interface ThreadState {
   activeLeafId: string | null;
 }
 
+/** Load bots.json / groups.json. A missing file is a fresh install; a file
+ * that EXISTS but cannot be parsed is someone's roster — silently replacing
+ * it with [] used to orphan every transcript in messages.db and then let
+ * seedIfEmpty overwrite the evidence. Preserve the damaged file beside the
+ * store and say so, loudly. */
+export function readRosterFile<T>(file: string): T[] {
+  let raw: string;
+  try {
+    raw = readFileSync(file, "utf8");
+  } catch (error) {
+    // Only a MISSING file is a fresh install. Any other read failure
+    // (EACCES, EIO, a cloud-sync lock) is someone's roster being
+    // unreadable — starting empty would let seedIfEmpty overwrite it.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw new Error(`${file} exists but cannot be read — fix the file or its permissions before starting`, {
+      cause: error,
+    });
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    return preserveCorruptRoster(file, error);
+  }
+  if (Array.isArray(parsed)) return parsed as T[];
+  // valid JSON, wrong shape (a hand edit, a partial restore) — same treatment
+  return preserveCorruptRoster(file, new Error("expected a JSON array"));
+}
+
+function preserveCorruptRoster<T>(file: string, error: unknown): T[] {
+  const backup = `${file}.corrupt-${Date.now()}`;
+  try {
+    renameSync(file, backup);
+    console.error(
+      `[store] ${file} exists but is not a valid roster (${error instanceof Error ? error.message : String(error)}). ` +
+        `The damaged file was preserved at ${backup}; transcripts remain in messages.db.`,
+    );
+    return [];
+  } catch {
+    // cannot even move it aside — refuse to run rather than overwrite it
+    throw new Error(`${file} is damaged and could not be backed up — refusing to overwrite it`, { cause: error });
+  }
+}
+
 export class Store {
   bots: BotRecord[] = [];
   groups: GroupRecord[] = [];
   private threads = new Map<string, ThreadState>();
+  /** Last time each materialized thread was touched, for cache eviction. */
+  private threadTouched = new Map<string, number>();
   private defaultSelection: () => ModelSelection;
   private listeners = new Set<(change: StoreChange) => void>();
 
   constructor(defaultSelection: () => ModelSelection) {
     this.defaultSelection = defaultSelection;
     mkdirSync(DATA_DIR, { recursive: true });
-    try {
-      this.bots = JSON.parse(readFileSync(BOTS_FILE, "utf8"));
-    } catch {
-      this.bots = [];
-    }
-    try {
-      this.groups = JSON.parse(readFileSync(GROUPS_FILE, "utf8"));
-    } catch {
-      this.groups = [];
-    }
+    this.bots = readRosterFile(BOTS_FILE);
+    this.groups = readRosterFile(GROUPS_FILE);
     // busy never survives a restart — no turn does either. Rooms saved
     // before default responders existed adopt their first member as lead.
     let botsMigrated = false;
@@ -647,6 +692,7 @@ export class Store {
   /** A thread's durable record: DB rows plus any legacy JSON leftovers. */
   private deleteThreadRecord(threadId: string) {
     this.threads.delete(threadId);
+    this.threadTouched.delete(threadId);
     mdb.deleteThread(threadId);
     for (const file of [messagesFile(threadId), `${messagesFile(threadId)}.imported`]) {
       try {
@@ -675,9 +721,41 @@ export class Store {
     return this.patchMessage(threadId, messageId, { reactions: next.length ? next : undefined });
   }
 
+  /** How many threads may stay materialized at once, and how long one must
+   * sit untouched before eviction may take it. Every mutation writes through
+   * to SQLite before memory (the doctrine of appendMessage), so dropping a
+   * cached ThreadState loses nothing — the next access re-reads the same
+   * state. The idle floor is what makes eviction safe against in-flight
+   * turns without busy-bookkeeping: a turn touches its thread on every
+   * append and read, so anything idle this long has no one holding a live
+   * reference that still expects mutation visibility. */
+  static readonly THREAD_CACHE_MAX = 64;
+  static readonly THREAD_IDLE_EVICT_MS = 15 * 60_000;
+
+  /** How many threads are materialized right now — cache observability. */
+  get materializedThreadCount(): number {
+    return this.threads.size;
+  }
+
+  private evictIdleThreads(now: number) {
+    if (this.threads.size < Store.THREAD_CACHE_MAX) return;
+    const idle = [...this.threads.keys()]
+      .map((id) => [id, this.threadTouched.get(id) ?? 0] as const)
+      .filter(([, at]) => now - at > Store.THREAD_IDLE_EVICT_MS)
+      .sort((a, b) => a[1] - b[1]);
+    for (const [id] of idle) {
+      if (this.threads.size < Store.THREAD_CACHE_MAX) return;
+      this.threads.delete(id);
+      this.threadTouched.delete(id);
+    }
+  }
+
   private thread(threadId: string): ThreadState {
+    const now = Date.now();
+    this.threadTouched.set(threadId, now);
     let t = this.threads.get(threadId);
     if (t) return t;
+    this.evictIdleThreads(now);
     // SQLite is the source of truth; a thread with no rows imports its
     // legacy messages-<threadId>.json once, inside readThread
     const { messages, activeLeafId: storedLeaf } = mdb.readThread(threadId, messagesFile(threadId));
@@ -718,9 +796,13 @@ export class Store {
   appendMessage(threadId: string, message: Omit<Message, "id" | "at"> & { at?: number }): Message {
     const t = this.thread(threadId);
     const full: Message = { id: newId(), at: Date.now(), parentId: t.activeLeafId, ...redactBotAuthored(message) };
+    // Durable write FIRST. Mutating memory before the DB write meant a failed
+    // write left a message that every client could see until the next restart
+    // silently dropped it. If the disk refuses, the caller hears about it and
+    // nothing pretends the message exists.
+    mdb.appendMessage(threadId, full);
     t.messages.push(full);
     t.activeLeafId = full.id;
-    mdb.appendMessage(threadId, full);
     if (full.kind === "screen") {
       for (const pruned of this.pruneScreenFrames(t)) {
         mdb.updateMessage(threadId, pruned);
@@ -766,9 +848,9 @@ export class Store {
       text,
       parentId: source.parentId ?? null,
     };
+    mdb.appendMessage(threadId, full);
     t.messages.push(full);
     t.activeLeafId = full.id;
-    mdb.appendMessage(threadId, full);
     this.emit({ type: "message", threadId, message: full });
     return full;
   }
@@ -784,8 +866,8 @@ export class Store {
       if (!children.length) break;
       cur = children.reduce((a, b) => (b.at >= a.at ? b : a)).id;
     }
-    t.activeLeafId = cur;
     mdb.setActiveLeaf(threadId, cur);
+    t.activeLeafId = cur;
     this.emit({ type: "thread", threadId, activeLeafId: cur });
     return cur;
   }
@@ -794,10 +876,11 @@ export class Store {
     const t = this.thread(threadId);
     const idx = t.messages.findIndex((m) => m.id === messageId);
     if (idx === -1) return null;
-    t.messages[idx] = { ...t.messages[idx], ...patch, card: patch.card ?? t.messages[idx].card };
-    mdb.updateMessage(threadId, t.messages[idx]);
-    this.emit({ type: "message.patch", threadId, message: t.messages[idx] });
-    return t.messages[idx];
+    const next = { ...t.messages[idx], ...patch, card: patch.card ?? t.messages[idx].card };
+    mdb.updateMessage(threadId, next);
+    t.messages[idx] = next;
+    this.emit({ type: "message.patch", threadId, message: next });
+    return next;
   }
 
   bot(id: string) {
@@ -1055,6 +1138,32 @@ export class Store {
     }
     this.saveBots();
     this.emit({ type: "bot", botId });
+    return task;
+  }
+
+  /** The persistent task a routine/webhook runs in. Reused across runs so
+   * the automation's messages form one continuous, durable conversation;
+   * created (not activated — it must not steal the visible chat) when the
+   * automation runs for the first time or its task was deleted. */
+  taskForRoutine(botId: string, routineId: string, title: string): TaskRecord | null {
+    const bot = this.bot(botId);
+    if (!bot) return null;
+    const existing = bot.tasks?.find((t) => t.routineId === routineId);
+    if (existing) {
+      // Each run starts a FRESH provider session over this thread's (context-
+      // budgeted) transcript. Resuming the previous run's session would grow
+      // one provider conversation without bound — a webhook feed firing every
+      // few minutes would climb to its context window within days.
+      if (Object.keys(existing.resumeCursors).length) {
+        existing.resumeCursors = {};
+        this.saveBots();
+      }
+      return existing;
+    }
+    const task = this.createTask(botId, title, false);
+    if (!task) return null;
+    task.routineId = routineId;
+    this.saveBots();
     return task;
   }
 

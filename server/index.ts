@@ -64,11 +64,12 @@ import { ComputerControl } from "./computer-control.ts";
 import { augmentedPath, findCliCandidates, resetPathCache } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
 import { buildNotification, type Notification } from "./notify.ts";
-import { isEffortLevel, type RequestOutcome, type RuntimeEvent } from "./contracts.ts";
+import { isEffortLevel, type ModelSelection, type RequestOutcome, type RuntimeEvent } from "./contracts.ts";
+import { ProviderHealthStore } from "./provider-health.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
-import { searchMessages } from "./message-db.ts";
+import { closeMessageDb, searchMessages } from "./message-db.ts";
 import { _loadPending, discardDelegations, drainDelegations, pendingThreads, queueDelegation, type QueueResult } from "./delegations.ts";
 import { discardSteeredMessages, drainSteeredMessages, queueSteeredMessage } from "./steer-queue.ts";
 import { EventBus } from "./harness/bus.ts";
@@ -100,10 +101,13 @@ import { TurnWatchdog } from "./turn-watchdog.ts";
 import {
   ensureWorkspace,
   listMemoryTopics,
+  listWorkspaceFiles,
   isMemoryTopicName,
   memorySystemPrompt,
   readMemoryFile,
   readMemoryTopic,
+  readWorkspaceFile,
+  workspaceDir,
   writeMemoryFile,
   MEMORY_FILE_MAX_BYTES,
 } from "./workspace.ts";
@@ -125,6 +129,7 @@ import { loadBundledSkills, renderSkillInstructions, selectBundledSkills } from 
 import { shouldMountLocalComputer } from "./local-routing.ts";
 import { recordSharedMemoryTurn, sharedMemoryForTurn } from "./shared-agent-memory.ts";
 import { recordWritingStyleEdit, writingStyleSystemPrompt } from "./writing-style.ts";
+import { responseModeInstruction } from "../shared/response-mode.ts";
 import { localCalendarConfigured, localCalendarIntegration } from "./local-calendar.ts";
 import { projectMcps } from "./project-mcp.ts";
 
@@ -206,6 +211,7 @@ function recordContextReport(report: ContextReport): void {
 }
 
 const bus = new EventBus();
+const providerHealth = new ProviderHealthStore();
 bus.attach(registry.instances());
 
 // ── peer-agent comms wiring ────────────────────────────────────────────
@@ -843,6 +849,8 @@ const watchdog = new TurnWatchdog({
 watchdog.start();
 
 bus.subscribe((event: RuntimeEvent) => {
+  const health = providerHealth.observe(event);
+  if (health) broadcast({ kind: "provider-health", health });
   if (event.type === "request.opened") watchdog.setWaitingOnHuman(event.threadId, true);
   else if (event.type === "request.resolved") watchdog.setWaitingOnHuman(event.threadId, false);
   else if (event.type === "turn.completed") watchdog.settle(event.threadId);
@@ -1573,6 +1581,8 @@ async function startTurn(
     automationSource?: RoutineRunTrigger;
     /** the caller was already running unattended, so this turn is too */
     unattended?: boolean;
+    /** Optional routine-only model selection. Never mutates the bot profile. */
+    modelSelection?: ModelSelection;
     /** Resume an agent after the user completed an inline connection card.
      * The prompt is control-plane context: it reaches the provider without
      * masquerading as another message authored by the user. */
@@ -1595,9 +1605,10 @@ async function startTurn(
   // a task takes its name from the first thing you asked it to do
   if (text.trim() && !opts?.connectorContinuation) store.titleTaskFromFirstMessage(bot.id, text, threadId);
 
+  const selectedModel = opts?.modelSelection ?? bot.modelSelection;
   const instance = opts?.runOn === "cloud"
     ? registry.instances().find((candidate) => candidate.driverKind === "boxAgent") ?? null
-    : registry.get(bot.modelSelection.instanceId);
+    : registry.get(selectedModel.instanceId);
   if (!instance) {
     throw Object.assign(
       new Error(
@@ -1609,10 +1620,10 @@ async function startTurn(
     );
   }
   const instanceId = instance.instanceId;
-  const model = opts?.runOn === "cloud" ? instance.models.default : bot.modelSelection.model;
+  const model = opts?.runOn === "cloud" ? instance.models.default : selectedModel.model;
   // a cloud routine borrows the instance default model, so it borrows no
   // per-bot effort either
-  const effort = opts?.runOn === "cloud" ? undefined : bot.modelSelection.effort;
+  const effort = opts?.runOn === "cloud" ? undefined : selectedModel.effort;
   // A selection can be persisted while its engine is offline. Re-check when
   // the engine returns so an old or unsupported value never reaches a CLI.
   if (effort && !instance.adapter.capabilities.effortLevels?.includes(effort)) {
@@ -1691,6 +1702,7 @@ async function startTurn(
     `You are ${bot.name}, a personal bot in WatcherBot Room, Janua's private agent workspace.`,
     bot.title && `Role: ${bot.title}.`,
     bot.description && `About: ${bot.description}`,
+    responseModeInstruction(bot.responseMode),
   ]
     .filter(Boolean)
     .join(" ");
@@ -2077,14 +2089,24 @@ routines = new RoutineManager({
     const bot = store.bot(botId);
     return !bot ? "missing" : bot.busy ? "busy" : "ready";
   },
-  createTask: (botId, title, activate = false) => {
-    const task = store.createTask(botId, title, activate);
+  taskForRun: (botId, routineId, title) => {
+    const task = store.taskForRoutine(botId, routineId, title);
     const bot = store.bot(botId);
     if (task && bot) broadcast({ kind: "bot", bot: publicBot(bot) });
     return task;
   },
-  startTurn: async (botId, threadId, prompt, runOn, triggerSource, onDispatchError) => {
-    await startTurn(botId, prompt, { threadId, runOn, automationSource: triggerSource, onDispatchError });
+  startTurn: async (botId, threadId, prompt, runOn, triggerSource, onDispatchError, modelSelection) => {
+    await startTurn(botId, prompt, { threadId, runOn, automationSource: triggerSource, onDispatchError, modelSelection });
+  },
+  validateModelSelection: (selection) => {
+    const instance = registry.get(selection.instanceId);
+    if (!instance) throw new Error(`provider instance "${selection.instanceId}" is unavailable — pick another model in settings`);
+    if (selection.effort && !instance.adapter.capabilities.effortLevels?.includes(selection.effort)) {
+      throw new Error(`effort "${selection.effort}" is not offered by this bot's engine — choose another level in settings`);
+    }
+    if (!instance.models.options.some((option) => option.id === selection.model) && selection.model !== instance.models.default) {
+      throw new Error(`model "${selection.model}" is not offered by this provider instance`);
+    }
   },
   interruptTurn: async (botId, threadId, runOn) => {
     const bot = store.bot(botId);
@@ -2275,7 +2297,8 @@ async function runGroupMemberTurn(
     bot.description && `About: ${bot.description}`,
     `Room members: ${roster}, and ${userName} (the human).`,
     group.bulletin.trim() && `Room bulletin (shared instructions for everyone):\n${group.bulletin.trim()}`,
-    `Reply as yourself, briefly and conversationally. To bring a teammate in, mention them like @Name — they'll see the conversation and respond.`,
+    responseModeInstruction(bot.responseMode),
+    `Reply as yourself. To bring a teammate in, mention them like @Name — they'll see the conversation and respond.`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -3195,6 +3218,9 @@ const server = createServer(async (req, res) => {
         routines: routines!.listRoutines(),
         runs: routines!.listRuns(from != null && Number.isFinite(from) ? from : undefined, to != null && Number.isFinite(to) ? to : undefined),
       });
+    }
+    if (path === "/api/provider-health" && method === "GET") {
+      return json(res, 200, { providers: providerHealth.list() });
     }
     if (path === "/api/routines" && method === "POST") {
       return json(res, 201, { routine: routines!.create(await readBody(req)) });
@@ -4318,6 +4344,29 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { name, text });
     }
 
+    // ── bot workspace, read-only: the Files surface ─────────────────────
+    // The whole desk, not just memory: outputs, drafts, whatever the bot's
+    // file tools produced. Reads never create the workspace, and writes
+    // stay with the bot's own tools — this is a window, not an editor.
+    m = path.match(/^\/api\/bots\/([\w-]+)\/workspace\/files$/);
+    if (m && method === "GET") {
+      const bot = store.bot(m[1]);
+      if (!bot) return json(res, 404, { error: "no such bot" });
+      return json(res, 200, { dir: workspaceDir(bot.id), ...listWorkspaceFiles(bot.id) });
+    }
+    m = path.match(/^\/api\/bots\/([\w-]+)\/workspace\/file$/);
+    if (m && method === "GET") {
+      const bot = store.bot(m[1]);
+      if (!bot) return json(res, 404, { error: "no such bot" });
+      const rel = url.searchParams.get("path") ?? "";
+      const result = readWorkspaceFile(bot.id, rel);
+      if (!result.ok) {
+        if (result.reason === "binary") return json(res, 415, { error: "not a text file" });
+        return json(res, result.reason === "not-found" ? 404 : 400, { error: result.reason === "not-found" ? "no such file" : "invalid path" });
+      }
+      return json(res, 200, { path: rel, text: result.text, bytes: result.bytes, truncated: result.truncated });
+    }
+
     // onboarding/ask cards persist their answered/dismissed state
     m = path.match(/^\/api\/bots\/([\w-]+)\/cards\/([\w-]+)$/);
     if (m && method === "PATCH") {
@@ -5242,6 +5291,14 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     watchdog.stop();
     routines?.stop();
     webhookIngress?.server.close();
-    void registry.disposeAll().finally(() => process.exit(0));
+    void registry.disposeAll().finally(() => {
+      // Checkpoint the WAL and close the transcript DB so a shutdown (or the
+      // OS losing power right after one) cannot drop recently committed
+      // messages under `synchronous = NORMAL`.
+      try {
+        closeMessageDb();
+      } catch {}
+      process.exit(0);
+    });
   });
 }
