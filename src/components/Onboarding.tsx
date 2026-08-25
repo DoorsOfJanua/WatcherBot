@@ -198,6 +198,14 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
               Bots that do real work on their own computer. Tell us who you are
               and we&rsquo;ll let you know when big things ship.
             </p>
+            <div className="mt-5 w-full rounded-xl border border-accent/20 bg-accent/[0.06] p-3.5 text-left">
+              <div className="text-[13px] font-semibold text-ink">Your private brain</div>
+              <div className="mt-1 text-[12.5px] leading-relaxed text-ink-secondary">
+                WatcherBot uses one Limen vault for your projects, memory, and
+                connected accounts. You choose it after this welcome step;
+                nothing silently falls back to another vault.
+              </div>
+            </div>
             <input
               autoFocus
               type="text"
