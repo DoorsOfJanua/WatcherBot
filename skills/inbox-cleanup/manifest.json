@@ -1,8 +1,8 @@
 {
   "id": "inbox-cleanup",
   "name": "Inbox Cleanup",
-  "version": "0.1.0",
-  "description": "Inspect a connected inbox, classify messages, and propose a safe cleanup plan without changing mail.",
+  "version": "0.2.0",
+  "description": "Inspect connected Gmail or Proton mail, freeze an exact cleanup plan, then execute only the approved safe changes.",
   "defaultEnabled": true,
   "triggerTerms": [
     "clean my inbox",
