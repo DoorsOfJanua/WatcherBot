@@ -11,8 +11,15 @@ function secrets(): SecretFile {
 }
 export function projectMcps(botName: string): Record<string, ProjectMcp> {
   const name = botName.toLowerCase(); const s = secrets(); const out: Record<string, ProjectMcp> = {};
-  if (name.includes("gemini")) out.replyguy = { command: process.execPath, args: ["/Users/janua/Projects/ReplyGuy/mcp/server.mjs"], env: { WATCHERBOT_WEBHOOK_URL: s.replyGuy || "" } };
+  if (name.includes("gemini")) out.replyguy = {
+    command: process.execPath,
+    args: ["/Users/janua/Projects/ReplyGuy-franz/mcp/server.mjs"],
+    env: {
+      REPLYGUY_URL: "http://127.0.0.1:3004",
+      WATCHERBOT_WEBHOOK_URL: s.replyGuy || "",
+    },
+  };
   if (name.includes("ganga")) out.ganga = { command: "/Users/janua/Projects/GangaStudio/node_modules/.bin/tsx", args: ["/Users/janua/Projects/GangaStudio/server/mcp.ts"], env: { WATCHERBOT_WEBHOOK_URL: s.ganga || "" } };
-  if (name.includes("sniper")) out.mfi = { command: process.execPath, args: ["/Users/janua/Projects/mfi-50-signal-engine/mcp/server.mjs"], env: { MFI_DATA_ROOT: "/Users/janua/Projects/mfi-50-signal-engine", WATCHERBOT_WEBHOOK_URL: s.mfi || "" } };
+  if (name.includes("sniper")) out.mfi = { command: process.execPath, args: ["/Users/janua/Projects/mfi-50-signal-engine/mcp/server.mjs"], env: { MFI_DATA_ROOT: "/Users/janua/Projects/mfi-50-signal-engine/data", WATCHERBOT_WEBHOOK_URL: s.mfi || "" } };
   return out;
 }

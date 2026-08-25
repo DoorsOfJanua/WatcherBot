@@ -254,7 +254,7 @@ export function SettingsModal() {
             {section === "connections" && (
               <Card
                 title="Connections"
-                subtitle="Connected apps work automatically in the installed app. Other optional service keys stay on this computer."
+                subtitle="Your local Gmail, Proton Mail, and Google Calendar bridges work automatically in the installed app. Other optional service keys stay on this computer."
               >
                 <div className="flex flex-col gap-4">
                   {state.config?.composio.mode === "managed" ? (
@@ -266,7 +266,7 @@ export function SettingsModal() {
                   <VpsConnection />
                   <ApiKeyRow section="opencodeGo" />
                   <details className="rounded-lg border border-hairline/40 bg-inset px-3 py-2">
-                    <summary className="cursor-pointer text-[13px] text-ink-secondary">Self-host connected apps</summary>
+                    <summary className="cursor-pointer text-[13px] text-ink-secondary">Optional external app connectors</summary>
                     <div className="mt-3">
                       <ApiKeyRow section="composio" />
                     </div>

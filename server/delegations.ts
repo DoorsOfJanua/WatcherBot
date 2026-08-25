@@ -281,8 +281,11 @@ async function processOne(
   }
   const channel = getOrCreateChannel(bus.store, sender, target);
   mirrorExchange(bus, sender, target, item.message, channel, sourceThreadId);
-  const reasonLine = item.reason ? `\n\n[Reason: ${item.reason}]` : "";
-  const prefixed = `[Delegated by @${sender.name}, another bot in this WatcherBot Room workspace. Do the work and write the result as your answer — it is shown to the user and mirrored back automatically. You have no messaging tool for this and need none.]\n\n${item.message}${reasonLine}`;
+  // Keep the handoff instruction compact. The target already has its own
+  // persona and response contract; repeating a paragraph of routing prose on
+  // every peer turn wastes context and leaks backend language into replies.
+  const reasonLine = item.reason ? `\n[Reason: ${item.reason}]` : "";
+  const prefixed = `[Delegated by @${sender.name}. Answer the task directly; your reply is mirrored.]\n\n${item.message}${reasonLine}`;
   await runTarget(item.toBotId, prefixed, item.depth + 1, sourceThreadId, channel);
 }
 

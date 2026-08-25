@@ -8,6 +8,7 @@ export type BotUpdatePatch = Partial<
     | "name"
     | "title"
     | "description"
+    | "responseMode"
     | "email"
     | "phone"
     | "whatsapp"

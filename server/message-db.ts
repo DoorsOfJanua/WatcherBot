@@ -34,6 +34,10 @@ function open(): DatabaseSync {
   const db = new DatabaseSync(file);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
+  // A second writer (dev server next to the packaged app, another window on
+  // the same DATA_DIR) must wait for the lock, not throw SQLITE_BUSY into
+  // appendMessage — a thrown append is a user message that never reaches disk.
+  db.exec("PRAGMA busy_timeout = 5000");
   db.exec(`
     CREATE TABLE IF NOT EXISTS messages (
       thread_id TEXT NOT NULL,
@@ -244,8 +248,13 @@ export function searchMessages(query: string, limit = 40): SearchHit[] {
   });
 }
 
-/** Test/shutdown hook — closes the handle so a wiped DATA_DIR starts clean. */
+/** Test/shutdown hook — closes the handle so a wiped DATA_DIR starts clean.
+ * The checkpoint flushes WAL commits (synchronous = NORMAL does not fsync
+ * per commit) so a power cut right after shutdown cannot drop them. */
 export function closeMessageDb(): void {
+  try {
+    handle?.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  } catch {}
   try {
     handle?.close();
   } catch {}

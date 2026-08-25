@@ -158,7 +158,7 @@ export function createProxyHandler(options: ProxyOptions) {
     // The computer owner enables this capability per device, off by default.
     if (isCloudDesktopJoin(method, path) && !device?.cloudDesktopAccess) {
       return sendJson(res, 403, {
-        error: "cloud desktop access is off for this phone — enable it in The WatcherBot → Settings → Companion",
+        error: "cloud desktop access is off for this phone — enable it in WatcherBotRoom → Settings → Companion",
       });
     }
 
@@ -306,7 +306,7 @@ export function createProxyHandler(options: ProxyOptions) {
           if (size > MAX_JSON_BODY_BYTES) {
             harness.destroy();
             if (res.headersSent) res.destroy();
-            else sendJson(res, 502, { error: "the response from The WatcherBot was too large" });
+            else sendJson(res, 502, { error: "the response from WatcherBotRoom was too large" });
             return;
           }
           chunks.push(chunk);
@@ -403,8 +403,8 @@ export function createProxyHandler(options: ProxyOptions) {
         res,
         timedOut ? 504 : 502,
         timedOut
-          ? { error: "The WatcherBot did not respond" }
-          : { error: "The WatcherBot is not running on this computer" },
+          ? { error: "WatcherBotRoom did not respond" }
+          : { error: "WatcherBotRoom is not running on this computer" },
       );
     });
     req.pipe(upstream);

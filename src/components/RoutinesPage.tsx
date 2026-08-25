@@ -123,6 +123,8 @@ function statusState(status: RoutineRunStatus): MausState {
       return "curious";
     case "completed":
       return "proud";
+    case "skipped":
+      return "drowsy";
     case "failed":
     case "missed":
       return "sad";
@@ -139,6 +141,8 @@ function statusTone(status: RoutineRunStatus) {
       return "text-warning";
     case "completed":
       return "text-success";
+    case "skipped":
+      return "text-ink-secondary/60";
     case "failed":
     case "missed":
       return "text-danger";
@@ -361,6 +365,15 @@ export function RoutineEditor({
     routine?.schedule.type === "interval" ? (routine.schedule.end ?? "") : "",
   );
   const [durationMinutes, setDurationMinutes] = useState(routine?.durationMinutes ?? 30);
+  const [precheckEnabled, setPrecheckEnabled] = useState(Boolean(routine?.precheck));
+  const [precheckKind, setPrecheckKind] = useState<"command" | "http">(routine?.precheck?.kind ?? "command");
+  const [precheckValue, setPrecheckValue] = useState(routine?.precheck?.kind === "http" ? routine.precheck.url : routine?.precheck?.command ?? "");
+  const [precheckJsonPath, setPrecheckJsonPath] = useState(routine?.precheck?.kind === "http" ? (routine.precheck.jsonPath ?? "") : "");
+  const [modelOverride, setModelOverride] = useState(Boolean(routine?.modelSelection));
+  const [overrideInstanceId, setOverrideInstanceId] = useState(routine?.modelSelection?.instanceId ?? "");
+  const overrideInstance = state.instances.find((instance) => instance.instanceId === overrideInstanceId) ?? state.instances[0];
+  const [overrideModel, setOverrideModel] = useState(routine?.modelSelection?.model ?? overrideInstance?.models.default ?? "");
+  const [overrideEffort, setOverrideEffort] = useState(routine?.modelSelection?.effort ?? "low");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const cloudInstance = state.instances.find((instance) => instance.driverKind === "boxAgent");
@@ -374,6 +387,12 @@ export function RoutineEditor({
       runOn,
       enabled: routine ? undefined : true,
       durationMinutes,
+      ...(precheckEnabled && precheckValue.trim()
+        ? { precheck: precheckKind === "command" ? { kind: "command" as const, command: precheckValue.trim() } : { kind: "http" as const, url: precheckValue.trim(), ...(precheckJsonPath.trim() ? { jsonPath: precheckJsonPath.trim() } : {}) } }
+        : {}),
+      ...(modelOverride && overrideInstance && overrideModel
+        ? { modelSelection: { instanceId: overrideInstance.instanceId, model: overrideModel, effort: overrideEffort as NonNullable<RoutineInput["modelSelection"]>["effort"] } }
+        : {}),
       schedule:
         kind === "once"
           ? { type: "once", at: new Date(at).getTime() }
@@ -409,7 +428,24 @@ export function RoutineEditor({
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-hairline/40 bg-panel/95 px-5 py-4 backdrop-blur">
           <div>
             <div className="text-[17px] font-semibold text-ink">{routine ? "Edit routine" : "New routine"}</div>
-            <div className="mt-0.5 text-[12px] text-ink-secondary">Each run starts a fresh task for this agent. No cron syntax required.</div>
+            <div className="mt-0.5 text-[12px] text-ink-secondary">Runs collect in one dedicated task per routine; each run starts with fresh context. No cron syntax required.</div>
+          </div>
+          <div className="rounded-xl border border-hairline/45 bg-inset/60 p-3">
+            <label className="flex items-start gap-2.5">
+              <input type="checkbox" checked={modelOverride} onChange={(event) => setModelOverride(event.target.checked)} className="mt-0.5 accent-[var(--accent)]" />
+              <span><span className="block text-[12px] font-medium text-ink">Use a different model for this routine</span><span className="mt-0.5 block text-[11px] leading-relaxed text-ink-secondary">The bot’s normal conversation model stays unchanged. This routine uses the selected lane only.</span></span>
+            </label>
+            {modelOverride && <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              <select value={overrideInstance?.instanceId ?? ""} onChange={(event) => { setOverrideInstanceId(event.target.value); const next = state.instances.find((instance) => instance.instanceId === event.target.value); if (next) setOverrideModel(next.models.default); }} className="rounded-lg border border-hairline/50 bg-panel px-2.5 py-2 text-[12px] text-ink outline-none">
+                {state.instances.map((instance) => <option key={instance.instanceId} value={instance.instanceId}>{instance.displayName}</option>)}
+              </select>
+              <select value={overrideModel} onChange={(event) => setOverrideModel(event.target.value)} className="rounded-lg border border-hairline/50 bg-panel px-2.5 py-2 text-[12px] text-ink outline-none">
+                {(overrideInstance?.models.options ?? []).map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+              </select>
+              <select value={overrideEffort} onChange={(event) => setOverrideEffort(event.target.value as typeof overrideEffort)} className="rounded-lg border border-hairline/50 bg-panel px-2.5 py-2 text-[12px] text-ink outline-none">
+                {(overrideInstance?.capabilities?.effortLevels ?? ["low", "medium", "high"]).map((effort) => <option key={effort} value={effort}>{effort} effort</option>)}
+              </select>
+            </div>}
           </div>
           <button onClick={onClose} className="rounded-lg p-2 text-ink-secondary hover:bg-raised hover:text-ink"><X size={18} /></button>
         </div>
@@ -418,6 +454,19 @@ export function RoutineEditor({
             <span className="mb-1.5 block text-[12px] font-medium text-ink-secondary">Routine name</span>
             <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Morning research brief" className="w-full rounded-xl border border-hairline/60 bg-inset px-3.5 py-2.5 text-[14px] text-ink outline-none placeholder:text-ink-secondary/60 focus:border-accent/70" />
           </label>
+          <div className="rounded-xl border border-hairline/45 bg-inset/60 p-3">
+            <label className="flex items-start gap-2.5">
+              <input type="checkbox" checked={precheckEnabled} onChange={(event) => setPrecheckEnabled(event.target.checked)} className="mt-0.5 accent-[var(--accent)]" />
+              <span><span className="block text-[12px] font-medium text-ink">Only run when something changed</span><span className="mt-0.5 block text-[11px] leading-relaxed text-ink-secondary">A local check runs first. If its value is unchanged, the routine records a quiet skip and uses no model turn.</span></span>
+            </label>
+            {precheckEnabled && <div className="mt-3 space-y-2">
+              <div className="flex gap-2">
+                {(["command", "http"] as const).map((value) => <button key={value} type="button" onClick={() => setPrecheckKind(value)} className={cn("rounded-lg px-2.5 py-1.5 text-[11px]", precheckKind === value ? "bg-accent text-white" : "bg-raised text-ink-secondary")}>{value === "command" ? "Local command" : "Local HTTP"}</button>)}
+              </div>
+              <input value={precheckValue} onChange={(event) => setPrecheckValue(event.target.value)} placeholder={precheckKind === "command" ? "printf \"gmail-history-id\"" : "http://127.0.0.1:3000/mail/history"} className="w-full rounded-lg border border-hairline/50 bg-panel px-3 py-2 text-[12px] text-ink outline-none focus:border-accent/70" />
+              {precheckKind === "http" && <input value={precheckJsonPath} onChange={(event) => setPrecheckJsonPath(event.target.value)} placeholder="JSON path (optional), e.g. historyId" className="w-full rounded-lg border border-hairline/50 bg-panel px-3 py-2 text-[12px] text-ink outline-none focus:border-accent/70" />}
+            </div>}
+          </div>
           <div>
             <div className="mb-2 text-[12px] font-medium text-ink-secondary">Where does it run?</div>
             <div className="grid grid-cols-2 gap-2">
@@ -448,7 +497,7 @@ export function RoutineEditor({
             {runOn === "cloud" && (
               <div className={cn("mt-2 rounded-lg px-3 py-2 text-[11.5px] leading-relaxed", cloudReady ? "bg-accent/10 text-ink-secondary" : "border border-warning/25 bg-warning/10 text-warning")}>
                 {cloudReady
-                  ? "The VM wakes automatically for each run. Keep The WatcherBot running so its scheduler can launch the job."
+                  ? "The VM wakes automatically for each run. Keep WatcherBotRoom running so its scheduler can launch the job."
                   : "Cloud VM needs a working Box API key in App Settings before this routine can run."}
               </div>
             )}
@@ -703,9 +752,9 @@ export function RoutinesPage() {
         </div>
         <div className="mt-3 rounded-xl border border-hairline/45 bg-panel/70 px-3.5 py-2.5 text-[11.5px] leading-relaxed text-ink-secondary">
           {section === "calendar" ? (
-            <><strong className="font-medium text-ink">Task</strong> = one conversation and result. <strong className="font-medium text-ink">Routine</strong> = a reusable schedule that creates a fresh task each run, using that agent's model, tools, permissions, computer, and connected apps.</>
+            <><strong className="font-medium text-ink">Task</strong> = one conversation and result. <strong className="font-medium text-ink">Routine</strong> = a reusable schedule whose runs collect in one dedicated task, using that agent's model, tools, permissions, computer, and connected apps.</>
           ) : (
-            <><strong className="font-medium text-ink">Webhook</strong> = an event endpoint that creates a fresh task. Connected services can call it when something happens; the receiving agent keeps its existing tools and permissions.</>
+            <><strong className="font-medium text-ink">Webhook</strong> = an event endpoint whose deliveries collect in one dedicated task. Connected services can call it when something happens; the receiving agent keeps its existing tools and permissions.</>
           )}
         </div>
         {section === "calendar" && <div className="mt-3 flex flex-wrap items-center gap-2">

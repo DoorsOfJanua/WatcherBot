@@ -23,6 +23,38 @@ function sameDay(left: Message, right: Message): boolean {
   return new Date(left.at).toDateString() === new Date(right.at).toDateString();
 }
 
+export interface ActivityStep {
+  /** the newest message of the run, so live ok/detail patches stay visible */
+  message: Message;
+  count: number;
+}
+
+/** Identical consecutive steps inside one activity group fold into a single
+ * ×N row. A bot retrying the same call is one fact, not N pills — and the
+ * fold never deletes state: a step whose outcome differs starts a new row. */
+export function dedupeActivitySteps(messages: Message[]): ActivityStep[] {
+  const steps: ActivityStep[] = [];
+  for (const message of messages) {
+    const last = steps.at(-1);
+    if (
+      last &&
+      !message.comm &&
+      !last.message.comm &&
+      last.message.tool &&
+      message.tool &&
+      last.message.tool.name === message.tool.name &&
+      last.message.tool.detail === message.tool.detail &&
+      last.message.tool.ok === message.tool.ok
+    ) {
+      last.message = message;
+      last.count += 1;
+      continue;
+    }
+    steps.push({ message, count: 1 });
+  }
+  return steps;
+}
+
 export function groupTranscriptActivity(messages: Message[]): TranscriptItem[] {
   const items: TranscriptItem[] = [];
 

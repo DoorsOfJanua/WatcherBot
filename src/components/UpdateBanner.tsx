@@ -49,7 +49,7 @@ export function UpdateBanner() {
 
   const title =
     s.status === "available"
-      ? `The WatcherBot ${s.version} is available`
+      ? `WatcherBotRoom ${s.version} is available`
       : s.status === "downloading"
         ? `Downloading ${s.version ?? "update"}…`
         : s.status === "downloaded"
@@ -68,7 +68,7 @@ export function UpdateBanner() {
         : s.status === "downloaded"
           ? "Restart to finish updating."
           : installing
-            ? "The WatcherBot will reopen in a moment."
+            ? "WatcherBotRoom will reopen in a moment."
             : friendlyError(s.message);
 
   return (

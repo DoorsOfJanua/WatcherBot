@@ -160,13 +160,19 @@ final class Session: ObservableObject {
     /// to the keychain and the connection to defaults — deliberately apart,
     /// so the thing that gets backed up is never the credential.
     func pair(with connection: Connection, credential: String, deviceName: String) async throws {
-        let paired = try await CompanionClient.pair(
-            connection: connection,
-            credential: credential,
-            deviceName: deviceName
-        )
+        // The invite carries every address the computer answers on; walk them
+        // like the live session's failover does. Redeeming only the invite's
+        // first host stranded a phone on a stale Tailscale name while the
+        // companion's LAN address sat reachable one candidate further.
+        let (paired, redeemed) = try await PairingWalk.redeem(connection: connection) { candidate in
+            try await CompanionClient.pair(
+                connection: candidate,
+                credential: credential,
+                deviceName: deviceName
+            )
+        }
         // prefer the name the computer calls itself over the Bonjour label
-        var stored = connection
+        var stored = redeemed
         if !paired.serverName.isEmpty { stored.name = paired.serverName }
         // The computer knows every address it answers on, and what it says at
         // redeem time beats whatever the invite carried. Then the host that

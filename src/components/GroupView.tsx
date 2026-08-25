@@ -3,7 +3,7 @@
 // transcript into a wall of competing motion. Plain messages go to the room's
 // default responder; @mentions override that routing.
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ChevronDown, Folder, FolderOpen, Pin, PinOff, X } from "lucide-react";
+import { ArrowDown, ChevronDown, Clock, Folder, FolderOpen, Pin, PinOff, X } from "lucide-react";
 import {
   api,
   useStore,
@@ -18,7 +18,7 @@ import { BotAvatar, MausAvatar } from "./Avatar";
 import { normalizeState } from "@/lib/mascot";
 import { effectiveDefaultResponder, groupResponseHint } from "@/lib/group-routing";
 import { ChatMarkdown } from "./ChatMarkdown";
-import { ActivityGroupRow } from "./ChatView";
+import { ActivityChip, ActivityGroupRow, ErrorRow } from "./ChatView";
 import { groupTranscriptActivity } from "@/lib/activity-groups";
 import { Composer } from "./Composer";
 import { ConnectorCard } from "./ConnectorCard";
@@ -29,7 +29,6 @@ import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
 import { useFocusMessage } from "@/lib/focus-message";
 import { shortPath } from "@/lib/short-path";
-import { useDevMode } from "@/lib/display-mode";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
 import { showWorkingDots } from "@/lib/turn-tail";
 import {
@@ -97,7 +96,6 @@ const Transcript = memo(function Transcript({
   messages: Message[];
 }) {
   const memberOf = (id?: string) => members.find((b) => b.id === id);
-  const dev = useDevMode();
   // tool chatter collapses to one quiet row per run, exactly like 1:1 chat —
   // a room transcript is conversation, not a command log
   const items = groupTranscriptActivity(messages);
@@ -124,7 +122,7 @@ const Transcript = memo(function Transcript({
             >
               {newDay && (
                 <div className="py-3 text-center text-[13px] text-ink-secondary">
-                  {dayLabel(m.at)} {formatTime(m.at)}
+                  {dayLabel(m.at)}
                 </div>
               )}
               {m.from && newCluster && <ClusterLabel bot={memberOf(m.from.botId)} name={m.from.name} />}
@@ -145,21 +143,14 @@ const Transcript = memo(function Transcript({
               <ApprovalCard bot={memberOf(m.from?.botId)} message={m} />
             </div>
           ) : m.kind === "activity" && m.tool ? (
-            <div className="flex justify-start">
-              <div
-                className={cn(
-                  "flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px]",
-                  m.tool.ok === false ? "text-danger" : "text-ink-secondary",
-                )}
-              >
-                <span
-                  className={cn("max-w-[480px] truncate", dev && m.tool.detail && "font-mono text-[12px]")}
-                  title={m.tool.detail}
-                >
-                  {dev && m.tool.detail ? m.tool.detail : m.tool.name}
-                </span>
-              </div>
-            </div>
+            // the SAME presentation as 1:1 chat: errors get an error card,
+            // everything else the standard chip — a room previously rendered
+            // raw `error: …` strings as plain grey pills
+            m.tool.name.startsWith("error:") ? (
+              <ErrorRow message={m.tool.name.slice(6).trim()} />
+            ) : (
+              <ActivityChip message={m} />
+            )
           ) : m.kind === "text" && m.text ? (
             <div className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
               <div className={cn("flex w-full items-end gap-1.5", user ? "justify-end" : "justify-start")}>
@@ -172,6 +163,18 @@ const Transcript = memo(function Transcript({
                   )}
                   title={new Date(m.at).toLocaleString()}
                 >
+                  {m.automation && (
+                    <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary/75">
+                      <Clock size={12} aria-hidden="true" />
+                      <span>
+                        {m.automation.source === "schedule"
+                          ? "Automated · scheduled"
+                          : m.automation.source === "webhook"
+                            ? "Automated · webhook"
+                            : "Automated · run"}
+                      </span>
+                    </div>
+                  )}
                   {user ? m.text : <ChatMarkdown text={m.text} accentColor={memberOf(m.from?.botId)?.color} />}
                 </div>
                 {!user && <ReactionBar threadId={group.threadId} message={m} />}
@@ -187,7 +190,7 @@ const Transcript = memo(function Transcript({
           <div key={m.id} className="contents" data-mid={m.id}>
             {newDay && (
               <div className="py-3 text-center text-[13px] text-ink-secondary">
-                {dayLabel(m.at)} {formatTime(m.at)}
+                {dayLabel(m.at)}
               </div>
             )}
             {!user && m.from && newCluster && (

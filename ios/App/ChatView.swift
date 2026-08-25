@@ -252,6 +252,11 @@ struct ChatView: View {
             if case let .bot(bot) = current { ComputerView(bot: bot) }
         }
         .task(id: threadId) {
+            // The draft is durable per thread: leaving the chat, switching
+            // tasks, or relaunching the app finds it exactly where it was.
+            // Runs on thread change too, so a task switch swaps drafts
+            // instead of carrying one thread's text into another.
+            draft = ComposerDrafts.shared.draft(forThread: threadId)
             // opening a chat is what marks it read, exactly as on the desktop
             if current.unread { await session.markRead(current) }
 #if DEBUG
@@ -261,6 +266,9 @@ struct ChatView: View {
             // animated island/header transition.
             if ProcessInfo.processInfo.arguments.contains("-open-profile") { showingProfile = true }
 #endif
+        }
+        .onChange(of: draft) { _, value in
+            ComposerDrafts.shared.setDraft(value, forThread: threadId)
         }
         .onChange(of: current.unread) { _, unread in
             // A message can arrive while this chat is already on screen. The
@@ -733,9 +741,25 @@ private struct ScrollableComposerTextView: UIViewRepresentable {
         context.coordinator.parent = self
         view.onHardwareSubmit = onSubmit
 
+        // A render can arrive here carrying text OLDER than the user's newest
+        // keystrokes (streaming updates re-render this view many times per
+        // second while an agent works). Writing that stale echo into the view
+        // deleted what was just typed and threw the caret to the end. A stale
+        // echo is a value the view itself reported within the last beat —
+        // after that window a matching value is a genuine programmatic write
+        // (a send clearing the draft back to a text the user once typed, a
+        // restored draft, a dictation partial) and must be applied.
+        let now = Date.timeIntervalSinceReferenceDate
+        context.coordinator.recentEdits.removeAll { now - $0.at > 0.15 }
         if view.text != text {
-            view.text = text
-            view.selectedRange = NSRange(location: (text as NSString).length, length: 0)
+            if !context.coordinator.recentEdits.contains(where: { $0.text == text }) {
+                view.text = text
+                view.selectedRange = NSRange(location: (text as NSString).length, length: 0)
+                context.coordinator.recentEdits.removeAll()
+            }
+        } else {
+            // the binding caught up with the user's typing
+            context.coordinator.recentEdits.removeAll()
         }
 
         if isFocused, !view.isFirstResponder {
@@ -754,6 +778,10 @@ private struct ScrollableComposerTextView: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: ScrollableComposerTextView
+        /// Texts this view reported to SwiftUI whose echo may not have come
+        /// back through updateUIView yet, stamped so the guard there only
+        /// treats FRESH reports as possible stale echoes.
+        var recentEdits: [(text: String, at: TimeInterval)] = []
 
         init(parent: ScrollableComposerTextView) {
             self.parent = parent
@@ -768,6 +796,8 @@ private struct ScrollableComposerTextView: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
+            recentEdits.append((text: textView.text, at: Date.timeIntervalSinceReferenceDate))
+            if recentEdits.count > 8 { recentEdits.removeFirst(recentEdits.count - 8) }
             parent.text = textView.text
             resize(textView)
         }

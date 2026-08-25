@@ -135,12 +135,12 @@ async function handle(message: Json): Promise<void> {
       await showConnectorCards(slugs);
       send(textResult(
         id,
-        `WatcherBot Room showed the user a secure connection card for ${slugs.join(", ")}. End this turn now. The app will continue the task automatically after the connection finishes.`,
+        `WatcherBotRoom showed the user a secure connection card for ${slugs.join(", ")}. End this turn now. The app will continue the task automatically after the connection finishes.`,
       ));
       return;
     }
     if (/WAIT_FOR_CONNECTIONS$/i.test(name)) {
-      send(textResult(id, "WatcherBot Room is handling connection completion and will continue the task automatically."));
+      send(textResult(id, "WatcherBotRoom is handling connection completion and will continue the task automatically."));
       return;
     }
   }

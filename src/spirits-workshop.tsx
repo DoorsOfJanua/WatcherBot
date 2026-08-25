@@ -119,7 +119,7 @@ function Workshop() {
     <main className={`bench bench--${direction}`}>
       <header className="bench-head">
         <div className="bench-title">
-          <p className="bench-eyebrow">MyAgentRoom · original character family · review bench</p>
+          <p className="bench-eyebrow">WatcherBotRoom · original character family · review bench</p>
           <h1>Agent Spirits</h1>
           <p className="bench-lede">
             {direction === "hood"

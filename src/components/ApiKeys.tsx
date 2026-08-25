@@ -39,11 +39,11 @@ const CREDENTIALS: Record<
   }
 > = {
   composio: {
-    label: "Composio project key",
+    label: "External connector service key",
     placeholder: "ak_…",
-    description: "Connect Gmail, GitHub, Slack, Notion, and other apps through your own Composio project.",
+    description: "Optional external connector service. Your local Gmail, Proton Mail, and Calendar bridges do not use this.",
     href: "https://dashboard.composio.dev",
-    linkLabel: "Create or copy a project key",
+    linkLabel: "Open connector service setup",
     optional: true,
   },
   box: {
@@ -255,10 +255,10 @@ export function VpsConnection() {
         {configured && <span className="text-[11px] text-success">Connected</span>}
       </div>
       <div className="mb-1.5 text-[12px] leading-relaxed text-ink-secondary">
-        SSH config alias for the Linux VPS. The WatcherBot uses your normal SSH config and agent; it does not store keys or passwords.{" "}
+        SSH config alias for the Linux VPS. WatcherBotRoom uses your normal SSH config and agent; it does not store keys or passwords.{" "}
         See the{" "}
         <a
-          href="https://github.com/milind-soni/WatcherBot Room/blob/main/docs/byo-vps.md"
+          href="https://github.com/DoorsOfJanua/WatcherBotRoom/blob/main/docs/byo-vps.md"
           target="_blank"
           rel="noopener noreferrer"
           className="text-accent hover:underline"

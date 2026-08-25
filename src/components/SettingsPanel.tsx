@@ -15,6 +15,7 @@ import { BotProfileAvatarCard } from "./BotProfileAvatarCard";
 import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 import { VoiceSettings } from "./VoiceSettings";
 import { BOT_PROFILE_LIMITS, normalizeBotContact, type BotContactField } from "../../shared/bot-profile";
+import { RESPONSE_MODE_OPTIONS } from "../../shared/response-mode";
 
 function Field({
   label,
@@ -483,6 +484,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
         | "name"
         | "title"
         | "description"
+        | "responseMode"
         | "email"
         | "phone"
         | "whatsapp"
@@ -576,6 +578,35 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
           />
 
           <ContactChannels bot={bot} onPatch={patch} />
+
+          <div className="rounded-xl bg-card p-4">
+            <div className="text-[15px] font-medium text-ink">Response style</div>
+            <div className="mt-0.5 text-[13px] text-ink-secondary">
+              How this bot speaks in everyday conversation.
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {RESPONSE_MODE_OPTIONS.map((option) => {
+                const selected = (bot.responseMode ?? "teammate") === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => patch({ responseMode: option.id })}
+                    className={cn(
+                      "rounded-lg border px-3 py-2 text-left transition-colors",
+                      selected
+                        ? "border-accent/50 bg-accent/10 text-ink"
+                        : "border-hairline/40 text-ink-secondary hover:bg-raised hover:text-ink",
+                    )}
+                  >
+                    <div className="text-[13px] font-medium">{option.label}</div>
+                    <div className="mt-0.5 text-[11.5px] leading-snug text-ink-secondary">{option.description}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           <div className={cn(
             "rounded-xl border p-4",

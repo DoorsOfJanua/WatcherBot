@@ -20,7 +20,7 @@ function harness(start = new Date(2026, 7, 17, 8, 0, 0).getTime()) {
   const started: Array<{ botId: string; threadId: string; prompt: string }> = [];
   const runOns: string[] = [];
   const triggerSources: string[] = [];
-  const taskActivations: boolean[] = [];
+  const taskThreads = new Map<string, string>();
   const emitted: any[] = [];
   const failed: any[] = [];
   const options: RoutineManagerOptions = {
@@ -28,9 +28,14 @@ function harness(start = new Date(2026, 7, 17, 8, 0, 0).getTime()) {
     now: () => now,
     emit: (payload) => emitted.push(payload),
     botState: () => bot,
-    createTask: (_botId, _title, activate = false) => {
-      taskActivations.push(activate);
-      return { threadId: `thread-${++task}` };
+    // mirrors Store.taskForRoutine: one persistent thread per automation
+    taskForRun: (botId, routineId, _title) => {
+      const key = `${botId}:${routineId}`;
+      const existing = taskThreads.get(key);
+      if (existing) return { threadId: existing };
+      const threadId = `thread-${++task}`;
+      taskThreads.set(key, threadId);
+      return { threadId };
     },
     startTurn: async (botId, threadId, prompt, runOn, triggerSource) => {
       started.push({ botId, threadId, prompt });
@@ -47,7 +52,7 @@ function harness(start = new Date(2026, 7, 17, 8, 0, 0).getTime()) {
     started,
     runOns,
     triggerSources,
-    taskActivations,
+    taskThreads,
     failed,
     setNow: (value: number) => (now = value),
     setBot: (value: typeof bot) => (bot = value),
@@ -147,7 +152,7 @@ describe("RoutineManager", () => {
         routineName: "Morning brief",
         status: "failed",
         threadId: "thread-1",
-        error: "OpenMausBot restarted while this routine was running",
+        error: "WatcherBotRoom restarted while this routine was running",
       },
     ]);
   });
@@ -173,7 +178,6 @@ describe("RoutineManager", () => {
     expect(h.manager.listRuns()[0]).toMatchObject({ status: "running", threadId: "thread-1" });
     expect(h.manager.activeRunForBot("maus-2")?.threadId).toBe("thread-1");
     expect(h.manager.isActiveThread("thread-1")).toBe(true);
-    expect(h.taskActivations).toEqual([false]);
   });
 
   it("cancels queued work when a routine is paused", async () => {
@@ -288,7 +292,42 @@ describe("RoutineManager", () => {
     expect(h.started).toEqual([{ botId: "maus-webhook", threadId: "thread-1", prompt: "Handle ticket 42" }]);
     expect(h.runOns).toEqual(["cloud"]);
     expect(h.triggerSources).toEqual(["webhook"]);
-    expect(h.taskActivations).toEqual([true]);
+  });
+
+  it("drains queued deliveries oldest-first into ONE persistent thread", async () => {
+    // A burst of Sniper signals lands while the bot is busy. They must run
+    // in the order they arrived, and every one must accumulate in the same
+    // durable conversation instead of a new invisible task per delivery.
+    const h = harness();
+    h.setBot("busy");
+    for (const n of [1, 2, 3]) {
+      h.manager.enqueueWebhook({
+        webhookId: "hook-sniper",
+        webhookName: "Sniper signals",
+        prompt: `signal ${n}`,
+        botId: "maus-sniper",
+        runOn: "maus",
+        deliveryId: `delivery-${n}`,
+        receivedAt: h.manager.listRuns().length,
+      });
+    }
+    h.setBot("ready");
+    // one run dispatches per tick settle; completing each turn frees the bot
+    for (let i = 0; i < 3; i++) {
+      await h.manager.tick();
+      const running = h.manager.listRuns().find((r) => r.status === "running");
+      if (!running) break;
+      h.manager.handleRuntimeEvent({
+        type: "turn.completed",
+        threadId: running.threadId!,
+        ok: true,
+        cost: null,
+        denials: [],
+      } as any);
+      await h.manager.tick();
+    }
+    expect(h.started.map((s) => s.prompt)).toEqual(["signal 1", "signal 2", "signal 3"]);
+    expect(new Set(h.started.map((s) => s.threadId)).size).toBe(1);
   });
 
   it("folds provider lifecycle events into the calendar receipt", async () => {
@@ -439,5 +478,35 @@ describe("RoutineManager", () => {
     await h.manager.tick();
     expect(h.manager.listRuns()[0]).toMatchObject({ status: "missed" });
     expect(h.started).toHaveLength(0);
+  });
+
+  it("runs a local pre-check once, then writes a skipped receipt when unchanged", async () => {
+    const h = harness(new Date(2026, 7, 17, 8, 0, 0).getTime());
+    const routine = h.manager.create({
+      name: "Cheap watch",
+      prompt: "Only inspect the changed item",
+      botId: "maus-1",
+      precheck: { kind: "command", command: "printf stable" },
+      schedule: { type: "daily", time: "08:30", weekdays: [0, 1, 2, 3, 4, 5, 6] },
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    expect(h.started).toHaveLength(1);
+    const next = h.manager.listRoutines()[0]!.nextRunAt!;
+    h.setNow(next);
+    await h.manager.tick();
+    expect(h.started).toHaveLength(1);
+    expect(h.manager.listRuns()[0]).toMatchObject({ status: "skipped", precheckNote: "Pre-check: no change" });
+  });
+
+  it("rejects a non-local HTTP pre-check", () => {
+    const h = harness();
+    expect(() => h.manager.create({
+      name: "Unsafe watch",
+      prompt: "Check",
+      botId: "maus-1",
+      precheck: { kind: "http", url: "https://example.com/changed" },
+      schedule: { type: "daily", time: "08:30", weekdays: [0, 1, 2, 3, 4, 5, 6] },
+    })).toThrow("Pre-check URL must point to localhost");
   });
 });

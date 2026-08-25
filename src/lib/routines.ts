@@ -12,6 +12,7 @@ export type RoutineRunStatus =
   | "running"
   | "waiting"
   | "completed"
+  | "skipped"
   | "failed"
   | "cancelled"
   | "missed";
@@ -25,6 +26,9 @@ export interface Routine {
   enabled: boolean;
   schedule: RoutineSchedule;
   durationMinutes: number;
+  precheck?: RoutinePrecheck;
+  precheckState?: string;
+  modelSelection?: { instanceId: string; model: string; effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max" };
   nextRunAt: number | null;
   createdAt: number;
   updatedAt: number;
@@ -49,6 +53,8 @@ export interface RoutineRun {
   finishedAt?: number;
   output?: string;
   error?: string;
+  precheckNote?: string;
+  modelSelection?: Routine["modelSelection"];
   cost?: number | null;
   denials?: string[];
   createdAt: number;
@@ -63,4 +69,10 @@ export interface RoutineInput {
   enabled?: boolean;
   schedule: RoutineSchedule;
   durationMinutes?: number;
+  precheck?: RoutinePrecheck;
+  modelSelection?: Routine["modelSelection"];
 }
+
+export type RoutinePrecheck =
+  | { kind: "http"; url: string; jsonPath?: string }
+  | { kind: "command"; command: string };

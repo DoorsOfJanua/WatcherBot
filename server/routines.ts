@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 
 import { DATA_DIR } from "./config.ts";
-import type { RuntimeEvent } from "./contracts.ts";
+import type { ModelSelection, RuntimeEvent } from "./contracts.ts";
 
 export type RoutineSchedule =
   | { type: "once"; at: number }
@@ -26,6 +28,7 @@ export type RoutineRunStatus =
   | "running"
   | "waiting"
   | "completed"
+  | "skipped"
   | "failed"
   | "cancelled"
   | "missed";
@@ -39,6 +42,9 @@ export interface Routine {
   enabled: boolean;
   schedule: RoutineSchedule;
   durationMinutes: number;
+  precheck?: RoutinePrecheck;
+  precheckState?: string;
+  modelSelection?: ModelSelection;
   nextRunAt: number | null;
   createdAt: number;
   updatedAt: number;
@@ -65,6 +71,8 @@ export interface RoutineRun {
   finishedAt?: number;
   output?: string;
   error?: string;
+  precheckNote?: string;
+  modelSelection?: ModelSelection;
   cost?: number | null;
   denials?: string[];
   createdAt: number;
@@ -79,7 +87,13 @@ export interface RoutineInput {
   enabled?: boolean;
   schedule: RoutineSchedule;
   durationMinutes?: number;
+  precheck?: RoutinePrecheck;
+  modelSelection?: ModelSelection;
 }
+
+export type RoutinePrecheck =
+  | { kind: "http"; url: string; jsonPath?: string }
+  | { kind: "command"; command: string };
 
 interface RoutineFile {
   version: 1;
@@ -94,7 +108,9 @@ export interface RoutineManagerOptions {
    * is what lets the server number and replay them. */
   emit?: (payload: Record<string, unknown>) => void;
   botState: (botId: string) => "ready" | "busy" | "missing";
-  createTask: (botId: string, title: string, activate?: boolean) => { threadId: string } | null;
+  /** The persistent task this automation runs in — reused across runs (one
+   * durable feed per routine/webhook), keyed by `routineId`. */
+  taskForRun: (botId: string, routineId: string, title: string) => { threadId: string } | null;
   startTurn: (
     botId: string,
     threadId: string,
@@ -102,9 +118,11 @@ export interface RoutineManagerOptions {
     runOn: RoutineRunOn,
     triggerSource: RoutineRunTrigger,
     onDispatchError: (message: string) => void,
+    modelSelection?: ModelSelection,
   ) => Promise<void>;
   interruptTurn?: (botId: string, threadId: string, runOn: RoutineRunOn) => Promise<void>;
   onRunFailed?: (run: RoutineRun) => void;
+  validateModelSelection?: (selection: ModelSelection) => void;
 }
 
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
@@ -152,6 +170,28 @@ function cleanSchedule(schedule: RoutineSchedule): RoutineSchedule {
   throw new Error("Choose a supported schedule");
 }
 
+function cleanPrecheck(value: unknown): RoutinePrecheck | undefined {
+  if (value == null || value === false) return undefined;
+  if (!value || typeof value !== "object") throw new Error("Pre-check must be a local HTTP URL or command");
+  const candidate = value as Record<string, unknown>;
+  if (candidate.kind === "command") {
+    const command = String(candidate.command ?? "").trim().slice(0, 2_000);
+    if (!command) throw new Error("Pre-check command cannot be empty");
+    return { kind: "command", command };
+  }
+  if (candidate.kind === "http") {
+    const raw = String(candidate.url ?? "").trim();
+    let parsed: URL;
+    try { parsed = new URL(raw); } catch { throw new Error("Pre-check URL must be local"); }
+    if (parsed.protocol !== "http:" || !["127.0.0.1", "localhost", "::1"].includes(parsed.hostname)) {
+      throw new Error("Pre-check URL must point to localhost");
+    }
+    const jsonPath = candidate.jsonPath == null ? undefined : String(candidate.jsonPath).trim().slice(0, 200);
+    return { kind: "http", url: parsed.toString(), ...(jsonPath ? { jsonPath } : {}) };
+  }
+  throw new Error("Pre-check must be a local HTTP URL or command");
+}
+
 /** Next wall-clock occurrence in this computer's timezone, strictly after `after`. */
 export function nextOccurrence(schedule: RoutineSchedule, after: number): number | null {
   if (schedule.type === "once") return schedule.at > after ? schedule.at : null;
@@ -196,6 +236,13 @@ function sanitizeInput(input: RoutineInput): Omit<Routine, "id" | "createdAt" | 
   if (!botId) throw new Error("Choose a bot");
   const runOn = input.runOn ?? "maus";
   if (runOn !== "maus" && runOn !== "cloud") throw new Error("Choose where this routine runs");
+  const precheck = cleanPrecheck(input.precheck);
+  const modelSelection = input.modelSelection == null ? undefined : {
+    instanceId: String(input.modelSelection.instanceId ?? "").trim(),
+    model: String(input.modelSelection.model ?? "").trim(),
+    ...(input.modelSelection.effort ? { effort: input.modelSelection.effort } : {}),
+  };
+  if (modelSelection && (!modelSelection.instanceId || !modelSelection.model)) throw new Error("Routine model selection is incomplete");
   return {
     name,
     prompt,
@@ -204,7 +251,39 @@ function sanitizeInput(input: RoutineInput): Omit<Routine, "id" | "createdAt" | 
     enabled: input.enabled !== false,
     schedule: cleanSchedule(input.schedule),
     durationMinutes: Math.min(240, Math.max(15, Math.round(Number(input.durationMinutes) || 30))),
+    ...(precheck ? { precheck } : {}),
+    ...(modelSelection ? { modelSelection } : {}),
   };
+}
+
+const execFileAsync = promisify(execFile);
+
+function jsonPathValue(value: unknown, jsonPath?: string): unknown {
+  if (!jsonPath) return value;
+  return jsonPath.split(".").filter(Boolean).reduce<unknown>((current, key) => {
+    if (current == null || typeof current !== "object") return undefined;
+    return (current as Record<string, unknown>)[key];
+  }, value);
+}
+
+async function readPrecheck(precheck: RoutinePrecheck): Promise<{ value?: string; error?: string }> {
+  try {
+    let raw: unknown;
+    if (precheck.kind === "command") {
+      const result = await execFileAsync("/bin/zsh", ["-lc", precheck.command], { timeout: 10_000, maxBuffer: 64 * 1024 });
+      raw = result.stdout.trim();
+    } else {
+      const response = await fetch(precheck.url, { signal: AbortSignal.timeout(10_000) });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const text = await response.text();
+      try { raw = JSON.parse(text); } catch { raw = text.trim(); }
+      raw = jsonPathValue(raw, precheck.jsonPath);
+    }
+    if (raw == null) return { value: "<missing>" };
+    return { value: typeof raw === "string" ? raw : JSON.stringify(raw) };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 export class RoutineManager {
@@ -237,7 +316,7 @@ export class RoutineManager {
     for (const run of this.runs) {
       if (run.status === "running" || run.status === "waiting") {
         run.status = "failed";
-        run.error = "WatcherBot Room restarted while this routine was running";
+        run.error = "WatcherBotRoom restarted while this routine was running";
         run.finishedAt = this.now();
         recovered.push({ ...run });
       }
@@ -275,6 +354,7 @@ export class RoutineManager {
   create(input: RoutineInput): Routine {
     const clean = sanitizeInput(input);
     if (this.options.botState(clean.botId) === "missing") throw new Error("That bot no longer exists");
+    if (clean.modelSelection) this.options.validateModelSelection?.(clean.modelSelection);
     const at = this.now();
     const routine: Routine = {
       id: randomUUID(),
@@ -300,8 +380,11 @@ export class RoutineManager {
       enabled: patch.enabled ?? routine.enabled,
       schedule: patch.schedule ?? routine.schedule,
       durationMinutes: patch.durationMinutes ?? routine.durationMinutes,
+      precheck: patch.precheck ?? routine.precheck,
+      modelSelection: patch.modelSelection ?? routine.modelSelection,
     });
     if (this.options.botState(clean.botId) === "missing") throw new Error("That bot no longer exists");
+    if (clean.modelSelection) this.options.validateModelSelection?.(clean.modelSelection);
     Object.assign(routine, clean, {
       nextRunAt: clean.enabled ? this.initialOccurrence(clean.schedule, this.now()) : null,
       updatedAt: this.now(),
@@ -529,6 +612,20 @@ export class RoutineManager {
           skipped.finishedAt = now;
           skipped.error = "Skipped: the previous run of this routine was still going";
           this.emitRun(skipped);
+        } else if (routine.precheck) {
+          const check = await readPrecheck(routine.precheck);
+          if (check.value !== undefined && routine.precheckState === check.value) {
+            const skipped = this.newRun(routine, scheduledFor, false);
+            skipped.status = "skipped";
+            skipped.finishedAt = now;
+            skipped.precheckNote = "Pre-check: no change";
+            this.emitRun(skipped);
+          } else {
+            if (check.value !== undefined) routine.precheckState = check.value;
+            const run = this.newRun(routine, scheduledFor, false);
+            if (check.error) run.precheckNote = `Pre-check failed; ran anyway: ${check.error}`;
+            this.emitRun(run);
+          }
         } else {
           const run = this.newRun(routine, scheduledFor, false);
           this.emitRun(run);
@@ -542,7 +639,10 @@ export class RoutineManager {
       }
       if (changed) this.save();
 
-      for (const run of [...this.runs].reverse()) {
+      // Insertion order IS delivery order. `this.runs` is oldest-first, and
+      // draining it newest-first made a burst of queued webhook deliveries
+      // (e.g. Sniper signals while the bot was busy) run in reverse.
+      for (const run of [...this.runs]) {
         if (run.status !== "queued") continue;
         const state = this.options.botState(run.botId);
         if (state === "busy") continue;
@@ -550,9 +650,13 @@ export class RoutineManager {
           this.failRun(run, "The assigned bot no longer exists");
           continue;
         }
-        // A webhook is an incoming message, so make its task the bot's live
-        // chat immediately. Scheduled work remains detached and unobtrusive.
-        const task = this.options.createTask(run.botId, run.routineName, run.triggerSource === "webhook");
+        // Every run of an automation lands in the SAME persistent task, so
+        // its messages accumulate as one durable conversation. The task is
+        // never activated: webhook runs must not steal the visible
+        // conversation — activating their task switched the UI to a new
+        // thread on every event, making the user's live conversation
+        // "disappear" (Janua, 2026-08-25).
+        const task = this.options.taskForRun(run.botId, run.routineId, run.routineName);
         if (!task) {
           this.failRun(run, "Could not create a task for this run");
           continue;
@@ -576,6 +680,7 @@ export class RoutineManager {
             run.runOn ?? "maus",
             triggerSource,
             (message) => this.failThread(task.threadId, message),
+            run.modelSelection,
           );
         } catch (error) {
           this.failThread(task.threadId, error instanceof Error ? error.message : String(error));
@@ -647,6 +752,7 @@ export class RoutineManager {
       durationMinutes: routine.durationMinutes,
       botId: routine.botId,
       runOn: routine.runOn ?? "maus",
+      ...(routine.modelSelection ? { modelSelection: routine.modelSelection } : {}),
       scheduledFor,
       status: "queued",
       manual,

@@ -22,6 +22,7 @@ import type {
   BotSpiritPalette,
   BotSpiritTemperament,
 } from "../../shared/bot-avatar";
+import type { ResponseMode } from "../../shared/response-mode";
 import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
 import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib/webhooks";
 import { currentCall } from "@/lib/call";
@@ -158,6 +159,7 @@ export interface Bot {
   name: string;
   title: string;
   description: string;
+  responseMode?: ResponseMode;
   /** Optional public routing labels; never credentials and never used to send. */
   email?: string;
   phone?: string;
@@ -404,7 +406,7 @@ export type Action =
   | { type: "groupPatched"; group: Partial<Group> & { id: string } }
   | { type: "groupDeleted"; groupId: string }
   | { type: "createGroup"; memberIds: string[]; name?: string }
-  | { type: "sendGroup"; groupId: string; text: string }
+  | { type: "sendGroup"; groupId: string; text: string; onResult?: (ok: boolean) => void }
   | {
       type: "patchGroup";
       groupId: string;
@@ -416,7 +418,9 @@ export type Action =
   | { type: "instances"; instances: InstanceInfo[] }
   | { type: "configStatus"; config: ConfigStatus }
   | { type: "select"; id: string }
-  | { type: "send"; botId: string; text: string }
+  // onResult reports confirmed delivery: the composer clears its draft only
+  // on true and keeps the full text with a retry affordance on false
+  | { type: "send"; botId: string; text: string; onResult?: (ok: boolean) => void }
   | { type: "editMessage"; botId: string; messageId: string; text: string }
   | { type: "switchBranch"; botId: string; messageId: string }
   | { type: "threadActive"; threadId: string; activeLeafId: string }
@@ -1189,12 +1193,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             body: JSON.stringify({ text: action.text }),
           })
             .then(({ message }) => {
+              action.onResult?.(true);
               if (!message) return;
               const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
               if (!bot) return;
               rawDispatch({ type: "messageAdded", threadId: bot.threadId, message });
             })
-            .catch(showError);
+            .catch((e) => {
+              action.onResult?.(false);
+              showError(e);
+            });
           break;
         case "editMessage":
           api(`/api/bots/${action.botId}/messages/${action.messageId}/edit`, {
@@ -1343,7 +1351,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           api(`/api/groups/${action.groupId}/messages`, {
             method: "POST",
             body: JSON.stringify({ text: action.text }),
-          }).catch(showError);
+          })
+            .then(() => action.onResult?.(true))
+            .catch((e) => {
+              action.onResult?.(false);
+              showError(e);
+            });
           break;
         case "patchGroup":
           api(`/api/groups/${action.groupId}`, {

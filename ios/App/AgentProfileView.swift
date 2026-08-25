@@ -101,7 +101,7 @@ struct AgentProfileView: View {
                 } footer: {
                     Text(imageGenerationReady
                          ? "Generation uses the shared image provider configured on your computer. No provider key is sent to or stored on this phone."
-                         : "To generate images, configure the shared image provider in The WatcherBot on your computer. Provider keys cannot be added from a phone.")
+                         : "To generate images, configure the shared image provider in WatcherBotRoom on your computer. Provider keys cannot be added from a phone.")
                 }
 
                 Section("Identity") {

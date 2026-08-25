@@ -198,3 +198,70 @@ describe("spirit reactions", () => {
     expect(removed.mascotMotion).toEqual({ botId: bot.id, nonce: 2, kind: "blink" });
   });
 });
+
+describe("transcript event durability (reconnect / duplicates)", () => {
+  const bot = {
+    id: "sniper",
+    threadId: "sniper-thread",
+    name: "Sniper",
+    title: "",
+    description: "",
+    notifications: true,
+    color: "red",
+    unread: false,
+    modelSelection: { instanceId: "claude", model: "default" },
+  } satisfies Omit<Bot, "messages">;
+  const seeded = reducer(initialState, { type: "botPatched", bot });
+  const message = (id: string, text: string, at = 1): Message =>
+    ({ id, role: "bot", kind: "text", text, at }) satisfies Message;
+
+  it("a replayed duplicate event is a no-op — never a doubled message", () => {
+    const once = reducer(seeded, { type: "messageAdded", threadId: bot.threadId, message: message("m1", "signal") });
+    const twice = reducer(once, { type: "messageAdded", threadId: bot.threadId, message: message("m1", "signal") });
+    expect(twice.bots[0]?.messages.map((m) => m.id)).toEqual(["m1"]);
+  });
+
+  it("a very long message survives append and patch intact", () => {
+    const long = `signal ${"with a lot of detail ".repeat(500)}end`;
+    const added = reducer(seeded, { type: "messageAdded", threadId: bot.threadId, message: message("m1", long) });
+    expect(added.bots[0]?.messages[0]?.text).toBe(long);
+    const patched = reducer(added, {
+      type: "messagePatched",
+      threadId: bot.threadId,
+      message: message("m1", `${long} updated`),
+    });
+    expect(patched.bots[0]?.messages[0]?.text).toBe(`${long} updated`);
+  });
+
+  it("ordinary bot patches never replace the transcript; only a task switch may", () => {
+    const withMessages = reducer(seeded, {
+      type: "messageAdded",
+      threadId: bot.threadId,
+      message: message("m1", "signal one"),
+    });
+    // a plain profile patch (same thread) keeps every message
+    const renamed = reducer(withMessages, { type: "botPatched", bot: { ...bot, name: "Sniper2" } });
+    expect(renamed.bots[0]?.messages.map((m) => m.id)).toEqual(["m1"]);
+    // a task switch replaces the transcript with the new thread's messages
+    const switched = reducer(renamed, {
+      type: "botPatched",
+      bot: { ...bot, threadId: "other-thread", messages: [message("t2", "task two history")] },
+    });
+    expect(switched.bots[0]?.messages.map((m) => m.id)).toEqual(["t2"]);
+  });
+
+  it("events for a thread that is not the bot's active task change nothing silently destructive", () => {
+    const withMessages = reducer(seeded, {
+      type: "messageAdded",
+      threadId: bot.threadId,
+      message: message("m1", "kept"),
+    });
+    const other = reducer(withMessages, {
+      type: "messageAdded",
+      threadId: "background-routine-thread",
+      message: message("bg", "webhook run message"),
+    });
+    // the visible transcript is untouched; the durable copy lives server-side
+    expect(other.bots[0]?.messages.map((m) => m.id)).toEqual(["m1"]);
+  });
+});

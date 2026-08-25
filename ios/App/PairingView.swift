@@ -72,7 +72,7 @@ struct PairingView: View {
 
     private var setupSection: some View {
         Section("On your computer") {
-            Label("Open The WatcherBot → Settings → Companion", systemImage: "1.circle.fill")
+            Label("Open WatcherBotRoom → Settings → Companion", systemImage: "1.circle.fill")
             Label("Choose Set up a phone", systemImage: "2.circle.fill")
             Button {
                 failure = nil

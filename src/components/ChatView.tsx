@@ -55,7 +55,7 @@ import { COMPACT_BUBBLE, COMPACT_SQUARE } from "@/lib/compact-chip";
 import { useFocusMessage } from "@/lib/focus-message";
 import { webhookMessageView } from "@/lib/webhook-message";
 import { attachmentBasename, splitAttachedImages } from "@/lib/composer-attachments";
-import { groupTranscriptActivity, type ActivityGroup } from "@/lib/activity-groups";
+import { dedupeActivitySteps, groupTranscriptActivity, type ActivityGroup } from "@/lib/activity-groups";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
 import { workingPhrase } from "@/lib/work-language";
 import { useDevMode } from "@/lib/display-mode";
@@ -84,10 +84,12 @@ function dayLabel(at: number): string {
   return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 }
 
+/** The day only — per-message clock times live on the bubbles (hover), so
+ * repeating an exact time here was pure noise. */
 function DaySeparator({ at }: { at: number }) {
   return (
     <div className="py-3 text-center text-[13px] text-ink-secondary">
-      {dayLabel(at)} {formatTime(at)}
+      {dayLabel(at)}
     </div>
   );
 }
@@ -186,7 +188,7 @@ function ThinkingStrip({ text, active }: { text: string; active: boolean }) {
  * Once the engine reports itself fixed the card flips back to Retry, which
  * (with the on-focus re-probe) happens by itself when the user returns from
  * the terminal. */
-function ErrorRow({
+export function ErrorRow({
   message,
   onRetry,
   setupInstance,
@@ -424,6 +426,21 @@ function Bubble({
                   ))}
                 </div>
               )}
+              {/* the prompt row of a scheduled/webhook run carries the same
+                  automation marker as the reply, so the whole exchange reads
+                  as machine-triggered at a glance */}
+              {message.automation && (
+                <div className="mb-1.5 flex items-center justify-end gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary/75">
+                  <Clock size={12} aria-hidden="true" />
+                  <span>
+                    {message.automation.source === "schedule"
+                      ? "Automated · scheduled"
+                      : message.automation.source === "webhook"
+                        ? "Automated · webhook"
+                        : "Automated · run"}
+                  </span>
+                </div>
+              )}
               <div
                 className={cn(collapsible && "max-h-40 overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)]")}
               >
@@ -529,7 +546,7 @@ function Bubble({
 }
 
 /** A tool run: spinner while live, check/cross once settled. */
-function ActivityChip({ message }: { message: Message }) {
+export function ActivityChip({ message, count = 1 }: { message: Message; count?: number }) {
   const { state, dispatch } = useStore();
   const dev = useDevMode();
   const tool = message.tool;
@@ -586,6 +603,14 @@ function ActivityChip({ message }: { message: Message }) {
         >
           {dev && tool.detail ? tool.detail : tool.name}
         </span>
+        {count > 1 && (
+          <span
+            className="shrink-0 rounded-full bg-raised px-1.5 text-[11px] tabular-nums text-ink-secondary"
+            title={`This step repeated ${count} times in a row`}
+          >
+            ×{count}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -602,8 +627,8 @@ export function ActivityGroupRow({ bot, group }: { bot?: Bot; group: ActivityGro
       ? workingPhrase(bot, group.id)
       : "Working"
     : failed
-      ? "Work under the hood needs attention"
-      : "Worked under the hood";
+      ? "Needs attention"
+      : "Completed";
 
   return (
     <div className="flex w-full justify-start">
@@ -626,7 +651,7 @@ export function ActivityGroupRow({ bot, group }: { bot?: Bot; group: ActivityGro
           )}
           <span className="min-w-0 flex-1 truncate">{label}</span>
           <span className="shrink-0 text-[11px] tabular-nums text-ink-secondary/70">
-            {group.messages.length} {group.messages.length === 1 ? "step" : "steps"}
+            {group.messages.length} {group.messages.length === 1 ? "action" : "actions"}
           </span>
           <ChevronDown size={13} className={cn("shrink-0 transition-transform", open && "rotate-180")} />
         </button>
@@ -634,8 +659,10 @@ export function ActivityGroupRow({ bot, group }: { bot?: Bot; group: ActivityGro
           <div className="mt-1.5 flex flex-col gap-1.5 rounded-xl border border-hairline/25 bg-inset/35 p-2">
             {/* the revealed trail is where someone decides they want raw argv */}
             <DevModeToggle className="self-end" />
-            {group.messages.map((message) => (
-              <ActivityChip key={message.id} message={message} />
+            {/* identical consecutive steps fold into one ×N chip — repetition
+                is a fact worth one line, not a wall of the same pill */}
+            {dedupeActivitySteps(group.messages).map((step) => (
+              <ActivityChip key={step.message.id} message={step.message} count={step.count} />
             ))}
           </div>
         )}

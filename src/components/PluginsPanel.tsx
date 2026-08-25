@@ -382,7 +382,9 @@ export function PluginsPanel() {
 
         {!configured && (
           <div className="mx-6 mb-1 rounded-xl bg-warning/10 px-4 py-3 text-[13px] text-warning sm:mx-8">
-            Connected apps are temporarily unavailable. You can retry after restarting, or configure your own connection service.{" "}
+            {mode === "unavailable"
+              ? "Your local Gmail, Proton Mail, and Google Calendar bridges are already separate and do not need this optional app catalog. Mailman and Poppy use those local connections directly."
+              : "The optional app catalog is temporarily unavailable. Your local Gmail, Proton Mail, and Calendar bridges are unaffected."}{" "}
             <button
               className="font-medium underline underline-offset-2"
               onClick={() => {

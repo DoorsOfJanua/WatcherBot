@@ -1,6 +1,6 @@
 import { track } from "@/lib/analytics";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Clock, Mic, Square, Users, X } from "lucide-react";
+import { ArrowUp, Clock, Mic, RotateCcw, Square, Users, X } from "lucide-react";
 import { useStore, visibleMessages, type Bot, type Group } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { useComposerDraft } from "@/lib/drafts";
@@ -19,7 +19,16 @@ import { normalizeState } from "@/lib/mascot";
 import { groupComposerHint, roomRespondersForComposer } from "@/lib/group-routing";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
-import { joinDictation, mergeDictationTranscript } from "@/lib/dictation-transcript";
+import {
+  cancelMicSession,
+  idleMicSession,
+  micManualEdit,
+  micPartial,
+  startMicSession,
+  stopMicSession,
+  type MicSession,
+} from "@/lib/mic-session";
+import { beginSend, idleSendDraft, settleSend, shouldClearDraft, type SendDraftState } from "@/lib/send-draft";
 
 /** The active @mention query at the caret: the text between an `@` that
  * starts a word and the caret. null = no mention being typed. */
@@ -74,6 +83,10 @@ export function Composer({
   const [text, setText, attachments, setAttachments] = useComposerDraft(
     group ? `group:${group.id}` : `bot:${bot?.id ?? ""}`,
   );
+  // live mirror for the send-confirmation closure, which must compare the
+  // composer as it is at confirm time, not as it was at send time
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
   const addAttachments = useCallback(
     (next: Attachment[]) => setAttachments((prev) => [...prev, ...next]),
     [setAttachments],
@@ -88,13 +101,15 @@ export function Composer({
   const [highlight, setHighlight] = useState(0);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null); // Esc'd this @
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  // what was typed before the mic went on — partials append after it
-  const baseText = useRef("");
-  // Apple usually revises one cumulative hypothesis, but after a pause can
-  // restart with only the newest phrase. Keep the already-spoken portion so
-  // that restart cannot erase the front half of the user's message.
-  const spokenText = useRef("");
-  const renderedSpeech = useRef("");
+  // All dictation TEXT decisions live in lib/mic-session (tested): typed text
+  // survives the mic, partials stay monotonic, a manual edit ends the
+  // session, cancel restores the exact pre-mic draft.
+  const mic = useRef<MicSession>(idleMicSession);
+  // The send contract (lib/send-draft, tested): the draft clears only after
+  // the server confirms delivery; a failed send keeps the text and offers
+  // retry; a repeated Enter with the same in-flight text sends once.
+  const sendState = useRef<SendDraftState>(idleSendDraft);
+  const [sendFailed, setSendFailed] = useState(false);
 
   // image paste is offered only when every bot that will actually answer
   // can open one. sendGroup routes to mentions, else the room default —
@@ -167,9 +182,15 @@ export function Composer({
   // the moment the room settles. 1:1 sends go straight to the server even
   // mid-turn — the harness queues them (steer-queue), so the message shows
   // in the transcript immediately with a queued affordance.
-  const [queued, setQueued] = useState<string | null>(null);
+  const [queued, setQueued] = useState<{ text: string; state: "waiting" | "sending" | "failed" } | null>(null);
   // a chip on its own is a message: the send control has to appear for it
   const hasContent = Boolean(text.trim()) || attachments.length > 0;
+  // Stop the mic before a send so a straggling recognition partial cannot
+  // resurrect the sent text into the freshly cleared composer.
+  const endMicKeepingText = () => {
+    mic.current = stopMicSession(mic.current);
+    setRecording(false);
+  };
   const send = () => {
     if (attachments.some((attachment) => attachment.kind === "image") && !imageTargetsSupport(text)) {
       dispatch({ type: "error", message: "The selected responder does not support image attachments." });
@@ -177,32 +198,58 @@ export function Composer({
     }
     const t = composeMessage(text, attachments);
     if (!t) return;
+    if (recording) endMicKeepingText();
     if (busy && group) {
-      setQueued(t);
+      setQueued({ text: t, state: "waiting" });
       setText("");
       setAttachments([]);
       return;
     }
+    const next = beginSend(sendState.current, t);
+    if (!next) return; // this exact text is already in flight
+    sendState.current = next;
+    setSendFailed(false);
+    // The draft stays in the composer until the server confirms delivery.
+    // On failure the complete text is still here, ready to retry.
+    const onResult = (ok: boolean) => {
+      sendState.current = settleSend(sendState.current, t, ok);
+      if (!ok) {
+        setSendFailed(true);
+        return;
+      }
+      const current = composeMessage(inputRef.current?.value ?? "", attachmentsRef.current);
+      // clear only what was sent — newer typing survives a slow confirm
+      if (shouldClearDraft(current ?? "", t)) {
+        setText("");
+        setAttachments([]);
+      }
+    };
     if (group) {
-      dispatch({ type: "sendGroup", groupId: group.id, text: t });
+      dispatch({ type: "sendGroup", groupId: group.id, text: t, onResult });
       track("message_sent", { room: true });
     } else if (bot) {
-      dispatch({ type: "send", botId: bot.id, text: t });
+      dispatch({ type: "send", botId: bot.id, text: t, onResult });
       track("message_sent", { driver: bot.modelSelection?.instanceId, queued: busy });
     }
-    setText("");
-    setAttachments([]);
   };
   useEffect(() => {
-    if (!busy && queued && group) {
-      if (queued.includes("<attached-image ") && !imageTargetsSupport(queued)) {
+    if (!busy && queued?.state === "waiting" && group) {
+      if (queued.text.includes("<attached-image ") && !imageTargetsSupport(queued.text)) {
         dispatch({ type: "error", message: "The selected responder does not support image attachments." });
         setQueued(null);
         return;
       }
-      dispatch({ type: "sendGroup", groupId: group.id, text: queued });
+      const t = queued.text;
+      setQueued({ text: t, state: "sending" });
+      dispatch({
+        type: "sendGroup",
+        groupId: group.id,
+        text: t,
+        // a failed queued send keeps the message in the chip with a retry —
+        // it must never evaporate with only a toast
+        onResult: (ok) => setQueued((held) => (held?.text === t ? (ok ? null : { text: t, state: "failed" }) : held)),
+      });
       track("message_sent", { room: true, queued: true });
-      setQueued(null);
     }
   }, [busy, queued, group, members, state.instances, dispatch]);
 
@@ -217,14 +264,13 @@ export function Composer({
     }
     setSpeechError(null);
     const offTranscript = bridge.onSpeechTranscript((line) => {
-      if (typeof line.text === "string") {
-        spokenText.current = mergeDictationTranscript(spokenText.current, line.text);
-        const rendered = joinDictation(baseText.current, spokenText.current);
-        renderedSpeech.current = rendered;
-        setText(rendered);
+      if (typeof line.text === "string" && mic.current.status === "recording") {
+        mic.current = micPartial(mic.current, line.text);
+        setText(mic.current.rendered);
       }
     });
     const offEnd = bridge.onSpeechEnd(({ code }) => {
+      mic.current = stopMicSession(mic.current);
       setRecording(false);
       if (code === 2) {
         setSpeechError("Dictation is only available on macOS for now.");
@@ -247,10 +293,20 @@ export function Composer({
       setSpeechError("Dictation isn't available in this build.");
       return;
     }
-    baseText.current = text.trim();
-    spokenText.current = "";
-    renderedSpeech.current = text;
-    setRecording((r) => !r);
+    if (recording) {
+      endMicKeepingText();
+      return;
+    }
+    mic.current = startMicSession(text);
+    setRecording(true);
+  };
+  // Esc cancels: recording ends and the draft returns exactly as it was
+  // before the mic went on.
+  const cancelMic = () => {
+    const { session, restore } = cancelMicSession(mic.current);
+    mic.current = session;
+    setRecording(false);
+    setText(restore);
   };
 
   return (
@@ -262,17 +318,49 @@ export function Composer({
       )}
       <div className="relative mx-auto max-w-[900px]">
         {queued && (
-          <div className="mb-2 flex items-center gap-2 rounded-lg border border-hairline/40 bg-panel px-3 py-2 text-[12.5px] text-ink-secondary">
+          <div
+            className={cn(
+              "mb-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-[12.5px]",
+              queued.state === "failed"
+                ? "border-danger/40 bg-danger/10 text-danger"
+                : "border-hairline/40 bg-panel text-ink-secondary",
+            )}
+          >
             <Clock size={13} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">
-              Queued — sends when {busyName} finishes: “{queued}”
+              {queued.state === "failed"
+                ? `Couldn't send — your message is kept: “${queued.text}”`
+                : `Queued — sends when ${busyName} finishes: “${queued.text}”`}
             </span>
+            {queued.state === "failed" && (
+              <button
+                onClick={() => setQueued({ text: queued.text, state: "waiting" })}
+                aria-label="Retry sending queued message"
+                className="flex items-center gap-1 rounded px-1.5 py-0.5 font-medium hover:bg-raised"
+              >
+                <RotateCcw size={12} /> Retry
+              </button>
+            )}
             <button
               onClick={() => setQueued(null)}
               aria-label="Discard queued message"
               className="rounded p-0.5 hover:bg-raised hover:text-ink"
             >
               <X size={13} />
+            </button>
+          </div>
+        )}
+        {sendFailed && hasContent && (
+          <div className="mb-2 flex items-center gap-2 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[12.5px] text-danger">
+            <span className="min-w-0 flex-1">
+              Message didn't send — your text is kept below.
+            </span>
+            <button
+              onClick={send}
+              aria-label="Retry sending message"
+              className="flex items-center gap-1 rounded px-1.5 py-0.5 font-medium hover:bg-raised"
+            >
+              <RotateCcw size={12} /> Retry
             </button>
           </div>
         )}
@@ -345,13 +433,13 @@ export function Composer({
           rows={1}
           value={text}
           onChange={(e) => {
-            // Manual edits while the microphone is live become the new fixed
-            // base. The next recognition callback appends to what the person
-            // actually left in the field instead of restoring an older copy.
-            if (recording && e.target.value !== renderedSpeech.current) {
-              baseText.current = e.target.value.trim();
-              spokenText.current = "";
-              renderedSpeech.current = e.target.value;
+            // A manual edit while the microphone is live is authoritative:
+            // end the recognition session before its next partial — which
+            // re-delivers the WHOLE running hypothesis, already contained in
+            // the edited text — can duplicate or overwrite the correction.
+            if (recording && e.target.value !== mic.current.rendered) {
+              mic.current = micManualEdit(mic.current, e.target.value);
+              setRecording(false);
             }
             setText(e.target.value);
             setCaret(e.target.selectionStart ?? e.target.value.length);
@@ -425,7 +513,7 @@ export function Composer({
               e.preventDefault();
               send();
             }
-            if (e.key === "Escape" && recording) setRecording(false);
+            if (e.key === "Escape" && recording) cancelMic();
           }}
           disabled={Boolean(approval)}
           placeholder={
@@ -459,17 +547,30 @@ export function Composer({
             <Square size={14} className="fill-current" />
           </button>
         )}
-        {!busy && !hasContent && capabilities.dictation.available && (
+        {recording && (
+          <button
+            onClick={cancelMic}
+            aria-label="Cancel dictation and restore the draft"
+            title="Cancel dictation — restores what you had (Esc)"
+            className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-secondary hover:bg-raised hover:text-ink"
+          >
+            <X size={16} />
+          </button>
+        )}
+        {/* while recording, the stop control must stay put even though the
+            transcript has made the composer non-empty — losing the button
+            mid-dictation would leave Esc as the only way out */}
+        {!busy && (recording || !hasContent) && capabilities.dictation.available && (
           <button
             onClick={toggleMic}
-            aria-label={recording ? "Stop dictation" : "Start dictation"}
+            aria-label={recording ? "Stop dictation and keep the text" : "Start dictation"}
             className={cn(
               "flex size-8 shrink-0 items-center justify-center rounded-full",
               recording
                 ? "animate-pulse bg-danger/20 text-danger"
                 : "text-ink-secondary hover:bg-raised hover:text-ink",
             )}
-            title={recording ? "Stop dictation (Esc)" : "Dictate"}
+            title={recording ? "Stop dictation — keeps the text" : "Dictate"}
           >
             <Mic size={18} />
           </button>

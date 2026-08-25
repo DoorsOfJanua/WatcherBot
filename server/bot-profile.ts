@@ -17,6 +17,7 @@ export const BOT_PROFILE_PATCH_FIELDS = [
   "name",
   "title",
   "description",
+  "responseMode",
   "notifications",
   "avatarUrl",
   "avatarCrop",
@@ -49,6 +50,7 @@ const profilePatchSchema = z.object({
     .string({ error: "description must be a string" })
     .max(BOT_PROFILE_LIMITS.description, { error: "description must be at most 4000 characters" })
     .optional(),
+  responseMode: z.enum(["quiet", "normal", "teammate", "deep"], { error: "responseMode must be quiet, normal, teammate, or deep" }).optional(),
   notifications: z.boolean({ error: "notifications must be true or false" }).optional(),
   avatarUrl: z
     .union([botAvatarUrlSchema, z.literal(""), z.null()], {
@@ -93,6 +95,7 @@ export type BotProfilePatch = Partial<
     | "name"
     | "title"
     | "description"
+    | "responseMode"
     | "notifications"
     | "avatarUrl"
     | "avatarCrop"

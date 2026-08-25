@@ -1,5 +1,5 @@
 appId: com.janua.myagentroom
-productName: MyAgent Room
+productName: WatcherBotRoom
 artifactName: MyAgent-Room-${version}-${arch}.${ext}
 
 # In-app auto-update reads latest-mac.yml + the .zip (macOS) or latest.yml +
@@ -87,10 +87,10 @@ mac:
     - from: dist-native/${arch}/cua-sdk
       to: cua-sdk
   extendInfo:
-    NSMicrophoneUsageDescription: The WatcherBot uses the microphone for voice dictation into the composer.
-    NSSpeechRecognitionUsageDescription: The WatcherBot transcribes your voice on-device to type messages for you.
-    NSAccessibilityUsageDescription: The WatcherBot uses Accessibility when you let a bot control this Mac.
-    NSScreenCaptureUsageDescription: The WatcherBot uses Screen Recording so bots can see this Mac before acting.
+    NSMicrophoneUsageDescription: WatcherBotRoom uses the microphone for voice dictation into the composer.
+    NSSpeechRecognitionUsageDescription: WatcherBotRoom transcribes your voice on-device to type messages for you.
+    NSAccessibilityUsageDescription: WatcherBotRoom uses Accessibility when you let a bot control this Mac.
+    NSScreenCaptureUsageDescription: WatcherBotRoom uses Screen Recording so bots can see this Mac before acting.
   # Notarization runs manually after the build (notarytool + staple),
   # mirroring the BlueyLite ship_release.sh flow.
   notarize: false
@@ -122,7 +122,7 @@ win:
 nsis:
   oneClick: true
   perMachine: false
-  shortcutName: MyAgent Room
+  shortcutName: WatcherBotRoom
   # Versioned, like the .dmg. The README's /latest/download/ button needs a
   # STABLE filename for the release download.
   artifactName: MyAgent-Room-${version}-setup.${ext}
@@ -150,7 +150,7 @@ linux:
       to: cua-linux-x64
   desktop:
     entry:
-      Name: MyAgent Room
+      Name: WatcherBotRoom
       Comment: Your own team of AI bots, in a chat app
       Keywords: AI;Agents;Chat;Productivity;
 
