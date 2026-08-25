@@ -157,24 +157,94 @@ is a clone with a fresh Brain.
 - Tool selector window: unit tests per app conventions + exercised in the
   running app.
 
-## Reconciliation findings (2026-08-25)
+## Reconciliation findings (2026-08-25, pass complete)
 
-- **Connector inheritance: VERIFIED (official Claude Code docs).** claude.ai
-  connectors (Gmail, Google Calendar) load automatically in the claude CLI
-  when signed in with the same account, in interactive AND headless `-p`
-  sessions. Conditions the app/runbook must hold: subprocess runs with the
-  user's normal HOME (login + user-scope config is what carries inheritance),
-  no `--bare`, no custom `CLAUDE_CONFIG_DIR`, and `disableClaudeAiConnectors`
-  must stay unset. Runbook checks: `claude login` then `claude mcp list`
-  should show the connectors.
+**Verdict: the design stands. Ten deltas, none fatal, three reshape the build.**
+
+### Verified sound
+- **Connector inheritance: VERIFIED twice (official Claude Code docs + code
+  read).** claude.ai connectors (Gmail, Google Calendar) load automatically in
+  the claude CLI when signed in with the same account, interactive AND headless
+  `-p`. The app spawns claude with HOME untouched, no `CLAUDE_CONFIG_DIR`, no
+  `--settings`, no `--strict-mcp-config` (server/drivers/claude.ts:581-762),
+  so the user's own login and connectors ride in. Runbook checks: `claude
+  login`, then `claude mcp list` shows the connectors;
+  `disableClaudeAiConnectors` must stay unset.
+- **"Host browser never scheduled" is enforced by construction, not policy:**
+  unattended runs (routines/webhooks) refuse every auto-approval and always
+  card (server/auto-approve.ts:313-326); local-computer scope additionally
+  refuses remembered grants and silent reads (auto-approve.ts:328-339).
+- **The Desk send flow already exists as a primitive:** action receipts
+  (server/action-receipts.ts) + mail-actions (server/mail-actions.ts) give
+  exact-payload, at-most-once, editable-in-card email sends. The Desk bot rides
+  this, no new safety code.
+- **Pack provisioning has a proven template:** team manifest import
+  (persona-only by design, server/team-manifest.ts) + a post-import API script
+  (scripts/bootstrap-janua-team.mjs) that PATCHes bots and creates the rest.
+  The pack copies this two-step shape.
+
+### Deltas absorbed into the design
+1. **No cron schedules.** RoutineSchedule is once/daily(one time)/interval
+   (server/routines.ts:10-17). The 3x/day Desk cycle = THREE `daily` routines
+   (08:30 / 13:00 / 18:00). No app change needed.
+2. **Build dependency: routine precheck, per-routine model override, and the
+   persistent routine task (TaskRecord.routineId / taskForRoutine) exist only
+   in the uncommitted working tree** (other window's lane, 4 known review
+   findings to fix before commit). The pack's routine definitions depend on
+   all three. They must land on the branch before the friend install; pack
+   authoring can proceed in parallel.
+3. **Image lane 1 needs NO MCP server:** higgsfield-generate wraps the
+   `higgsfield` CLI via Bash, authenticated by the friend's own Higgsfield
+   login. Lane 3 (gpt-image API) is a script + OPENAI_API_KEY. So the pack's
+   creative skills run on the existing skill mechanism + credentials; per-bot
+   MCP config is NOT on the critical path (it remains a wanted universal
+   feature, replacing the hardcoded server/project-mcp.ts name-match table
+   with a real BotRecord.mcpServers field — both drivers already accept
+   integrations.projectMcps).
+4. **Skill library is real but minimal** (server/skill-library.ts, 99 lines):
+   SKILL.md + manifest.json folders, bundled dir only (OMB_SKILLS_DIR),
+   keyword-triggered, globally on/off, ZERO UI. The universal build extends
+   it: a user skills root (~/.myagent-room/skills), per-bot enablement,
+   credential declarations in the manifest, and the tool selector window as
+   the net-new UI surface.
+5. **Bots have no system-prompt field.** Persona = name + title + description
+   (≤4000 chars, server/index.ts:1697-1703), exactly how the 23 agent-role
+   templates ship charters (shared/agent-role-templates.ts). The three pack
+   personas are written as ≤4000-char charters; anything longer goes in the
+   Brain via cwd (bots pick up CLAUDE.md/MEMORY.md from their working folder).
+6. **Brain placement decided:** one shared folder, set as all three bots'
+   `cwd`. Bots load its CLAUDE.md; Brain files are plain markdown next to it.
+   Default per-bot workspaces (~/.myagent-room/workspaces/<id>) are bypassed
+   deliberately so all three read/write the same Brain.
+7. **Credentials:** workspace keys live in AppConfig + OS keychain, stripped
+   from every CLI child env (server/config.ts:229-242) and redacted from
+   transcripts. New keys (Higgsfield, OpenAI) each need: appConfigSchema field
+   + WORKSPACE_CREDENTIAL_ENV entry + keychain plumbing + an ApiKeys.tsx row.
+   Skill-declared credentials (generic) are part of the universal skill
+   library build. NOTE: the credential-strip must NOT strip keys the skills
+   themselves need in the child env — the skill-library build defines how a
+   skill-granted key reaches the subprocess deliberately, not by leak.
+8. **The private pack repo cannot ship via /api/team-library/github** (public
+   HTTPS only). Delivery = git clone + local import + provision script. Fine:
+   Janua runs the maintenance touches anyway.
+9. **RISK, verify before friend install:** when the app injects MCP servers it
+   sets `--allowedTools` from ONLY the injected servers, and headless
+   `acceptEdits` silently denies unlisted tools (claude.ts:605-663). Must
+   verify empirically that the user's claude.ai connector tools are not
+   denied on a bot that also mounts injected MCP. Test on Janua's instance
+   first; if they are denied, the fix is appending the connector tool
+   namespace to --allowedTools or dropping the narrow list for such bots.
+10. **Installer is unnotarized** (electron-builder.yml notarize: false):
+    friend's first launch needs the right-click-open Gatekeeper dance, plus
+    Accessibility + Screen Recording TCC grants for host control. Runbook
+    covers it; real fix is notarizing with a Developer ID.
 
 ## Open items
 
-1. Reconciliation pass (Fable, in progress): verify against the codebase —
-   routine scheduling capability (fixed times 3x/day), per-bot persona/skill/
-   MCP mechanisms, how the app spawns the claude subprocess (env/HOME/flags,
-   see verified conditions above), host control gating, existing
-   import/provision paths. Any conflict amends this spec before build.
+1. ~~Reconciliation pass~~ DONE 2026-08-25, findings above.
+2. Empirical connector test (finding 9) on Janua's instance before install.
+3. Other window: commit the routine precheck/model-override/task-funnel work
+   (finding 2) after fixing its 4 review findings.
 2. Friend's OpenAI API credit decision (only if lanes 1-2 prove insufficient).
 3. Bot display names: Desk / Compass / Studio are working names; friend can
    rename at onboarding.
