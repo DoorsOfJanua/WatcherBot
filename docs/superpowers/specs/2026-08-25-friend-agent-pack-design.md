@@ -21,6 +21,13 @@ the first consumer; every future WatcherBotRoom user is the real audience.
 
 ## Decisions already ruled by Janua
 
+- **UNIVERSAL FIRST (ruled 2026-08-25): every app-side build is a product
+  feature for ALL WatcherBotRoom users, not a friend-special.** The skill
+  library, tool selector window, pack import/provisioning, onboarding
+  interview, and Brain pattern are built generic, per-user, with the friend's
+  setup as the first instance. Nothing hardcodes the friend: his bots, Brain
+  content, accounts, and credentials live only in his pack instance. The
+  inspiration came from the friend; the audience is every user.
 - Platform: WatcherBotRoom on the friend's Mac. No new app, no hosting.
 - No Composio, no extra services. Native claude.ai account connectors only
   (Gmail + Google Calendar ride the friend's Claude login into the claude CLI).
@@ -113,7 +120,12 @@ accessible in a tool window / tool selector in WatcherBotRoom.
 
 ## The Agent Pack (deliverable + update path)
 
-A small private repo (the pack) containing:
+Packs are a **generic app concept**: any user can import a pack (personas +
+skills + routines + brain templates) into their own WatcherBotRoom. The
+friend's pack is the first one; the pack format itself carries zero
+friend-specific assumptions.
+
+A small private repo (the friend's pack instance) containing:
 - personas/ — the three bots' system prompts / persona files
 - skills/ — the ported + new skills listed above
 - brain-templates/ — empty Brain files + the onboarding interview skill
@@ -145,13 +157,24 @@ is a clone with a fresh Brain.
 - Tool selector window: unit tests per app conventions + exercised in the
   running app.
 
+## Reconciliation findings (2026-08-25)
+
+- **Connector inheritance: VERIFIED (official Claude Code docs).** claude.ai
+  connectors (Gmail, Google Calendar) load automatically in the claude CLI
+  when signed in with the same account, in interactive AND headless `-p`
+  sessions. Conditions the app/runbook must hold: subprocess runs with the
+  user's normal HOME (login + user-scope config is what carries inheritance),
+  no `--bare`, no custom `CLAUDE_CONFIG_DIR`, and `disableClaudeAiConnectors`
+  must stay unset. Runbook checks: `claude login` then `claude mcp list`
+  should show the connectors.
+
 ## Open items
 
 1. Reconciliation pass (Fable, in progress): verify against the codebase —
    routine scheduling capability (fixed times 3x/day), per-bot persona/skill/
-   MCP mechanisms, whether the claude CLI subprocess inherits the user's
-   claude.ai connectors, host control gating, existing import/provision paths.
-   Any conflict amends this spec before build.
+   MCP mechanisms, how the app spawns the claude subprocess (env/HOME/flags,
+   see verified conditions above), host control gating, existing
+   import/provision paths. Any conflict amends this spec before build.
 2. Friend's OpenAI API credit decision (only if lanes 1-2 prove insufficient).
 3. Bot display names: Desk / Compass / Studio are working names; friend can
    rename at onboarding.
