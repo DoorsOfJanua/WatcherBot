@@ -239,12 +239,38 @@ is a clone with a fresh Brain.
     Accessibility + Screen Recording TCC grants for host control. Runbook
     covers it; real fix is notarizing with a Developer ID.
 
+## Live verification (2026-08-25, on Janua's instance)
+
+- **Pack provisioned live and idempotent**: 3 bots (correct cwd = shared
+  brain, computer off, correct engines/models, no auto-approve), room "The
+  Team" (3 members), 6 routines with valid schedules (created PAUSED via
+  PACK_ROUTINES_ENABLED=0), brain seeded once and never re-clobbered on
+  re-run. AgentPacks repo: packs/creative-pro @ c4639c2.
+- **Finding 9 RESOLVED for pack bots**: live Desk turn used the claude.ai
+  Gmail connector from inside the app's claude subprocess and read the real
+  inbox (201 unread, newest subject returned). Pack bots mount no injected
+  MCP → no --allowedTools narrowing → connectors available. The narrowing
+  risk remains only for bots that DO mount injected MCP servers.
+- **Compass smoke turn**: persona loads, sees all five brain files through
+  the shared cwd.
+- **Routine attendance class verified in code**: markUnattended fires only
+  for webhook turns (server/index.ts:1595); scheduled routines keep
+  policy-read auto-approval (auto-approve.ts:306-311), so the 3x/day cycle
+  triages unattended and only outward actions card. Design holds.
+- Not yet verified: a full scheduled Desk cycle end to end, morning briefing
+  run, in-app Higgsfield generation (blocked on the user-skills-root feature
+  in the skill-library v2 build — the app cannot load pack skills yet).
+
 ## Open items
 
 1. ~~Reconciliation pass~~ DONE 2026-08-25, findings above.
-2. Empirical connector test (finding 9) on Janua's instance before install.
+2. ~~Empirical connector test (finding 9)~~ DONE, see live verification.
 3. Other window: commit the routine precheck/model-override/task-funnel work
    (finding 2) after fixing its 4 review findings.
+4. Build skill library v2 + tool selector per
+   2026-08-25-skill-library-tool-selector-impl.md (spec-ready).
+5. Full end-to-end pack test (Desk cycle, briefing, Higgsfield) once 3+4
+   land.
 2. Friend's OpenAI API credit decision (only if lanes 1-2 prove insufficient).
 3. Bot display names: Desk / Compass / Studio are working names; friend can
    rename at onboarding.
