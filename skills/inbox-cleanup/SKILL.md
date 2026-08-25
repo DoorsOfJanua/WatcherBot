@@ -52,6 +52,12 @@ requires Janua's explicit approval of that exact plan.
   registry, OAuth token metadata, and provider behavior disagree, report a
   connector-routing or scope contradiction—not a missing mailbox—and preserve
   the frozen cleanup plan until the correct route is available.
+- **Janua canonical routing:** use `/Users/janua/Documents/LifeOS` (the active
+  iCloud LifeOS Limen vault) for live Gmail. `doorsofjanua@gmail.com` is the
+  Doors mailbox and its verified current grant includes `gmail.modify` and
+  `gmail.send`. `/Users/janua/LimenOS Vault` is a retired schema-v1 store and
+  must never be selected by a live service. `nils.palmen@gmail.com` is a
+  separate mailbox and must never substitute for Doors.
 - Never send mail, empty Spam/Trash, delete permanently, change permissions, or
   act on an unapproved item.
 - Do not treat an empty search as proof that a category is absent. Report the
