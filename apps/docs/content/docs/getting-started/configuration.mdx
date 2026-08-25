@@ -6,6 +6,15 @@ icon: Settings
 
 Most users configure WatcherBot Room from the app. The packaged desktop validates credentials before saving them and stores supported secrets with the operating system's secure storage.
 
+## Limen vault and connected accounts
+
+For memory, projects, and mail to stay coherent, choose one canonical Limen
+vault in **Settings → Brain** before connecting agents. The setup check shows
+the active path and refuses to silently use a second or stale vault. Then connect
+providers one at a time and verify the exact account plus its separate read,
+change, and send capabilities. See [Set up your Limen vault](./limen-vault.mdx)
+for the full flow.
+
 ## Engine discovery
 
 WatcherBot Room checks the inherited process path, common install locations, and the login shell. If an engine is installed somewhere unusual, open **Settings → Engines** and choose its executable explicitly.
@@ -21,7 +30,7 @@ Explicit paths are useful when you:
 
 | Credential | Enables |
 |---|---|
-| Composio project key | Connected apps and OAuth sessions |
+| Connected-app credentials | Connected apps and OAuth sessions |
 | Box API key | Hosted Linux computers |
 | ElevenLabs API key | Spoken replies and voice mode |
 | OpenCode Go API key | OpenCode Go engine |
