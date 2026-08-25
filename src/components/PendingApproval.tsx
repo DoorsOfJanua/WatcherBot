@@ -55,7 +55,7 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
   const explanation = approvalExplanation(pending.tool, pending.detail);
   const provider = pending.tool === "email.send" ? mailProviderFromDetail(pending.detail) : undefined;
   return (
-    <div className="rounded-t-2xl border-b border-hairline/50 bg-card px-4 py-3.5 sm:px-5">
+    <div className="rounded-t-2xl border-b border-accent/15 bg-gradient-to-br from-card via-card to-accent/[0.04] px-4 py-4 sm:px-6 sm:py-5">
       <div className="flex items-start gap-3">
         {provider ? <ProviderMark provider={provider} className="mt-0.5 size-9" /> : <span className={cn("mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl", explanation.sensitive ? "bg-warning/12 text-warning" : "bg-accent/12 text-accent")}><span className="text-[16px]">{explanation.sensitive ? "!" : "?"}</span></span>}
         <div className="min-w-0 flex-1">
@@ -67,10 +67,10 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
               </span>
             )}
           </div>
-          <div className="mt-1 text-[15px] font-semibold leading-snug text-ink">
+          <div className="mt-1 text-[16px] font-semibold leading-snug tracking-[-0.01em] text-ink">
             {bot?.name ? `${bot.name} wants to ` : "The agent wants to "}{explanation.what}
           </div>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-ink-secondary">{explanation.note}</p>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-secondary">{explanation.note}</p>
         </div>
         <DevModeToggle className="shrink-0" />
       </div>
@@ -83,7 +83,7 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
           </pre>
         </>
       ) : null}
-      {pending.held && <div className="mt-3 rounded-xl border border-warning/25 bg-warning/8 px-3 py-2 text-[12px] leading-relaxed text-warning">Paused for your approval because this may touch sensitive data or make a change.</div>}
+      {pending.held && <div className="mt-3 flex items-start gap-2 rounded-xl border border-warning/25 bg-warning/8 px-3 py-2.5 text-[12px] leading-relaxed text-warning"><span aria-hidden="true">⚠</span><span>{pending.held}</span></div>}
     </div>
   );
 });
@@ -112,9 +112,9 @@ export function PendingApprovalActions({
       alwaysAllow: always && bot && pending.allowKey ? { botId: bot.id, key: pending.allowKey } : undefined,
     });
 
-  const base = "rounded-full px-3.5 py-1.5 text-[13.5px] transition-colors";
+  const base = "min-h-10 rounded-xl px-4 text-[13px] font-medium transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-hairline/30 bg-raised/25 px-4 py-3 sm:px-5">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-hairline/30 bg-raised/20 px-4 py-3.5 sm:px-6">
       {!exactEmail && (
         <button onClick={onCancelTurn} className={cn(base, "mr-auto text-ink-secondary hover:bg-raised hover:text-ink")}>
           Stop this task
@@ -123,7 +123,7 @@ export function PendingApprovalActions({
       <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
         <button
           onClick={() => decide("deny")}
-          className={cn(base, "border border-danger/30 bg-danger/5 text-danger hover:bg-danger/10")}
+          className={cn(base, "border border-danger/30 bg-danger/8 text-danger hover:border-danger/50 hover:bg-danger/15")}
         >
           {exactEmail ? "Don’t send" : "Deny"}
         </button>
@@ -131,14 +131,14 @@ export function PendingApprovalActions({
         <button
           onClick={() => decide("allow", true)}
           title={`Stop asking ${bot.name} about ${pending.allowKey}`}
-          className={cn(base, "border border-hairline/50 text-ink hover:bg-raised")}
+          className={cn(base, "border border-hairline/60 bg-card text-ink-secondary hover:border-accent/40 hover:text-ink")}
         >
           Always allow
         </button>
       )}
       <button
         onClick={() => decide("allow")}
-        className={cn(base, "bg-accent font-medium text-white hover:brightness-110")}
+        className={cn(base, "bg-accent text-white shadow-sm shadow-accent/20 hover:-translate-y-px hover:brightness-110")}
       >
         {exactEmail ? "Approve & send" : "Allow once"}
       </button>

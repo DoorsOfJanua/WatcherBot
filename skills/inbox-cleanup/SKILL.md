@@ -11,6 +11,23 @@ requires Janua's explicit approval of that exact plan.
 
 ## Contract
 
+- **Known-account continuity:** A mailbox previously verified through stable
+  handles or successful provider actions remains a known mailbox. A failed,
+  empty, stale, or differently routed connector check is evidence about that
+  check only; it must never be reported as the mailbox being missing,
+  disconnected, erased, or historically inaccessible.
+- Track account capabilities independently: `canRead`, `canModify`, and
+  `canSend`. Do not infer one from another. When a capability report conflicts
+  with an OAuth scope, provider response, or successful historical action,
+  preserve both facts, name the contradiction precisely, and test only the
+  requested capability against the exact account. Do not silently downgrade
+  the canonical capability record.
+- Verify the exact account before every mutation. A generic Gmail connector
+  authenticated as another address must never substitute for the requested
+  mailbox. For Janua's workspace, `doorsofjanua@gmail.com` and
+  `nils.palmen@gmail.com` are distinct accounts even when both contain related
+  project mail.
+
 - **Phase 1 — inspect and freeze:** Search connected Gmail or Proton mail using
   the local bridge. Classify messages, protect exclusions, and freeze the exact
   account, query, message/thread IDs, action, and expected count. Do not change
@@ -30,6 +47,11 @@ requires Janua's explicit approval of that exact plan.
   for a password or one-time code in chat. Continue with the same frozen plan
   only after the browser session is visibly authenticated and the account
   identity is verified.
+- Resolve the active Limen vault from current runtime/configuration. Do not
+  reuse a stale vault path from an earlier session. If the live vault, connector
+  registry, OAuth token metadata, and provider behavior disagree, report a
+  connector-routing or scope contradiction—not a missing mailbox—and preserve
+  the frozen cleanup plan until the correct route is available.
 - Never send mail, empty Spam/Trash, delete permanently, change permissions, or
   act on an unapproved item.
 - Do not treat an empty search as proof that a category is absent. Report the
