@@ -9,7 +9,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, Loader2, Mail, Pencil, ShieldCheck, Sparkles, X } from "lucide-react";
 import { api, type Bot, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
-import { approvalAsk } from "../../shared/tool-label";
+import { approvalExplanation } from "../../shared/tool-label";
+import { mailProviderFromDetail, ProviderMark } from "./ProviderMark";
 import { useDevMode } from "@/lib/display-mode";
 import { DevModeToggle } from "./DevModeToggle";
 
@@ -194,20 +195,24 @@ export function ApprovalCard({
   const settled = card.answered;
   const exactEmail = card.tool === "email.send";
   const revisableEmail = exactEmail && Boolean(card.requestId) && settled !== "allow" && settled !== "failed";
-  const ask = approvalAsk(card.tool, card.subtitle);
+  const explanation = approvalExplanation(card.tool, card.subtitle);
+  const provider = exactEmail ? mailProviderFromDetail(card.subtitle) : undefined;
 
   return (
     <div
       className={cn(
-        "w-full max-w-[840px] rounded-2xl border bg-card p-3.5",
+        "w-full max-w-[840px] rounded-3xl border bg-card p-4 sm:p-5",
         settled && !revisableEmail ? "border-hairline/30 opacity-70" : "border-accent/40",
       )}
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0 text-[14px] font-semibold text-ink">
-          {bot ? `${bot.name} wants to ` : "Wants to "}
-          {ask.ask}
-          {ask.gist && <span className="font-normal text-ink-secondary"> · {ask.gist}</span>}
+      <div className="flex items-start gap-3">
+        {provider ? <ProviderMark provider={provider} /> : <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-[10px] text-[14px] font-semibold", explanation.sensitive ? "bg-warning/12 text-warning" : "bg-accent/12 text-accent")}>{explanation.sensitive ? "!" : "?"}</span>}
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-secondary">{provider === "gmail" ? "Gmail" : provider === "proton-bridge" ? "Proton Mail" : "Approval needed"}</div>
+          <div className="mt-1 text-[15px] font-semibold leading-snug text-ink">
+            {bot ? `${bot.name} wants to ` : "The agent wants to "}{explanation.what}
+          </div>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-ink-secondary">{explanation.note}</p>
         </div>
         <DevModeToggle />
       </div>

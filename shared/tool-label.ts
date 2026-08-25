@@ -150,6 +150,14 @@ export interface ApprovalAsk {
   gist?: string;
 }
 
+export interface ApprovalExplanation {
+  /** The plain-language action shown as the main decision. */
+  what: string;
+  /** A short reason/risk note, never raw command text. */
+  note: string;
+  sensitive: boolean;
+}
+
 /** Chip labels whose word-by-word rewrite would read badly. */
 const ASK_OVERRIDES: Record<string, string> = {
   "Installed or checked a package": "install or check a package",
@@ -254,4 +262,30 @@ export function approvalAsk(tool: string | undefined, summary: string): Approval
   // no tool name at all — fall back to reading the summary as a command
   if (/\s/.test(text)) return commandAsk(text);
   return { ask: "do something" };
+}
+
+/** Translate especially opaque local commands into a useful human decision.
+ * This is deliberately deterministic and contains no secrets or model call. */
+export function approvalExplanation(tool: string | undefined, summary: string): ApprovalExplanation {
+  const text = summary.trim();
+  if (/\bsecurity\s+(find-generic-password|dump-keychain)\b/i.test(text)) {
+    return {
+      what: /dump-keychain/i.test(text) ? "inspect saved entries in your Mac keychain" : "check a saved connection on your Mac",
+      note: "This can read sensitive login information, so WatcherBotRoom is asking before it continues.",
+      sensitive: true,
+    };
+  }
+  if (tool === "email.send") {
+    return {
+      what: "send the exact email shown",
+      note: "Nothing is sent until you approve this exact copy.",
+      sensitive: true,
+    };
+  }
+  const ask = approvalAsk(tool, summary);
+  return {
+    what: [ask.ask, ask.gist].filter(Boolean).join(" · "),
+    note: "This action is paused until you choose what should happen.",
+    sensitive: false,
+  };
 }

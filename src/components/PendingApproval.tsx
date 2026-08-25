@@ -11,7 +11,8 @@
 import { memo } from "react";
 import { useStore, type Bot, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
-import { approvalAsk } from "../../shared/tool-label";
+import { approvalExplanation } from "../../shared/tool-label";
+import { mailProviderFromDetail, ProviderMark } from "./ProviderMark";
 import { useDevMode } from "@/lib/display-mode";
 import { DevModeToggle } from "./DevModeToggle";
 
@@ -43,27 +44,35 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
   pending,
   count,
   index,
+  bot,
 }: {
   pending: Pending;
   count: number;
   index: number;
+  bot?: Bot;
 }) {
   const dev = useDevMode();
-  const ask = approvalAsk(pending.tool, pending.detail);
+  const explanation = approvalExplanation(pending.tool, pending.detail);
+  const provider = pending.tool === "email.send" ? mailProviderFromDetail(pending.detail) : undefined;
   return (
-    <div className="rounded-t-2xl border-b border-hairline/50 bg-raised/40 px-4 py-2.5">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] uppercase tracking-[0.18em] text-ink-secondary">Approval</span>
-        {count > 1 && (
-          <span className="rounded-full bg-raised px-1.5 py-0.5 text-[11px] tabular-nums text-ink-secondary">
-            {index + 1} of {count}
-          </span>
-        )}
-        <span className="text-[13.5px] text-ink">
-          Asking to <span className="font-medium">{ask.ask}</span>
-          {ask.gist && <span className="text-ink-secondary"> · {ask.gist}</span>}
-        </span>
-        <DevModeToggle className="ml-auto" />
+    <div className="rounded-t-2xl border-b border-hairline/50 bg-card px-4 py-3.5 sm:px-5">
+      <div className="flex items-start gap-3">
+        {provider ? <ProviderMark provider={provider} className="mt-0.5 size-9" /> : <span className={cn("mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl", explanation.sensitive ? "bg-warning/12 text-warning" : "bg-accent/12 text-accent")}><span className="text-[16px]">{explanation.sensitive ? "!" : "?"}</span></span>}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-secondary">{provider === "gmail" ? "Gmail" : provider === "proton-bridge" ? "Proton Mail" : "Your decision"}</span>
+            {count > 1 && (
+              <span className="rounded-full bg-raised px-1.5 py-0.5 text-[11px] tabular-nums text-ink-secondary">
+                {index + 1} of {count}
+              </span>
+            )}
+          </div>
+          <div className="mt-1 text-[15px] font-semibold leading-snug text-ink">
+            {bot?.name ? `${bot.name} wants to ` : "The agent wants to "}{explanation.what}
+          </div>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-ink-secondary">{explanation.note}</p>
+        </div>
+        <DevModeToggle className="shrink-0" />
       </div>
       {dev ? (
         <>
@@ -73,14 +82,8 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
             {pending.detail}
           </pre>
         </>
-      ) : (
-        pending.detail && (
-          <div className="mt-1.5 truncate font-mono text-[11px] text-ink-secondary/80" title={pending.detail}>
-            {pending.detail}
-          </div>
-        )
-      )}
-      {pending.held && <div className="mt-2 text-[12px] text-warning">{pending.held}</div>}
+      ) : null}
+      {pending.held && <div className="mt-3 rounded-xl border border-warning/25 bg-warning/8 px-3 py-2 text-[12px] leading-relaxed text-warning">Paused for your approval because this may touch sensitive data or make a change.</div>}
     </div>
   );
 });
@@ -111,18 +114,19 @@ export function PendingApprovalActions({
 
   const base = "rounded-full px-3.5 py-1.5 text-[13.5px] transition-colors";
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2 px-2 py-2">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-hairline/30 bg-raised/25 px-4 py-3 sm:px-5">
       {!exactEmail && (
-        <button onClick={onCancelTurn} className={cn(base, "text-ink-secondary hover:bg-raised hover:text-ink")}>
-          Cancel turn
+        <button onClick={onCancelTurn} className={cn(base, "mr-auto text-ink-secondary hover:bg-raised hover:text-ink")}>
+          Stop this task
         </button>
       )}
-      <button
-        onClick={() => decide("deny")}
-        className={cn(base, "border border-danger/40 text-danger hover:bg-danger/10")}
-      >
-        {exactEmail ? "Don't send" : "Deny"}
-      </button>
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+        <button
+          onClick={() => decide("deny")}
+          className={cn(base, "border border-danger/30 bg-danger/5 text-danger hover:bg-danger/10")}
+        >
+          {exactEmail ? "Don’t send" : "Deny"}
+        </button>
       {bot && pending.allowKey && (
         <button
           onClick={() => decide("allow", true)}
@@ -136,8 +140,9 @@ export function PendingApprovalActions({
         onClick={() => decide("allow")}
         className={cn(base, "bg-accent font-medium text-white hover:brightness-110")}
       >
-        {exactEmail ? "Approve & send exact email" : "Allow once"}
+        {exactEmail ? "Approve & send" : "Allow once"}
       </button>
+      </div>
     </div>
   );
 }

@@ -579,35 +579,6 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
 
           <ContactChannels bot={bot} onPatch={patch} />
 
-          <div className="rounded-xl bg-card p-4">
-            <div className="text-[15px] font-medium text-ink">Response style</div>
-            <div className="mt-0.5 text-[13px] text-ink-secondary">
-              How this bot speaks in everyday conversation.
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {RESPONSE_MODE_OPTIONS.map((option) => {
-                const selected = (bot.responseMode ?? "teammate") === option.id;
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() => patch({ responseMode: option.id })}
-                    className={cn(
-                      "rounded-lg border px-3 py-2 text-left transition-colors",
-                      selected
-                        ? "border-accent/50 bg-accent/10 text-ink"
-                        : "border-hairline/40 text-ink-secondary hover:bg-raised hover:text-ink",
-                    )}
-                  >
-                    <div className="text-[13px] font-medium">{option.label}</div>
-                    <div className="mt-0.5 text-[11.5px] leading-snug text-ink-secondary">{option.description}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
           <div className={cn(
             "rounded-xl border p-4",
             bot.chiefOfStaff ? "border-accent/40 bg-accent/10" : "border-hairline/40 bg-card",
@@ -730,14 +701,27 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
             </button>
           </div>
 
-          <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
-            <div>
-              <div className="text-[15px] font-medium text-ink">Model</div>
-              <div className="mt-0.5 text-[13px] text-ink-secondary">
-                Which provider and model this bot runs on
-              </div>
+          <div className="flex items-center gap-2 rounded-xl bg-card p-2.5">
+            <div className="min-w-0 flex-1">
+              <div className="px-1 text-[11px] uppercase tracking-wide text-ink-secondary">Model</div>
+              <ModelPicker bot={bot} className="mt-0.5 max-w-full" />
             </div>
-            <ModelPicker bot={bot} />
+            <div className="min-w-0 flex-1">
+              <label htmlFor={`response-mode-${bot.id}`} className="px-1 text-[11px] uppercase tracking-wide text-ink-secondary">
+                Style
+              </label>
+              <select
+                id={`response-mode-${bot.id}`}
+                aria-label="Response style"
+                value={bot.responseMode ?? "teammate"}
+                onChange={(event) => patch({ responseMode: event.target.value as Bot["responseMode"] })}
+                className="mt-0.5 w-full rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1.5 text-[13px] text-ink outline-none hover:bg-raised focus:border-accent/60"
+              >
+                {RESPONSE_MODE_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>{option.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {!!engine?.capabilities?.effortLevels?.length && (

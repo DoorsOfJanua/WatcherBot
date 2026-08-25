@@ -1,0 +1,17 @@
+{
+  "id": "inbox-cleanup",
+  "name": "Inbox Cleanup",
+  "version": "0.1.0",
+  "description": "Inspect a connected inbox, classify messages, and propose a safe cleanup plan without changing mail.",
+  "defaultEnabled": true,
+  "triggerTerms": [
+    "clean my inbox",
+    "inbox cleanup",
+    "clean up email",
+    "organize my inbox",
+    "newsletter cleanup",
+    "unsubscribe",
+    "bulk email"
+  ],
+  "requiredCapabilities": []
+}

@@ -60,6 +60,7 @@ import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-
 import { workingPhrase } from "@/lib/work-language";
 import { useDevMode } from "@/lib/display-mode";
 import { DevModeToggle } from "./DevModeToggle";
+import { publicBotDescription } from "../../shared/bot-profile";
 import {
   TRANSCRIPT_WINDOW_SIZE,
   expandWindowStart,
@@ -758,7 +759,7 @@ const MessagesList = memo(function MessagesList({
             inputClassName="rounded bg-inset px-1.5 py-0.5 text-center text-[17px] font-semibold"
           />
           <div className="max-w-[360px] text-[14px] text-ink-secondary">
-            {bot.description || "Send a message to start the conversation."}
+            {publicBotDescription(bot.name, bot.title, bot.description)}
           </div>
         </div>
       )}

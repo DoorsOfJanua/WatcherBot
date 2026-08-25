@@ -12,6 +12,24 @@ export const BOT_PROFILE_LIMITS = {
   sharedMemoryId: 64,
 } as const;
 
+/** Short public role copy for the room. Full descriptions are private
+ * operating instructions and must never be dumped into a conversation. */
+export function publicBotDescription(name: string, title?: string, description?: string): string {
+  const key = `${name} ${title ?? ""}`.toLowerCase();
+  if (key.includes("studio")) return "Your creative copilot for images, video, visual direction, and style.";
+  if (key.includes("desk") || key.includes("mail")) return "Your calm inbox and calendar operator.";
+  if (key.includes("sensei")) return "A fierce training partner for strength, discipline, and follow-through.";
+  if (key.includes("poppy")) return "Your practical planner for turning intentions into a day that works.";
+  if (key.includes("sniper")) return "A sharp market observer for paper-only research and signals.";
+  if (key.includes("watcher")) return "The room’s vigilant coordinator and systems guardian.";
+  if (key.includes("ganga")) return "Your story and source-material studio for the Ganga project.";
+  if (key.includes("signal")) return "An evidence-focused analyst who compares, checks, and clarifies.";
+  if (key.includes("forge")) return "A builder who turns approved plans into working systems.";
+  const first = description?.match(/IDENTITY:\s*([\s\S]*?)(?=\n\s*(?:OWNS|GOOD LOOKS LIKE|BOUNDARY|WHEN UNSURE|LOG):|$)/i)?.[1]
+    ?.replace(/\s+/g, " ").trim();
+  return first || title || "A specialist on your personal agent team.";
+}
+
 export type BotContactField = "email" | "phone" | "whatsapp";
 
 export type BotContactResult =
