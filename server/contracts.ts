@@ -100,7 +100,12 @@ export type RuntimeEvent = RuntimeEventBase &
       }
     | { type: "item.started"; itemType: "tool" | "reasoning"; title?: string }
     | { type: "item.updated"; itemType: "tool" | "reasoning"; tokens?: number | null }
-    | { type: "item.completed"; itemType: "tool"; ok: boolean }
+    // `images` carries pixels a tool actually returned, base64, in the order
+    // the tool sent them. A tool that shows something (a rendered Instagram
+    // slide, a chart, a diff image) is otherwise invisible to the person
+    // reading the thread: the agent sees the picture and can only describe
+    // it. Optional and usually absent; the harness caps how many it keeps.
+    | { type: "item.completed"; itemType: "tool"; ok: boolean; images?: Array<{ data: string; mime: string }> }
     | { type: "item.completed"; itemType: "assistant_text"; text: string }
     | { type: "content.delta"; streamKind: "assistant_text" | "reasoning_text"; delta: string }
     | {

@@ -436,6 +436,34 @@ function decodeConfig(raw: unknown): ClaudeConfig {
   };
 }
 
+/** How many images one tool call may put in the thread. A tool that returns a
+ * batch (a review of several drafts) is useful; a tool that floods the
+ * transcript is not, and every one of these is base64 in the message store. */
+const MAX_TOOL_IMAGES = 8;
+
+/**
+ * The image blocks an MCP tool actually returned, if any. Anthropic's
+ * tool_result content is either a string or a block array; only base64 image
+ * blocks are taken, and a malformed one is skipped rather than throwing —
+ * a bad picture must never fail the turn that produced it.
+ */
+function toolResultImages(content: unknown): Array<{ data: string; mime: string }> | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const images: Array<{ data: string; mime: string }> = [];
+  for (const block of content) {
+    if (images.length >= MAX_TOOL_IMAGES) break;
+    if (block?.type !== "image") continue;
+    const source = block.source;
+    if (source?.type !== "base64" || typeof source.data !== "string" || !source.data) continue;
+    images.push({ data: source.data, mime: typeof source.media_type === "string" ? source.media_type : "image/png" });
+  }
+  return images.length ? images : undefined;
+}
+
+/** Test surface. The extraction is worth testing directly: it runs inside the
+ * driver's event loop, where a throw would take the turn with it. */
+export const __testing = { toolResultImages, MAX_TOOL_IMAGES };
+
 function firstText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -864,7 +892,14 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           case "user":
             for (const b of Array.isArray(o.message?.content) ? o.message.content : []) {
               if (b.type === "tool_result") {
-                emit({ ...base(threadId, currentTurnId()), type: "item.completed", itemType: "tool", itemId: b.tool_use_id, ok: !b.is_error });
+                emit({
+                  ...base(threadId, currentTurnId()),
+                  type: "item.completed",
+                  itemType: "tool",
+                  itemId: b.tool_use_id,
+                  ok: !b.is_error,
+                  images: toolResultImages(b.content),
+                });
               }
             }
             break;

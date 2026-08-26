@@ -1028,6 +1028,14 @@ bus.subscribe((event: RuntimeEvent) => {
         // just that something ended
         lastReply.set(event.threadId, event.text);
       } else if (event.itemType === "tool" && event.itemId) {
+        // Pixels a tool returned become inline screen messages, the same kind
+        // a computer-use frame produces, so every client that can already
+        // show a screenshot in chat shows these with no change. Without this
+        // the agent is the only one who sees them: it can look at a rendered
+        // Instagram slide and can only tell you about it in words.
+        for (const image of event.images ?? []) {
+          pushMessage({ role: "bot", kind: "screen", png: image.data, mime: image.mime });
+        }
         const itemKey = `${event.threadId}:${event.itemId}`;
         const messageId = toolMessageByItem.get(itemKey);
         let toolName = "tool";
