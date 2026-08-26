@@ -96,6 +96,15 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "PUT", path: /^\/api\/mail-actions\/[\w-]+\/draft$/ },
   { method: "GET", path: /^\/api\/search$/ },
 
+  // Ganga Studio review and approval. Three routes and no more: read what is
+  // waiting, fetch one render to look at, approve. Studio's own arming,
+  // scheduling and publishing routes are NOT proxied by the harness at all,
+  // so there is nothing here for a lost phone to reach even if it tried the
+  // paths directly. Approval re-verifies the render hash inside Studio.
+  { method: "GET", path: /^\/api\/studio\/review$/ },
+  { method: "GET", path: /^\/api\/studio\/render\/[\w-]+\/[\w.-]+$/ },
+  { method: "POST", path: /^\/api\/studio\/approve$/ },
+
   // App-owned profile images. Upload is image-only and capped at 10 MB by
   // the harness; GET is a single bare generated filename, never a path.
   { method: "POST", path: /^\/api\/attachments$/ },

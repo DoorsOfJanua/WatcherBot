@@ -78,6 +78,9 @@ describe("what the app may do", () => {
     ["GET", "/api/connectors/connected"],
     ["GET", "/api/connectors"],
     ["POST", "/api/connectors/slack/authorize"],
+    ["GET", "/api/studio/review"],
+    ["GET", "/api/studio/render/9d242d7a-637f/slide-01.png"],
+    ["POST", "/api/studio/approve"],
   ];
 
   for (const [method, path] of calls) {
@@ -102,6 +105,27 @@ describe("what it may not", () => {
       expect(denial?.status, `${method} ${path}`).toBe(403);
       expect(denial?.error, `${method} ${path}`).toMatch(/on your computer/);
     }
+  });
+
+  it("gives the phone review and approval in Studio, and nothing that publishes", () => {
+    // Approving is a human decision and belongs on the phone. Arming and
+    // publishing are not, and the harness does not proxy them at all, so
+    // these are denied here as well as absent upstream. Two locks, because
+    // the cost of this one being wrong is a post going out unreviewed.
+    for (const [method, path] of [
+      ["POST", "/api/studio/arm"],
+      ["POST", "/api/studio/publish"],
+      ["POST", "/api/workspaces/ganga-mira/arm"],
+      ["POST", "/api/posts/abc/schedule"],
+      ["GET", "/api/studio/settings"],
+    ] as Array<[string, string]>) {
+      expect(ask(method, path), `${method} ${path}`).not.toBeNull();
+    }
+    // A render path is one post id and one bare filename. Anything with a
+    // traversal in it fails the pattern and is denied rather than forwarded.
+    expect(ask("GET", "/api/studio/render/../../etc/passwd")).not.toBeNull();
+    expect(ask("GET", "/api/studio/render/abc/../../../secret")).not.toBeNull();
+    expect(ask("DELETE", "/api/studio/review")).not.toBeNull();
   });
 
   it("describes only refused routine operations as computer-only", () => {

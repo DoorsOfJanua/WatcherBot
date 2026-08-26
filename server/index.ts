@@ -14,6 +14,7 @@ import { botMessageSharesDocument, isLocalDocumentPath } from "../shared/shared-
 
 import { approvalKey, autoVerdict } from "./auto-approve.ts";
 import { ActionReceiptError, ActionReceiptStore } from "./action-receipts.ts";
+import { studioBotMatches, studioConfigured, studioFetch, studioIntegration, studioRender } from "./studio.ts";
 import { januaMailGatewayConfig, MailActionCoordinator, MailActionStore, mailDraftPreview, PythonMailGateway } from "./mail-actions.ts";
 import { appendDecision, readDecisions } from "./decision-log.ts";
 import { validateBotCwd } from "./bot-cwd.ts";
@@ -1746,6 +1747,12 @@ async function startTurn(
       if (localCalendarConfigured() && /calendar|schedul/i.test(`${bot.name} ${bot.title} ${bot.description}`)) {
         integrations.calendar = localCalendarIntegration();
       }
+      // Ganga Studio's watcher tools, for a content/Instagram specialist. The
+      // bridge can shape drafts and Series and cannot approve, schedule, arm
+      // or publish: that boundary lives in Studio's own tool registry.
+      if (studioConfigured() && studioBotMatches(bot)) {
+        integrations.gangaStudio = studioIntegration();
+      }
       // CLI engines work inside the bot's own workspace directory rather
       // than the user's home: a bot with file tools and acceptEdits gets a
       // desk, not the whole house — and the workspace is where its
@@ -2271,6 +2278,9 @@ async function runGroupMemberTurn(
     }
     if (localCalendarConfigured() && /calendar|schedul/i.test(`${bot.name} ${bot.title} ${bot.description}`)) {
       integrations.calendar = localCalendarIntegration();
+    }
+    if (studioConfigured() && studioBotMatches(bot)) {
+      integrations.gangaStudio = studioIntegration();
     }
   } catch (error) {
     store.appendMessage(group.threadId, {
@@ -4746,6 +4756,60 @@ const server = createServer(async (req, res) => {
         return json(res, 400, { error: "limit must be a positive whole number" });
       }
       return json(res, 200, { decisions: readDecisions(DATA_DIR, parsedLimit ?? 200) });
+    }
+
+    // ── Ganga Studio: review from the phone, approve from the phone ────
+    // Studio binds loopback and has no auth of its own, so this server is the
+    // only caller it ever has. The device authenticated to the companion; the
+    // companion forwarded here; we speak to Studio as this machine. Nothing
+    // below can arm or publish: Studio's publishing worker is a separate,
+    // separately armed thing, and approval still re-verifies the render hash
+    // inside Studio at dispatch.
+    if (method === "GET" && path === "/api/studio/review") {
+      try {
+        const workspace = url.searchParams.get("workspace") || "ganga-mira";
+        const limit = url.searchParams.get("limit") || "8";
+        const result = await studioFetch(
+          `/api/workspaces/${encodeURIComponent(workspace)}/review-batch?limit=${encodeURIComponent(limit)}`,
+        );
+        return json(res, result.status, result.body as Record<string, unknown>);
+      } catch (error) {
+        return json(res, 503, { error: error instanceof Error ? error.message : "Studio is unavailable" });
+      }
+    }
+    m = path.match(/^\/api\/studio\/render\/([\w-]+)\/([\w.-]+)$/);
+    if (m && method === "GET") {
+      const render = await studioRender(`${m[1]}/${m[2]}`);
+      if (!render) return json(res, 404, { error: "no such render" });
+      res.writeHead(200, { "content-type": render.contentType, "cache-control": "private, max-age=300" });
+      return res.end(render.bytes);
+    }
+    if (method === "POST" && path === "/api/studio/approve") {
+      try {
+        const body = await readBody(req);
+        const workspace = typeof body?.workspace === "string" ? body.workspace : "ganga-mira";
+        const ids: string[] = Array.isArray(body?.postIds) ? body.postIds.filter((id: unknown) => typeof id === "string") : [];
+        // No ids means "everything that is ready", which is the scan-and-bulk
+        // -approve gesture. Studio's approveRenderedDrafts skips whatever is
+        // not approvable and reports it, rather than forcing anything through.
+        if (!ids.length) {
+          const result = await studioFetch(`/api/workspaces/${encodeURIComponent(workspace)}/approve-rendered`, { method: "POST" });
+          return json(res, result.status, result.body as Record<string, unknown>);
+        }
+        const approved: string[] = [];
+        const skipped: Array<{ id: string; reason: string }> = [];
+        for (const id of ids) {
+          const result = await studioFetch(`/api/posts/${encodeURIComponent(id)}/approve`, { method: "POST" });
+          if (result.status >= 200 && result.status < 300) approved.push(id);
+          else {
+            const detail = result.body as { error?: string } | null;
+            skipped.push({ id, reason: detail?.error || `Studio returned ${result.status}` });
+          }
+        }
+        return json(res, 200, { result: { approved: approved.length, approvedIds: approved, skipped } });
+      } catch (error) {
+        return json(res, 503, { error: error instanceof Error ? error.message : "Studio is unavailable" });
+      }
     }
 
     // ── exact external-action receipts ─────────────────────────────────

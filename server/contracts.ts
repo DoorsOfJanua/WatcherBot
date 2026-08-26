@@ -189,6 +189,11 @@ export interface SendTurnInput {
     /** dweb network daemon: an MCP proxy exposing dweb status, repo, and
      * opencode model access as tools. url is the dweb HTTP base. */
     dweb?: { url: string };
+    /** Ganga Studio's tool registry in `watcher` mode: read the queue, look at
+     * real rendered pixels, shape drafts and Series. It cannot approve,
+     * schedule, arm or publish, and that is enforced by Studio filtering its
+     * own registry rather than by anything said in a prompt. */
+    gangaStudio?: { command: string; args: string[]; env: Record<string, string> };
     /** Project MCP servers are mounted only for the specialist that owns the
      * project (Gemini/ReplyGuy, Ganga, or Sniper/MFI). */
     projectMcps?: Record<string, { command: string; args: string[]; env: Record<string, string> }>;
