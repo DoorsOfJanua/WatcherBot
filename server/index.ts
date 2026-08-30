@@ -2245,7 +2245,7 @@ async function startTurn(
         });
   }
   if (
-    !opts?.connectorContinuation &&
+    !opts?.cardContinuation &&
     opts?.automationSource === undefined &&
     !opts?.commsDepth
   ) {
