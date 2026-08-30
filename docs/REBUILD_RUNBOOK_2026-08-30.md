@@ -95,6 +95,23 @@ until the final gate passes and Janua approves the swap.
   NEVER point the rebuild at the live data dir before this gate is green.
 - **P10 Final**: full test suite, `pnpm package:mac`, launch packaged build on cloned data,
   then STOP and get Janua's go before replacing /Applications and pointing at live data.
+  **The swap is more than /Applications** (discovered 2026-08-30 split-brain incident): a
+  launchd stack runs the live SOURCE checkout 24/7 and is the brain the phone and Telegram
+  actually use: `com.watcherbot.server` (room API 8799, webhooks 8800, runs server/index.ts
+  from ~/Projects/MyAgentRoom, OMB_STATIC_DIR now points at the packaged app's ui/),
+  `com.watcherbot.companion` (*:8810 phone proxy -> 8799), telegram + telegram-worker
+  (~/Projects/AgentHQ/hq-telegram -> 8799), watchdog (health 8799). Swapping the branch
+  under ~/Projects/MyAgentRoom swaps THEIR code too: the P10 checklist must restart these
+  services, re-verify 8799 health + static UI, and re-check the phone against the new brain.
+- **P11 One brain: attach/remote mode + Hetzner** (ruled 2026-08-30, after the desktop app
+  and the launchd server ran as two brains on one data dir): the packaged desktop app spawns
+  its own server and deliberately refuses foreign pids (electron/main.mjs startServerPackaged,
+  8799->18799->28799 fallback). Post-rebuild, add attach mode: desktop app (and browser)
+  connect to an existing healthy server instead of forking a second one. Same mechanism then
+  points every surface at a Hetzner box (Janua has an account) for 24/7 mobile access with no
+  MacBook-sleep/NordVPN fragility. Compare upstream cd3221d "secure VPS parity + companion
+  uptime" FIRST; take theirs if it covers this. Until P11 ships, the desktop surface on the
+  Mac is the browser at http://localhost:8799, never the .app alongside the launchd stack.
 
 ## Fallback procedure (any time)
 1. `git checkout archive/pre-upstream-rebuild-2026-08-30` (or reset janua/myagent-room to ab098c0).
