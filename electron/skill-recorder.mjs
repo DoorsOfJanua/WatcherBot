@@ -32,7 +32,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE = path.join(__dirname, "resources", "recorder-helper.swift");
 const INFO = path.join(__dirname, "resources", "recorder-helper-Info.plist");
 const BUNDLE = app.isPackaged
-  ? path.join(process.resourcesPath, "OpenMausBot Recorder.app")
+  ? path.join(process.resourcesPath, "WatcherBot Recorder.app")
   : recorderHelperBundle;
 const BINARY = app.isPackaged
   ? path.join(BUNDLE, "Contents", "MacOS", "recorder-helper")
