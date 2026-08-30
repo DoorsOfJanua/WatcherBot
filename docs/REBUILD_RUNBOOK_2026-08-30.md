@@ -25,20 +25,6 @@ until the final gate passes and Janua approves the swap.
 - **P3 Single-instance lock**: check whether upstream added its own (grep main.mjs for
   requestSingleInstanceLock); if not, re-apply today's block from ab098c0.
   Gate: `open -n` second launch exits, window focuses.
-  **RULED 2026-08-30: upstream has its own, kept as-is, ab098c0's block NOT ported.**
-  Upstream extracted the policy into a unit-tested module (`electron/single-instance.mjs`
-  + `single-instance.node-test.mjs`, 5/5 green) used from both `open-url` and
-  `second-instance`; it restores-a-minimized/shows/focuses the right window and also
-  carries upstream's own package-install deep-link handling, which our fork's simpler
-  ab098c0 block didn't have. Per "upstream wins on core plumbing," kept theirs.
-  One behavior difference worth knowing: upstream's lock is unconditional (not gated
-  behind `app.isPackaged` the way ab098c0's was), so `electron .` in dev now collides
-  with a running packaged instance that shares the same app name/userData path (both
-  are `myagent-room` post-P1). Verified with a live two-instance test against an
-  isolated `--user-data-dir` (not the live app or its data): the second launch printed
-  `[desktop] OpenMausBot is already running — focusing that window` and exited, the
-  first instance's window (confirmed present via `osascript`) is the one left standing.
-  Use `--user-data-dir=<scratch path>` for dev runs alongside the packaged app.
 - **P4 Agent Spirits**: cherry-pick the spirit stack (aad6790, be6fb00, fc17c1e, 1fd05eb,
   6bbb515, 2871675, 484a3fd, 97012a0, 90b6dd1, 3afbc37, 5af71c2, plus spirit-persistence
   commits 1b3ab27, b95f40f, 8e939f7, 38121b4-adjacent UI). Self-contained src/ components.
@@ -49,6 +35,13 @@ until the final gate passes and Janua approves the swap.
 - **P6 Janua integrations**: GangaStudio mount + phone approve (eab3ad0), Limen onboarding
   docs (63ee99a, 6f38f9b, 8d411ad), Mailman draft revisions + style learning (38121b4).
   Gate: GangaStudio MCP mounts, Mailman drafts open.
+- **P6b UX layer sweep (committed commits not covered by P4-P6)**: agent attention beacon +
+  tray (9a4d2ad, b74adaa, f0d2feb), emoticon delight (0ba18ce, 091bba5), concise pre-work
+  acknowledgements (d569b8c), focused email draft editors (feb33f1), approval cards polish +
+  two-phase inbox cleanup + public profiles (a06fc53, 05ffbb0, cb8f10d), full-auto approvals +
+  convo decluttering (d7a7dbf), pixels-in-thread (0760625), SOTA inspector + role library UI
+  parts if not fully landed by P5. Gate: each commit either ported or recorded as superseded
+  with the upstream equivalent named.
 - **P7 iOS**: hardest zone, both sides moved. Take upstream's iOS base (multiple paired
   computers, new pairing). Port ONLY: dictation audio-timestamp anchoring (1a9282d, a3c83e8),
   spirit display, WatcherBot rename. Drop our pairing/reconnect work (superseded).
@@ -78,6 +71,24 @@ until the final gate passes and Janua approves the swap.
     without a model turn on unchanged content; a 2-item mission DAG runs with lease recovery;
     grep proves redactSecretsInText is applied to run output/error (this and turn.retrying were
     silent regressions in our fork that the upstream base fixes; assert they stay fixed).
+- **P8b Uncommitted-lane sweep (checkpoint diff 0760625..ab098c0, 7,021 lines beyond P8)**,
+  per-item disposition, compare-with-upstream FIRST for every item:
+  - **ReplyGuy** (server/replyguy.ts, ReplyDraftDeck, ReplyApprovalToggle, lib/reply-draft-deck):
+    OURS ONLY, port whole. This is a product feature (X reply workflow).
+  - **VM/computer lane** (server/container-computer.ts + electron/cua-macos-permissions +
+    cua.mjs changes + LocalComputerSection/MacLocalControl/ComputerPanel edits): upstream
+    shipped "secure VPS parity + companion uptime" (cd3221d) in the same window. Compare, then
+    Fable rules per piece; the working VM capability MUST survive (Janua uses it).
+  - **Delegations** (server/delegations.ts): collides with upstream's delegation ledger
+    (e73b250). Upstream wins; port only capabilities theirs lacks, named in the ruling.
+  - **auto-approve.ts changes**: compare against upstream auto-review.ts; upstream wins on
+    mechanism, port policy deltas only.
+  - **agents-proxy + claude driver changes**: compare hunk by hunk (upstream moved here too).
+  - **sidebar-preferences, attention.ts, chat-blocks, AutonomyPanel, capabilities.cjs,
+    contracts.ts, comms tests**: port ours where upstream has no equivalent.
+  - **Gate**: a disposition table in docs/ listing EVERY commit 89d25dd..ab098c0 and EVERY
+    file of the checkpoint diff with its fate (ported <commit> / superseded by <upstream ref> /
+    dropped with reason). No item may be silently absent; P10 cannot start without this table.
 - **P9 Data compatibility gate**: run the rebuilt app against CLONED data:
   `MYAGENT_ROOM_DATA_DIR=~/.myagent-room-backup-2026-08-30` + isolated userData.
   Verify: rooms, bots, threads, workspaces, memory files all load; no schema errors in logs.
