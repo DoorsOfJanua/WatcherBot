@@ -198,6 +198,9 @@ export interface SendTurnInput {
     /** dweb network daemon: an MCP proxy exposing dweb status, repo, and
      * opencode model access as tools. url is the dweb HTTP base. */
     dweb?: { url: string };
+    /** Specialist-owned stdio MCP servers. The harness chooses which bot
+     * receives each mount; drivers only transport the declared server. */
+    projectMcps?: Record<string, { command: string; args: string[]; env: Record<string, string> }>;
   };
   cwd?: string;
 }

@@ -157,6 +157,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         if (turn.integrations?.agents) {
           mountMcpServer(appServerArgs, env, "agents", turn.integrations.agents);
         }
+        for (const [name, server] of Object.entries(turn.integrations?.projectMcps ?? {})) {
+          mountMcpServer(appServerArgs, env, name, server);
+        }
         if (turn.integrations?.computer) {
           const proxyEnv = computerProxyEnv(turn.integrations.computer);
           mountMcpServer(appServerArgs, env, "computer", {

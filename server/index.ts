@@ -31,6 +31,7 @@ import {
 import * as checkpoints from "./checkpoints.ts";
 import { ActionReceiptError, ActionReceiptStore } from "./action-receipts.ts";
 import { appendDecision, readDecisions } from "./decision-log.ts";
+import { studioBotMatches, studioConfigured, studioFetch, studioIntegration, studioRender } from "./studio.ts";
 import { validateBotCwd } from "./bot-cwd.ts";
 import { attachmentExists, extensionForMime, IMAGE_MAX_BYTES, readAttachment, saveAvatar, saveImage, type SavedAttachment } from "./attachments.ts";
 import {
@@ -2339,6 +2340,12 @@ async function startTurn(
         const connection = await connectedAppsIntegration(bot.id, threadId);
         if (connection) integrations.composio = connection;
       }
+      if (studioConfigured() && studioBotMatches(bot)) {
+        integrations.projectMcps = {
+          ...(integrations.projectMcps ?? {}),
+          studio: studioIntegration(),
+        };
+      }
       // CLI engines work inside the bot's own workspace directory rather
       // than the user's home: a bot with file tools and acceptEdits gets a
       // desk, not the whole house — and the workspace is where its
@@ -3163,6 +3170,12 @@ async function runGroupMemberTurn(
     if (bot.composio !== false && composio.configured(cfg) && instance.adapter.capabilities.composioMcp === true) {
       const connection = await connectedAppsIntegration(bot.id, threadId);
       if (connection) integrations.composio = connection;
+    }
+    if (studioConfigured() && studioBotMatches(bot)) {
+      integrations.projectMcps = {
+        ...(integrations.projectMcps ?? {}),
+        studio: studioIntegration(),
+      };
     }
   } catch (error) {
     const message = `connected apps are unavailable — ${error instanceof Error ? error.message : String(error)}`;
@@ -6811,6 +6824,61 @@ const server = createServer(async (req, res) => {
         return json(res, 400, { error: "limit must be a positive whole number" });
       }
       return json(res, 200, { decisions: readDecisions(DATA_DIR, parsedLimit ?? 200) });
+    }
+
+    // ── Ganga Studio review and approval ──────────────────────────────
+    // Studio stays loopback-only. A paired phone authenticates to the
+    // companion, which forwards only these three review routes here.
+    if (method === "GET" && path === "/api/studio/review") {
+      try {
+        const workspace = url.searchParams.get("workspace") || "ganga-mira";
+        const limit = url.searchParams.get("limit") || "8";
+        const result = await studioFetch(
+          `/api/workspaces/${encodeURIComponent(workspace)}/review-batch?limit=${encodeURIComponent(limit)}`,
+        );
+        return json(res, result.status, result.body as Record<string, unknown>);
+      } catch (error) {
+        return json(res, 503, { error: error instanceof Error ? error.message : "Studio is unavailable" });
+      }
+    }
+    m = path.match(/^\/api\/studio\/render\/([\w-]+)\/([\w.-]+)$/);
+    if (m && method === "GET") {
+      const render = await studioRender(`${m[1]}/${m[2]}`);
+      if (!render) return json(res, 404, { error: "no such render" });
+      res.writeHead(200, {
+        "content-type": render.contentType,
+        "cache-control": "private, max-age=300",
+      });
+      return res.end(render.bytes);
+    }
+    if (method === "POST" && path === "/api/studio/approve") {
+      try {
+        const body = await readBody(req);
+        const workspace = typeof body?.workspace === "string" ? body.workspace : "ganga-mira";
+        const ids: string[] = Array.isArray(body?.postIds)
+          ? body.postIds.filter((id: unknown): id is string => typeof id === "string")
+          : [];
+        if (!ids.length) {
+          const result = await studioFetch(
+            `/api/workspaces/${encodeURIComponent(workspace)}/approve-rendered`,
+            { method: "POST" },
+          );
+          return json(res, result.status, result.body as Record<string, unknown>);
+        }
+        const approved: string[] = [];
+        const skipped: Array<{ id: string; reason: string }> = [];
+        for (const id of ids) {
+          const result = await studioFetch(`/api/posts/${encodeURIComponent(id)}/approve`, { method: "POST" });
+          if (result.status >= 200 && result.status < 300) approved.push(id);
+          else {
+            const detail = result.body as { error?: string } | null;
+            skipped.push({ id, reason: detail?.error || `Studio returned ${result.status}` });
+          }
+        }
+        return json(res, 200, { result: { approved: approved.length, approvedIds: approved, skipped } });
+      } catch (error) {
+        return json(res, 503, { error: error instanceof Error ? error.message : "Studio is unavailable" });
+      }
     }
 
     // ── exact external-action receipts ─────────────────────────────────

@@ -620,6 +620,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         mcpServers.agents = { ...turn.integrations.agents };
         allowed.push("mcp__agents");
       }
+      for (const [name, server] of Object.entries(turn.integrations?.projectMcps ?? {})) {
+        mcpServers[name] = { ...server };
+        allowed.push(`mcp__${name}`);
+      }
       if (turn.integrations?.phone) {
         mcpServers.phone = { ...turn.integrations.phone };
         allowed.push("mcp__phone");

@@ -86,6 +86,9 @@ export function buildMcpServers(turn: SendTurnInput): Record<string, unknown> | 
     };
   }
   if (turn.integrations?.agents) servers.agents = { ...turn.integrations.agents };
+  for (const [name, server] of Object.entries(turn.integrations?.projectMcps ?? {})) {
+    servers[name] = { ...server };
+  }
   if (turn.integrations?.phone) servers.phone = { ...turn.integrations.phone };
   if (turn.integrations?.dweb) {
     servers.dweb = {

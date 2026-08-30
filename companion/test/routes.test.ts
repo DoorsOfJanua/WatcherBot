@@ -84,6 +84,9 @@ describe("what the app may do", () => {
     ["GET", "/api/connectors/connected"],
     ["GET", "/api/connectors"],
     ["POST", "/api/connectors/slack/authorize"],
+    ["GET", "/api/studio/review"],
+    ["GET", "/api/studio/render/9d242d7a-637f/slide-01.png"],
+    ["POST", "/api/studio/approve"],
   ];
 
   for (const [method, path] of calls) {
@@ -92,6 +95,21 @@ describe("what the app may do", () => {
 });
 
 describe("what it may not", () => {
+  it("gives the phone Studio review and approval, but never publishing", () => {
+    for (const [method, path] of [
+      ["POST", "/api/studio/arm"],
+      ["POST", "/api/studio/publish"],
+      ["POST", "/api/workspaces/ganga-mira/arm"],
+      ["POST", "/api/posts/abc/schedule"],
+      ["GET", "/api/studio/settings"],
+    ] as Array<[string, string]>) {
+      expect(ask(method, path), `${method} ${path}`).not.toBeNull();
+    }
+    expect(ask("GET", "/api/studio/render/../../etc/passwd")).not.toBeNull();
+    expect(ask("GET", "/api/studio/render/abc/../../../secret")).not.toBeNull();
+    expect(ask("DELETE", "/api/studio/review")).not.toBeNull();
+  });
+
   it("refuses host configuration, and says where it happens", () => {
     for (const [method, path] of [
       ["PUT", "/api/config"],

@@ -250,6 +250,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         if (agents) {
           servers.push({ name: "agents", command: agents.command, args: agents.args, env: acpEnv(agents.env) });
         }
+        for (const [name, server] of Object.entries(turn.integrations?.projectMcps ?? {})) {
+          servers.push({ name, command: server.command, args: server.args, env: acpEnv(server.env) });
+        }
         const composio = turn.integrations?.composio;
         if (composio) {
           servers.push({

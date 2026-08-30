@@ -99,6 +99,12 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "POST", path: /^\/api\/threads\/[\w-]+\/respond$/ },
   { method: "GET", path: /^\/api\/search$/ },
 
+  // Ganga Studio review and approval. Studio's arm, schedule, and publish
+  // routes are not proxied by the harness and therefore cannot be reached.
+  { method: "GET", path: /^\/api\/studio\/review$/ },
+  { method: "GET", path: /^\/api\/studio\/render\/[\w-]+\/[\w.-]+$/ },
+  { method: "POST", path: /^\/api\/studio\/approve$/ },
+
   // App-owned profile images. Upload is image-only and capped at 10 MB by
   // the harness; GET is a single bare generated filename, never a path.
   { method: "POST", path: /^\/api\/attachments$/ },
