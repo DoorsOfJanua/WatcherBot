@@ -75,14 +75,27 @@ until the final gate passes and Janua approves the swap.
   per-item disposition, compare-with-upstream FIRST for every item:
   - **ReplyGuy** (server/replyguy.ts, ReplyDraftDeck, ReplyApprovalToggle, lib/reply-draft-deck):
     OURS ONLY, port whole. This is a product feature (X reply workflow).
-  - **VM/computer lane** (server/container-computer.ts + electron/cua-macos-permissions +
-    cua.mjs changes + LocalComputerSection/MacLocalControl/ComputerPanel edits): upstream
-    shipped "secure VPS parity + companion uptime" (cd3221d) in the same window. Compare, then
-    Fable rules per piece; the working VM capability MUST survive (Janua uses it).
-  - **Delegations** (server/delegations.ts): collides with upstream's delegation ledger
-    (e73b250). Upstream wins; port only capabilities theirs lacks, named in the ruling.
-  - **auto-approve.ts changes**: compare against upstream auto-review.ts; upstream wins on
-    mechanism, port policy deltas only.
+  - **VM/computer lane** — RULED by Fable 2026-08-30 (recon: docs/P8B_UPSTREAM_COMPARE_2026-08-30.md;
+    NO collision): upstream cd3221d is remote BYO-VPS + companion keep-awake; our delta is local
+    macOS permission UX (cua-macos-permissions.cjs, MacLocalControl.tsx: zero upstream changes
+    since fork), Firefox profile persistence, storage-corruption diagnostics. Take upstream
+    wholesale AND port our lane whole. ONE merge trap: both sides edit the Dockerfile heredoc in
+    container-computer.ts and neither bumped IMAGE_LAYER_VERSION (verified: "4" on both sides);
+    the merged recipe bumps it to "5" exactly once. Gate: local Mac control round-trips with the
+    permission prompts, container computer boots with Firefox profile persisted.
+  - **Delegations** — RULED: upstream's ledger (e73b250, 280 lines) wins; ours (25 lines) is
+    dropped except two ports: (1) discardDelegations returning the used drop-count, (2) our
+    shorter handoff prompt, which also fixes upstream's brand leak — their delegations.ts:531
+    injects "another bot in this OpenMausBot workspace" into every peer-delegation turn
+    (verified on upstream/main); P1 branding gate must grep for OpenMausBot in server/, not
+    just app shell.
+  - **auto-approve.ts** — RULED, and the original premise here was WRONG: upstream never
+    touched auto-approve.ts (verified: 0-line delta 89d25dd..upstream/main). Their auto-review.ts
+    is a NEW additive file (LLM shadow/enforce review), not a competing mechanism. Ruling: port
+    OUR auto-approve.ts changes whole (OUTWARD guard, static shell read-only analyzer,
+    policy-reads, trusted-automation-reads for missions — all mechanism with no upstream
+    equivalent) and take upstream's auto-review.ts as-is alongside. Gate: both files' test
+    suites green together.
   - **agents-proxy + claude driver changes**: compare hunk by hunk (upstream moved here too).
   - **sidebar-preferences, attention.ts, chat-blocks, AutonomyPanel, capabilities.cjs,
     contracts.ts, comms tests**: port ours where upstream has no equivalent.
@@ -112,6 +125,11 @@ until the final gate passes and Janua approves the swap.
   MacBook-sleep/NordVPN fragility. Compare upstream cd3221d "secure VPS parity + companion
   uptime" FIRST; take theirs if it covers this. Until P11 ships, the desktop surface on the
   Mac is the browser at http://localhost:8799, never the .app alongside the launchd stack.
+  Recon (2026-08-30): upstream has NO attach mode (startServerPackaged refuses any foreign
+  healthy server; no SERVER_URL-style env exists), so P11 is a build, not a port. Reusable
+  groundwork: companion/src/listener.ts already discriminates Tailscale addresses; iOS
+  Endpoint.swift's "hosted" kind is upstream's managed relay — excluded by P2, not a Hetzner
+  path.
 
 ## Fallback procedure (any time)
 1. `git checkout archive/pre-upstream-rebuild-2026-08-30` (or reset janua/myagent-room to ab098c0).
