@@ -236,12 +236,22 @@ export class MailActionStore {
 }
 
 export class MailActionCoordinator {
+  private readonly receipts: ActionReceiptStore;
+  private readonly actions: MailActionStore;
+  private readonly sender: MailSender;
+  private readonly now: () => number;
+
   constructor(
-    private readonly receipts: ActionReceiptStore,
-    private readonly actions: MailActionStore,
-    private readonly sender: MailSender,
-    private readonly now: () => number = () => Date.now(),
-  ) {}
+    receipts: ActionReceiptStore,
+    actions: MailActionStore,
+    sender: MailSender,
+    now: () => number = () => Date.now(),
+  ) {
+    this.receipts = receipts;
+    this.actions = actions;
+    this.sender = sender;
+    this.now = now;
+  }
 
   stage(input: {
     botId: string;
@@ -392,7 +402,11 @@ export function januaMailGatewayConfig(): GatewayConfig {
 }
 
 export class PythonMailGateway implements MailSender {
-  constructor(private readonly config: GatewayConfig = januaMailGatewayConfig()) {}
+  private readonly config: GatewayConfig;
+
+  constructor(config: GatewayConfig = januaMailGatewayConfig()) {
+    this.config = config;
+  }
 
   async send(draft: MailDraft, expectedHash: string): Promise<MailSendReceipt> {
     const normalized = normalizeMailDraft(draft);
