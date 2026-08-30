@@ -25,6 +25,20 @@ until the final gate passes and Janua approves the swap.
 - **P3 Single-instance lock**: check whether upstream added its own (grep main.mjs for
   requestSingleInstanceLock); if not, re-apply today's block from ab098c0.
   Gate: `open -n` second launch exits, window focuses.
+  **RULED 2026-08-30: upstream has its own, kept as-is, ab098c0's block NOT ported.**
+  Upstream extracted the policy into a unit-tested module (`electron/single-instance.mjs`
+  + `single-instance.node-test.mjs`, 5/5 green) used from both `open-url` and
+  `second-instance`; it restores-a-minimized/shows/focuses the right window and also
+  carries upstream's own package-install deep-link handling, which our fork's simpler
+  ab098c0 block didn't have. Per "upstream wins on core plumbing," kept theirs.
+  One behavior difference worth knowing: upstream's lock is unconditional (not gated
+  behind `app.isPackaged` the way ab098c0's was), so `electron .` in dev now collides
+  with a running packaged instance that shares the same app name/userData path (both
+  are `myagent-room` post-P1). Verified with a live two-instance test against an
+  isolated `--user-data-dir` (not the live app or its data): the second launch printed
+  `[desktop] OpenMausBot is already running — focusing that window` and exited, the
+  first instance's window (confirmed present via `osascript`) is the one left standing.
+  Use `--user-data-dir=<scratch path>` for dev runs alongside the packaged app.
 - **P4 Agent Spirits**: cherry-pick the spirit stack (aad6790, be6fb00, fc17c1e, 1fd05eb,
   6bbb515, 2871675, 484a3fd, 97012a0, 90b6dd1, 3afbc37, 5af71c2, plus spirit-persistence
   commits 1b3ab27, b95f40f, 8e939f7, 38121b4-adjacent UI). Self-contained src/ components.
