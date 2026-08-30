@@ -6,7 +6,9 @@
 // CursorAvatar owns morphing, blinking, drift, body motion and effects.
 import {
   forwardRef,
+  lazy,
   memo,
+  Suspense,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -25,6 +27,7 @@ import {
 } from "./CursorAvatar";
 import {
   botAvatarProfile,
+  isRiveAvatarUrl,
   type BotAvatarCrop,
   type BotAvatarState,
   type BotSpirit,
@@ -32,6 +35,8 @@ import {
   type BotSpiritPalette,
   type BotSpiritTemperament,
 } from "../../shared/bot-avatar";
+
+const RiveAvatar = lazy(() => import("./RiveAvatar").then((module) => ({ default: module.RiveAvatar })));
 
 /**
  * The pack's baked-in silhouette was exported with the body fill hardcoded
@@ -324,6 +329,23 @@ export function BotAvatar({ bot, size = 44, label, spiritState, ...mascotProps }
       : profile.avatarCrop === "rounded"
         ? "22%"
         : "0";
+  if (isRiveAvatarUrl(profile.avatarUrl)) {
+    return (
+      <Suspense
+        fallback={<span className="block shrink-0 bg-raised" style={{ width: size, height: size, borderRadius: radius }} />}
+      >
+        <RiveAvatar
+          key={profile.avatarUrl}
+          url={profile.avatarUrl}
+          size={size}
+          radius={radius}
+          label={label ?? (bot.name ? `${bot.name} avatar` : "Bot avatar")}
+          state={spiritStateFor(bot, mascotProps.state ?? "idle", spiritState)}
+          onError={() => setImageFailed(true)}
+        />
+      </Suspense>
+    );
+  }
   return (
     <img
       src={profile.avatarUrl}

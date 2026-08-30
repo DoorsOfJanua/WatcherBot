@@ -1,95 +1,104 @@
-// Voice, wired to config. Two engines live behind this file: ElevenLabs
-// (elevenlabs.ts, needs a key) and the Mac's built-in voices
-// (system-voices.ts, no key). This file is only the part that reads
-// ~/.openmausbot/config.json, picks the engine, and decides whether there
-// is a voice at all.
+// Provider-neutral voice boundary. Provider modules own HTTP/process details;
+// this file selects one from config and keeps credentials server-side.
 import type { AppConfig } from "../config.ts";
 import * as elevenlabs from "./elevenlabs.ts";
 import * as systemVoices from "./system-voices.ts";
+import * as xai from "./xai.ts";
 
-export type VoiceProvider = "elevenlabs" | "system";
+export type TtsProvider = "elevenlabs" | "system" | "xai";
+export type VoiceProvider = TtsProvider;
+
+export function provider(cfg: AppConfig): TtsProvider {
+  const selected = cfg.tts?.provider;
+  return selected === "system" || selected === "xai" ? selected : "elevenlabs";
+}
+
+export const voiceProvider = provider;
+
+function keyFor(cfg: AppConfig, selected: TtsProvider): string | undefined {
+  if (selected === "system") return undefined;
+  return selected === "xai" ? cfg.xai?.key : cfg.tts?.key;
+}
 
 export class NoVoiceConfigured extends Error {
-  // a plain field rather than a constructor parameter property: the harness
-  // runs under `node --experimental-strip-types`, which is strip-ONLY, so a
-  // parameter property is rejected at load time even though it typechecks
   readonly reason: "key" | "voice";
 
-  constructor(reason: "key" | "voice") {
+  constructor(reason: "key" | "voice", selected: TtsProvider = "elevenlabs") {
     super(
       reason === "key"
-        ? "Add an ElevenLabs key in Settings on the computer to turn on voice."
+        ? `Add an ${selected === "xai" ? "xAI" : "ElevenLabs"} key in Settings on the computer to turn on voice.`
         : "Pick a voice in the agent profile.",
     );
     this.reason = reason;
   }
 }
 
-export function voiceProvider(cfg: AppConfig): VoiceProvider {
-  return cfg.tts?.provider === "system" ? "system" : "elevenlabs";
-}
-
-/** The system provider needs no credential — it is only ever offered where
- * the platform actually has it, so "configured" means "this engine can
- * speak", not "a key is on file". */
+/** The system provider needs no credential; availability is its configured state. */
 export function providerConfigured(cfg: AppConfig): boolean {
-  return voiceProvider(cfg) === "system" ? systemVoices.systemVoicesAvailable() : Boolean(cfg.tts?.key);
+  const selected = provider(cfg);
+  return selected === "system" ? systemVoices.systemVoicesAvailable() : Boolean(keyFor(cfg, selected));
 }
 
 export function voiceConfigured(cfg: AppConfig): boolean {
-  if (voiceProvider(cfg) === "system") {
+  const selected = provider(cfg);
+  if (selected === "system") {
     return systemVoices.systemVoicesAvailable() && Boolean(cfg.tts?.voice);
   }
-  return Boolean(cfg.tts?.key && cfg.tts?.voice);
+  return Boolean(keyFor(cfg, selected) && cfg.tts?.voice);
 }
 
-/** A per-bot voice is a complete choice too; it should not be blocked just
- * because the app-wide fallback has not been selected yet. */
 export function voiceReady(cfg: AppConfig, voiceId?: string): boolean {
-  if (voiceProvider(cfg) === "system") {
+  const selected = provider(cfg);
+  if (selected === "system") {
     return systemVoices.systemVoicesAvailable() && Boolean(voiceId || cfg.tts?.voice);
   }
-  return Boolean(cfg.tts?.key && (voiceId || cfg.tts?.voice));
+  return Boolean(keyFor(cfg, selected) && (voiceId || cfg.tts?.voice));
 }
 
-/** What the settings panel needs. Never includes the key — same write-only
- * rule as every other credential. */
+/** Settings status; credentials themselves never leave this boundary. */
 export function describeVoice(cfg: AppConfig) {
   return {
     configured: providerConfigured(cfg),
     ready: voiceConfigured(cfg),
     voice: cfg.tts?.voice ?? "",
-    provider: voiceProvider(cfg),
+    provider: provider(cfg),
   };
 }
 
-export function verifyKey(key: string) {
-  return elevenlabs.verifyKey(key);
+export function verifyKey(key: string, selected: TtsProvider = "elevenlabs") {
+  return selected === "xai" ? xai.verifyKey(key) : elevenlabs.verifyKey(key);
 }
 
-export async function listVoices(cfg: AppConfig, run?: systemVoices.Runner): Promise<elevenlabs.Voice[]> {
-  if (voiceProvider(cfg) === "system") return systemVoices.listSystemVoices(run);
-  const key = cfg.tts?.key;
+export async function listVoices(
+  cfg: AppConfig,
+  run?: systemVoices.Runner,
+): Promise<elevenlabs.Voice[]> {
+  const selected = provider(cfg);
+  if (selected === "system") return systemVoices.listSystemVoices(run);
+  const key = keyFor(cfg, selected);
   if (!key) return [];
-  return elevenlabs.listVoices(key);
+  return selected === "xai" ? xai.listVoices(key) : elevenlabs.listVoices(key);
 }
 
-/** Synthesize one utterance. Throws NoVoiceConfigured when there is nothing
- * to speak with, which the route turns into a 409 the client can explain. */
-export function speak(cfg: AppConfig, text: string, voiceId?: string, run?: systemVoices.Runner) {
-  if (voiceProvider(cfg) === "system") {
-    const voice = voiceId || cfg.tts?.voice;
-    // An injected runner is the cross-platform test seam for `/usr/bin/say`;
-    // production calls omit it and remain strictly Darwin-gated.
+export function speak(
+  cfg: AppConfig,
+  text: string,
+  voiceId?: string,
+  run?: systemVoices.Runner,
+) {
+  const selected = provider(cfg);
+  const voice = voiceId || cfg.tts?.voice;
+  if (selected === "system") {
     if (!systemVoices.systemVoicesAvailable() && !run) throw new NoVoiceConfigured("key");
     if (!voice) throw new NoVoiceConfigured("voice");
     return systemVoices.synthesizeSystem(text, voice, run);
   }
-  const key = cfg.tts?.key;
-  if (!key) throw new NoVoiceConfigured("key");
-  const voice = voiceId || cfg.tts?.voice;
-  if (!voice) throw new NoVoiceConfigured("voice");
-  return elevenlabs.synthesize(text, voice, key);
+  const key = keyFor(cfg, selected);
+  if (!key) throw new NoVoiceConfigured("key", selected);
+  if (!voice) throw new NoVoiceConfigured("voice", selected);
+  return selected === "xai"
+    ? xai.synthesize(text, voice, key)
+    : elevenlabs.synthesize(text, voice, key);
 }
 
 export type { Voice } from "./elevenlabs.ts";

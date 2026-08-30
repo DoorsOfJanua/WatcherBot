@@ -8,8 +8,10 @@ import {
   BOT_SPIRIT_GEOMETRIES,
   BOT_SPIRIT_PALETTES,
   BOT_SPIRIT_TEMPERAMENTS,
+  BOT_AVATAR_STATE_VALUES,
   botSpiritSchema,
   BOT_SPIRITS,
+  isRiveAvatarUrl,
 } from "../shared/bot-avatar.ts";
 
 describe("bot avatar profile schema", () => {
@@ -47,9 +49,10 @@ describe("bot avatar profile schema", () => {
     expect(botAvatarCropSchema.safeParse("hexagon").success).toBe(false);
   });
 
-  it("only accepts app-owned raster attachments", () => {
+  it("only accepts app-owned raster or Rive attachments", () => {
     expect(botAvatarUrlSchema.parse("/api/attachments/123e4567-e89b-12d3-a456-426614174000.webp"))
       .toContain("/api/attachments/");
+    expect(isRiveAvatarUrl("/api/attachments/123e4567-e89b-12d3-a456-426614174000.riv")).toBe(true);
     for (const value of [
       "https://tracker.example/avatar.png",
       "/api/attachments/avatar.svg",
@@ -65,6 +68,8 @@ describe("bot avatar profile schema", () => {
       .toBe("/api/attachments/abc-123.png");
     expect(botAvatarUrlFromStoredPath("C:\\data\\attachments\\abc-123.jpg"))
       .toBe("/api/attachments/abc-123.jpg");
+    expect(botAvatarUrlFromStoredPath("/tmp/attachments/anim.riv"))
+      .toBe("/api/attachments/anim.riv");
     expect(botAvatarUrlFromStoredPath("/tmp/attachments/avatar.svg")).toBeNull();
   });
 
@@ -76,5 +81,18 @@ describe("bot avatar profile schema", () => {
         spiritGeometry: "native",
         spiritTemperament: "native",
       });
+  });
+
+  it("publishes the stable animated state contract", () => {
+    expect(BOT_AVATAR_STATE_VALUES).toEqual({
+      idle: 0,
+      listening: 1,
+      thinking: 2,
+      working: 3,
+      waiting: 4,
+      success: 5,
+      failure: 6,
+      sleeping: 7,
+    });
   });
 });

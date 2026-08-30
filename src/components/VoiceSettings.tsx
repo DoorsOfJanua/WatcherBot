@@ -1,8 +1,8 @@
-// Per-agent voice profile. The key is shared; the voice and autoplay choice
-// belong to the selected bot.
+// Per-agent voice profile. The provider credential is shared; the voice and
+// autoplay choice belong to the selected bot.
 //
 // The voice list comes from the harness, which holds the key — the
-// renderer never talks to ElevenLabs itself.
+// renderer never talks to either provider itself.
 import { useEffect, useState } from "react";
 import { Check, Loader2, Volume2 } from "lucide-react";
 
@@ -12,6 +12,7 @@ import { speaker } from "@/lib/tts";
 import { cn } from "@/lib/cn";
 
 const SAMPLE = "Morning. Overnight the tests went green, and I left two notes for you in the thread.";
+type VoiceProvider = "elevenlabs" | "system" | "xai";
 
 export function VoiceSettings({
   bot,
@@ -22,10 +23,10 @@ export function VoiceSettings({
 }) {
   const { state, dispatch } = useStore();
   const tts = state.config?.tts;
+  const selectedProvider: VoiceProvider = tts?.provider ?? "elevenlabs";
 
   const [key, setKey] = useState("");
   const [saving, setSaving] = useState(false);
-  const [switching, setSwitching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [voices, setVoices] = useState<Array<{ id: string; label: string; description?: string }>>([]);
   const [loadingVoices, setLoadingVoices] = useState(false);
@@ -34,12 +35,12 @@ export function VoiceSettings({
   // Built-in voices are offered where the desktop contract says they exist —
   // never inferred from a user agent.
   const systemVoicesAvailable = capabilities.host.platform === "darwin";
-  const provider = tts?.provider ?? "elevenlabs";
   const configured = Boolean(tts?.configured);
 
   useEffect(() => {
     if (!configured) {
       setVoices([]);
+      setLoadingVoices(false);
       return;
     }
     let alive = true;
@@ -55,18 +56,25 @@ export function VoiceSettings({
     return () => {
       alive = false;
     };
-  }, [configured, provider]);
+  }, [configured, selectedProvider]);
 
-  const setProvider = (next: "elevenlabs" | "system") => {
-    if (next === provider || switching || (next === "system" && !systemVoicesAvailable)) return;
-    setSwitching(true);
+  const saveProvider = (nextProvider: VoiceProvider) => {
+    if (nextProvider === selectedProvider || (nextProvider === "system" && !systemVoicesAvailable)) return;
+    setKey("");
+    setSaving(true);
     setError(null);
-    // the provider is a setting, not a secret — it rides the ordinary
-    // config write, and the key row reappears or disappears with it
-    api("/api/config", { method: "PUT", body: JSON.stringify({ tts: { provider: next } }) })
-      .then((status: ConfigStatus) => dispatch({ type: "configStatus", config: status }))
+    return api("/api/config", {
+      method: "PUT",
+      // Voice ids are provider-specific. Keeping the previous provider's id
+      // would make the UI claim voice is ready until synthesis failed.
+      body: JSON.stringify({ tts: { provider: nextProvider, voice: "" } }),
+    })
+      .then((status: ConfigStatus) => {
+        onPatch({ voice: "" });
+        dispatch({ type: "configStatus", config: status });
+      })
       .catch((e: Error) => setError(e.message))
-      .finally(() => setSwitching(false));
+      .finally(() => setSaving(false));
   };
 
   const saveKey = () => {
@@ -74,9 +82,10 @@ export function VoiceSettings({
     if (!nextKey) return Promise.resolve();
     setSaving(true);
     setError(null);
+    const credentialPatch = selectedProvider === "xai" ? { xai: { key: nextKey } } : { tts: { key: nextKey } };
     const request = window.ogb?.setCredential
-      ? window.ogb.setCredential("ttsKey", nextKey)
-      : api("/api/config", { method: "PUT", body: JSON.stringify({ tts: { key: nextKey } }) });
+      ? window.ogb.setCredential(selectedProvider === "xai" ? "xaiApiKey" : "ttsKey", nextKey)
+      : api("/api/config", { method: "PUT", body: JSON.stringify(credentialPatch) });
     return request
       .then((status: ConfigStatus) => {
         dispatch({ type: "configStatus", config: status });
@@ -96,46 +105,33 @@ export function VoiceSettings({
       <div className="text-[15px] font-medium text-ink">Voice</div>
       <div className="mt-0.5 text-[13px] text-ink-secondary">
         Give this agent a voice for calls and spoken replies. The voice choice belongs to this agent;
-        {provider === "system"
-          ? systemVoicesAvailable
-            ? " the voices are the ones already installed on this Mac."
-            : " built-in Mac voices are unavailable here. Switch to ElevenLabs to keep using voice."
-          : " the ElevenLabs key is shared by the workspace."}
+        {selectedProvider === "system"
+          ? " the voices are already installed on this Mac."
+          : ` the ${selectedProvider === "xai" ? "xAI" : "ElevenLabs"} key is shared by the workspace.`}
       </div>
 
-      {(systemVoicesAvailable || provider === "system") && (
-        <div className="mt-4">
-          <div className="mb-2 text-[13px] text-ink-secondary">Voice engine</div>
-          <div className="inline-flex rounded-xl bg-inset p-1" role="radiogroup" aria-label="Voice engine">
-            {([
-              { value: "elevenlabs", label: "ElevenLabs", available: true },
-              { value: "system", label: "Built-in Mac voices", available: systemVoicesAvailable },
-            ] as const).map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                aria-checked={provider === option.value}
-                disabled={switching || !option.available}
-                title={!option.available ? "Built-in voices are available only on macOS" : undefined}
-                onClick={() => setProvider(option.value)}
-                className={cn(
-                  "rounded-lg px-3.5 py-1.5 text-[12.5px] transition-colors disabled:opacity-50",
-                  provider === option.value ? "bg-raised text-ink shadow" : "text-ink-secondary hover:text-ink",
-                )}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      <div className="mt-4">
+        <div className="mb-1.5 text-[13px] text-ink-secondary">Voice provider</div>
+        <select
+          value={selectedProvider}
+          onChange={(e) => {
+            const next = e.target.value;
+            if (next === "xai" || next === "system" || next === "elevenlabs") void saveProvider(next);
+          }}
+          disabled={saving}
+          aria-label="Voice provider"
+          className="w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[13px] text-ink focus:border-hairline focus:outline-none"
+        >
+          <option value="elevenlabs">ElevenLabs</option>
+          <option value="system" disabled={!systemVoicesAvailable}>Built-in Mac voices</option>
+          <option value="xai">xAI</option>
+        </select>
 
-      {provider === "elevenlabs" && (
-        <div className="mt-4">
-        <div className="mb-1.5 flex items-center gap-2 text-[13px] text-ink-secondary">
+        {selectedProvider !== "system" && (
+          <>
+        <div className="mb-1.5 mt-4 flex items-center gap-2 text-[13px] text-ink-secondary">
           <span className={cn("size-1.5 rounded-full", configured ? "bg-success" : "bg-raised-hover")} />
-          <span>ElevenLabs key</span>
+          <span>{selectedProvider === "xai" ? "xAI key" : "ElevenLabs key"}</span>
           {configured && <span className="text-[11px] text-success">Connected</span>}
         </div>
         <div className="flex gap-2">
@@ -144,8 +140,8 @@ export function VoiceSettings({
             value={key}
             onChange={(e) => setKey(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && key.trim() && void saveKey()}
-            placeholder={configured ? "••••••••  (paste to replace)" : "Paste your ElevenLabs API key"}
-            aria-label="ElevenLabs key"
+            placeholder={configured ? "••••••••  (paste to replace)" : `Paste your ${selectedProvider === "xai" ? "xAI" : "ElevenLabs"} API key`}
+            aria-label={`${selectedProvider === "xai" ? "xAI" : "ElevenLabs"} key`}
             autoComplete="off"
             className="w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[13px] text-ink placeholder:text-ink-secondary focus:border-hairline focus:outline-none"
           />
@@ -159,16 +155,17 @@ export function VoiceSettings({
         </div>
         {!configured && (
           <a
-            href="https://elevenlabs.io/app/settings/api-keys"
+            href={selectedProvider === "xai" ? "https://console.x.ai/" : "https://elevenlabs.io/app/settings/api-keys"}
             target="_blank"
             rel="noopener noreferrer"
             className="mt-1.5 inline-block text-[12px] font-medium text-accent hover:underline"
           >
-            Get a key from ElevenLabs
+            Get a key from {selectedProvider === "xai" ? "xAI" : "ElevenLabs"}
           </a>
         )}
+          </>
+        )}
         </div>
-      )}
 
       {configured && (
         <div className="mt-4">
@@ -188,7 +185,7 @@ export function VoiceSettings({
                     : "Pick a voice"}
               </option>
               {selectedVoice && !voices.some((voice) => voice.id === selectedVoice) && (
-                <option value={selectedVoice}>Current agent voice</option>
+                <option value={selectedVoice}>Voice from previous provider — choose another</option>
               )}
               {voices.map((v) => (
                 <option key={v.id} value={v.id}>

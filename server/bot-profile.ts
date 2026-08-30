@@ -8,7 +8,7 @@ import {
   botSpiritSchema,
   botSpiritTemperamentSchema,
 } from "../shared/bot-avatar.ts";
-import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
+import { BOT_PROFILE_LIMITS, normalizeBotContact } from "../shared/bot-profile.ts";
 
 import type { BotRecord } from "./store.ts";
 
@@ -25,7 +25,14 @@ export const BOT_PROFILE_PATCH_FIELDS = [
   "spiritTemperament",
   "voice",
   "speakReplies",
+  "email",
+  "phone",
+  "whatsapp",
 ] as const;
+
+const contactFieldSchema = z
+  .union([z.string(), z.null()])
+  .optional();
 
 const profilePatchSchema = z.object({
   name: z
@@ -44,7 +51,7 @@ const profilePatchSchema = z.object({
   notifications: z.boolean({ error: "notifications must be true or false" }).optional(),
   avatarUrl: z
     .union([botAvatarUrlSchema, z.literal(""), z.null()], {
-      error: "avatarUrl must be a stored PNG, JPEG, GIF, or WebP attachment",
+      error: "avatarUrl must be a stored PNG, JPEG, GIF, WebP, or Rive attachment",
     })
     .optional(),
   avatarCrop: botAvatarCropSchema.optional(),
@@ -57,6 +64,9 @@ const profilePatchSchema = z.object({
     .max(BOT_PROFILE_LIMITS.voice, { error: "voice must be at most 200 characters" })
     .optional(),
   speakReplies: z.boolean({ error: "speakReplies must be true or false" }).optional(),
+  email: contactFieldSchema,
+  phone: contactFieldSchema,
+  whatsapp: contactFieldSchema,
 });
 
 export type BotProfilePatchInput = z.input<typeof profilePatchSchema>;
@@ -76,6 +86,9 @@ export type BotProfilePatch = Partial<
     | "spiritTemperament"
     | "voice"
     | "speakReplies"
+    | "email"
+    | "phone"
+    | "whatsapp"
   >
 >;
 
@@ -106,9 +119,16 @@ export function parseBotProfilePatch(input: BotProfilePatchInput, strict = false
     return { ok: false, error: issue?.message ?? "invalid profile patch" };
   }
 
-  const { avatarUrl, spirit, ...fields } = parsed.data;
+  const { avatarUrl, spirit, email, phone, whatsapp, ...fields } = parsed.data;
   const patch: BotProfilePatch = fields;
   if (avatarUrl !== undefined) patch.avatarUrl = avatarUrl || undefined;
   if (spirit !== undefined) patch.spirit = spirit || undefined;
+  for (const field of ["email", "phone", "whatsapp"] as const) {
+    const input = { email, phone, whatsapp }[field];
+    if (input === undefined) continue;
+    const normalized = normalizeBotContact(field, input);
+    if (!normalized.ok) return { ok: false, error: normalized.error };
+    patch[field] = normalized.value;
+  }
   return { ok: true, patch };
 }

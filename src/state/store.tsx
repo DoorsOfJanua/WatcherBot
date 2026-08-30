@@ -207,6 +207,10 @@ export interface Bot {
   name: string;
   title: string;
   description: string;
+  /** Optional public routing labels; never credentials and never used to send. */
+  email?: string;
+  phone?: string;
+  whatsapp?: string;
   notifications: boolean;
   color: MausColor;
   mascotExpression?: string | null;
@@ -302,10 +306,10 @@ export interface ConfigStatus {
   rooms: { turnTimeoutMinutes: number };
   localVm: { mode: "shared" | "per-bot"; maxInstances: number };
   opencodeGo?: { configured: boolean };
-  /** Voice (ElevenLabs). `configured` = a key is saved; `ready` = a key AND
-   * a voice, which is what it takes to actually speak. The key itself is
-   * never echoed back. */
-  tts?: { configured: boolean; ready: boolean; voice: string; provider?: "elevenlabs" | "system" };
+  /** Voice. `configured` = the selected provider's key is saved; `ready` =
+   * a key AND a voice, which is what it takes to actually speak. The key
+   * itself is never echoed back. */
+  tts?: { provider?: "elevenlabs" | "system" | "xai"; configured: boolean; ready: boolean; voice: string };
   /** Shared write-only credential for on-demand GPT Image avatars. */
   imageGen?: { configured: boolean };
   /** who's using the app — collected in onboarding, shown in the sidebar */

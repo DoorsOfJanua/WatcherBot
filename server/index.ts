@@ -28,9 +28,10 @@ import {
   type BrowserCleanupWireRequest,
 } from "./browser-lifecycle-cleanup.ts";
 import * as checkpoints from "./checkpoints.ts";
+import { ActionReceiptError, ActionReceiptStore } from "./action-receipts.ts";
 import { appendDecision, readDecisions } from "./decision-log.ts";
 import { validateBotCwd } from "./bot-cwd.ts";
-import { attachmentExists, extensionForMime, IMAGE_MAX_BYTES, readAttachment, saveImage, type SavedAttachment } from "./attachments.ts";
+import { attachmentExists, extensionForMime, IMAGE_MAX_BYTES, readAttachment, saveAvatar, saveImage, type SavedAttachment } from "./attachments.ts";
 import {
   avatarGenerationRequestSchema,
   avatarGenerationStateMatches,
@@ -752,6 +753,10 @@ try {
 // Replay only after the secondary write above is durable. If reconciliation
 // failed, leave the committed journal in place and profile reuse blocked.
 if (browserCleanupReferencesReconciled) browserCleanup.startPending();
+// External-action receipts are a separate, exact approval boundary. They do
+// not execute providers; future email/WhatsApp/phone adapters must claim and
+// consume these records before invoking their own provider.
+const actionReceipts = new ActionReceiptStore(DATA_DIR);
 
 /** A bot as a client may see it: no provider session bookkeeping.
  *
@@ -3998,6 +4003,12 @@ function readBody(req: IncomingMessage): Promise<any> {
   });
 }
 
+function actionReceiptError(res: ServerResponse, error: unknown) {
+  if (!(error instanceof ActionReceiptError)) throw error;
+  const status = error.code === "not_found" ? 404 : error.code === "invalid" ? 400 : 409;
+  return json(res, status, { error: error.message, code: error.code });
+}
+
 // Loopback-only enforcement: the harness runs on 127.0.0.1 but accepts
 // requests from any loopback connection and any web page that DNS-rebinds
 // onto it. Reject non-loopback Hosts outright (defeats rebinding) and
@@ -4807,10 +4818,53 @@ const server = createServer(async (req, res) => {
       return json(res, 201, saved);
     }
 
+    // ── bot avatar assets ────────────────────────────────────────────────
+    // Kept separate from composer uploads so .riv never becomes a general
+    // image attachment. The filename is used only to preserve the extension;
+    // saveAvatar validates it against the declared binary content type.
+    if (method === "POST" && path === "/api/avatars") {
+      const rawType = Array.isArray(req.headers["content-type"]) ? req.headers["content-type"][0] : req.headers["content-type"];
+      const mime = rawType?.split(";")[0]?.trim().toLowerCase();
+      const rawFilename = Array.isArray(req.headers["x-avatar-filename"])
+        ? req.headers["x-avatar-filename"][0]
+        : req.headers["x-avatar-filename"];
+      const filename = rawFilename?.trim() ?? "";
+      if (!mime || !filename || !/^[^\\/]+\.(?:png|jpe?g|gif|webp|riv)$/i.test(filename)) {
+        return json(res, 400, { error: "avatar upload requires a supported filename and content type" });
+      }
+      const saved = await new Promise<SavedAttachment>((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        let received = 0;
+        let settled = false;
+        const fail = (status: number, msg: string) => {
+          if (settled) return;
+          settled = true;
+          reject(Object.assign(new Error(msg), { status }));
+        };
+        req.on("data", (chunk: Buffer) => {
+          if (settled) return;
+          received += chunk.byteLength;
+          if (received > IMAGE_MAX_BYTES) return fail(413, `avatar exceeds ${IMAGE_MAX_BYTES} bytes`);
+          chunks.push(chunk);
+        });
+        req.on("end", () => {
+          if (settled) return;
+          settled = true;
+          try {
+            resolve(saveAvatar(Buffer.concat(chunks), mime, filename));
+          } catch (e) {
+            reject(Object.assign(e instanceof Error ? e : new Error(String(e)), { status: 400 }));
+          }
+        });
+        req.on("error", (e) => fail(400, e instanceof Error ? e.message : String(e)));
+      });
+      return json(res, 201, saved);
+    }
+
     // serving is name-locked to the attachments dir — readAttachment
     // refuses anything that is not a bare generated filename
     m = path.match(/^\/api\/attachments\/([\w.-]+)$/);
-    if (m && method === "GET") {
+    if (m && (method === "GET" || method === "HEAD")) {
       const attachment = readAttachment(m[1]!);
       if (!attachment) return json(res, 404, { error: "no such attachment" });
       res.writeHead(200, {
@@ -4819,6 +4873,7 @@ const server = createServer(async (req, res) => {
         "cache-control": "private, max-age=31536000, immutable",
         "x-content-type-options": "nosniff",
       });
+      if (method === "HEAD") return res.end();
       return res.end(attachment.bytes);
     }
 
@@ -6705,6 +6760,52 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { decisions: readDecisions(DATA_DIR, parsedLimit ?? 200) });
     }
 
+    // ── exact external-action receipts ─────────────────────────────────
+    // These endpoints only create/review/claim durable approvals. No route
+    // sends mail, messages, or calls. A provider adapter must claim first,
+    // perform its own side effect, then post its opaque provider receipt.
+    if (method === "GET" && path === "/api/action-receipts") {
+      return json(res, 200, { receipts: actionReceipts.list() });
+    }
+    if (method === "POST" && path === "/api/action-receipts") {
+      try {
+        const body = await readBody(req);
+        const receipt = actionReceipts.create(body);
+        broadcast({ kind: "action-receipt", receipt });
+        return json(res, 201, { receipt });
+      } catch (error) {
+        return actionReceiptError(res, error);
+      }
+    }
+    m = path.match(/^\/api\/action-receipts\/([\w-]+)$/);
+    if (m && method === "GET") {
+      try {
+        return json(res, 200, { receipt: actionReceipts.get(m[1]) });
+      } catch (error) {
+        return actionReceiptError(res, error);
+      }
+    }
+    m = path.match(/^\/api\/action-receipts\/([\w-]+)\/(approve|claim|consume)$/);
+    if (m && method === "POST") {
+      try {
+        const body = await readBody(req);
+        const contentHash = typeof body?.contentHash === "string" ? body.contentHash : "";
+        let receipt;
+        if (m[2] === "approve") {
+          const approvedBy = typeof body?.approvedBy === "string" ? body.approvedBy : "";
+          receipt = actionReceipts.approve(m[1], contentHash, approvedBy, body?.approvedAt);
+        } else if (m[2] === "claim") {
+          receipt = actionReceipts.claim(m[1], contentHash);
+        } else {
+          receipt = actionReceipts.consume(m[1], contentHash, body?.providerReceipt);
+        }
+        broadcast({ kind: "action-receipt", receipt });
+        return json(res, 200, { receipt });
+      } catch (error) {
+        return actionReceiptError(res, error);
+      }
+    }
+
     // ── provider instances (model picker) ──
     if (method === "GET" && path === "/api/instances") {
       // Rescan PATH first: this endpoint is how the app answers "what can I
@@ -6877,12 +6978,22 @@ const server = createServer(async (req, res) => {
         const check = await box.verifyToken(newBoxToken.trim());
         if (!check.ok) return json(res, 400, { error: check.message });
       }
-      // same rule for a voice key — and check it against the provider the
-      // patch SELECTS, not the one already saved, or pasting a Cartesia key
-      // while switching from ElevenLabs validates against the wrong service
+      // Validate a supplied TTS credential against the provider the patch
+      // selects, not the one already saved. xAI voice deliberately reuses
+      // the workspace xai key; keeping that key in tts.key would create a
+      // second plaintext/OS-store path and make provider switching unsafe.
       const newTts = patch.tts;
+      const selectedTtsProvider = newTts?.provider ?? tts.provider(cfg);
+      if (selectedTtsProvider === "xai" && newTts?.key !== undefined) {
+        return json(res, 400, { error: "xAI voice uses the shared xAI key; save it under the xAI provider settings." });
+      }
       if (newTts?.key?.trim()) {
-        const check = await tts.verifyKey(newTts.key.trim());
+        const check = await tts.verifyKey(newTts.key.trim(), selectedTtsProvider);
+        if (!check.ok) return json(res, 400, { error: check.message });
+      }
+      const candidateXaiKey = patch.xai?.key !== undefined ? patch.xai.key.trim() : cfg.xai?.key;
+      if (selectedTtsProvider === "xai" && candidateXaiKey) {
+        const check = await tts.verifyKey(candidateXaiKey, "xai");
         if (!check.ok) return json(res, 400, { error: check.message });
       }
       if (patch.browserProfiles !== undefined) {

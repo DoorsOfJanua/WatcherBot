@@ -359,6 +359,10 @@ export interface BotRecord {
   name: string;
   title: string;
   description: string;
+  /** Optional public routing labels; never credentials and never used to send. */
+  email?: string;
+  phone?: string;
+  whatsapp?: string;
   notifications: boolean;
   color: MausColor;
   mascotExpression?: MausExpression | null;

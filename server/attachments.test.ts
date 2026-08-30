@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 const DATA_ROOT = mkdtempSync(join(tmpdir(), "omb-attachments-"));
 process.env.OMB_DATA_DIR = join(DATA_ROOT, "data");
 
-const { ATTACHMENTS_DIR, IMAGE_MAX_BYTES, extensionForMime, readAttachment, saveImage } = await import("./attachments.ts");
+const { ATTACHMENTS_DIR, IMAGE_MAX_BYTES, extensionForMime, readAttachment, saveAvatar, saveImage } = await import("./attachments.ts");
 
 describe("extensionForMime", () => {
   it("maps the accepted image mimes to extensions", () => {
@@ -64,6 +64,24 @@ describe("saveImage", () => {
     expect(() => saveImage(Buffer.from("x"), "image/svg+xml")).toThrow(/unsupported image type/);
     expect(() => saveImage(Buffer.alloc(0), "image/png")).toThrow(/empty/);
     expect(() => saveImage(Buffer.alloc(IMAGE_MAX_BYTES + 1), "image/png")).toThrow(/exceeds/);
+  });
+});
+
+describe("saveAvatar", () => {
+  beforeEach(() => {
+    rmSync(ATTACHMENTS_DIR, { recursive: true, force: true });
+  });
+  afterEach(() => {
+    rmSync(ATTACHMENTS_DIR, { recursive: true, force: true });
+  });
+
+  it("accepts Rive binaries only through the avatar-specific saver", () => {
+    const saved = saveAvatar(Buffer.from("RIVE"), "application/octet-stream", "agent.riv");
+    expect(saved.path.endsWith(".riv")).toBe(true);
+    expect(readAttachment(saved.path.split(/[\\/]/).pop()!)?.mime).toBe("application/octet-stream");
+    expect(() => saveAvatar(Buffer.from("RIVE"), "image/png", "agent.riv")).toThrow(/Rive avatars/);
+    expect(() => saveAvatar(Buffer.from("not-rive"), "application/octet-stream", "agent.riv")).toThrow(/invalid Rive/);
+    expect(() => saveAvatar(Buffer.from("x"), "application/octet-stream", "agent.svg")).toThrow(/unsupported avatar/);
   });
 });
 

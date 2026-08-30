@@ -21,6 +21,14 @@ const IMAGE_MIMES: Record<string, string> = {
   "image/webp": ".webp",
 };
 
+const AVATAR_MIMES: Record<string, string> = {
+  ...IMAGE_MIMES,
+  "application/octet-stream": ".riv",
+  "application/rive": ".riv",
+  "application/x-rive": ".riv",
+  "model/rive": ".riv",
+};
+
 export function extensionForMime(mime: string | undefined): string | null {
   if (!mime) return null;
   return IMAGE_MIMES[mime.split(";")[0]!.trim().toLowerCase()] ?? null;
@@ -53,10 +61,44 @@ export function saveImage(bytes: Buffer, mime: string): SavedAttachment {
   return { path, mime: mime.split(";")[0]!.trim().toLowerCase(), bytes: bytes.byteLength };
 }
 
+/** Persist a bot avatar. Rive files are deliberately kept off the generic
+ * image upload route: that route is used by the composer and must remain
+ * image-only. The client supplies the original extension because browsers
+ * commonly report .riv as application/octet-stream (or an empty type). */
+export function saveAvatar(bytes: Buffer, mime: string, filename: string): SavedAttachment {
+  const normalizedMime = mime.split(";")[0]!.trim().toLowerCase();
+  const extension = filename.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
+  const ext = extension ? `.${extension}` : null;
+  if (!ext || !Object.values(AVATAR_MIMES).includes(ext)) {
+    throw Object.assign(new Error("unsupported avatar type"), { status: 400 });
+  }
+  if (ext === ".riv") {
+    if (!Object.hasOwn(AVATAR_MIMES, normalizedMime) || AVATAR_MIMES[normalizedMime] !== ".riv") {
+      throw Object.assign(new Error("Rive avatars must use a Rive binary content type"), { status: 400 });
+    }
+    // A .riv runtime export always begins with the ASCII fingerprint RIVE.
+    // Reject arbitrary octet-stream uploads before they enter the app-owned
+    // attachment store; the extension and claimed MIME are not evidence.
+    if (bytes.byteLength < 4 || bytes.subarray(0, 4).toString("ascii") !== "RIVE") {
+      throw Object.assign(new Error("invalid Rive avatar binary"), { status: 400 });
+    }
+  } else if (AVATAR_MIMES[normalizedMime] !== ext) {
+    throw Object.assign(new Error("avatar content type does not match its extension"), { status: 400 });
+  }
+  if (bytes.byteLength === 0) throw Object.assign(new Error("empty avatar"), { status: 400 });
+  if (bytes.byteLength > IMAGE_MAX_BYTES) {
+    throw Object.assign(new Error(`avatar exceeds ${IMAGE_MAX_BYTES} bytes`), { status: 413 });
+  }
+  ensureAttachmentsDir();
+  const path = join(ATTACHMENTS_DIR, `${randomUUID()}${ext}`);
+  writeFileSync(path, bytes, { mode: 0o600, flag: "wx" });
+  return { path, mime: normalizedMime, bytes: bytes.byteLength };
+}
+
 /** Existence check with the same name discipline as readAttachment, without
  * reading up to 10MB of pixels just to learn the file is there. */
 export function attachmentExists(name: string): boolean {
-  if (!/^[A-Za-z0-9-]+\.(png|jpg|gif|webp)$/.test(name)) return false;
+  if (!/^[A-Za-z0-9-]+\.(png|jpg|gif|webp|riv)$/.test(name)) return false;
   try {
     return statSync(join(ATTACHMENTS_DIR, name)).isFile();
   } catch {
@@ -68,7 +110,7 @@ export function attachmentExists(name: string): boolean {
  * filename (no separators, no dotfiles) inside ATTACHMENTS_DIR resolve —
  * the route must never become a general file server for the data dir. */
 export function readAttachment(name: string): { bytes: Buffer; mime: string } | null {
-  if (!/^[A-Za-z0-9-]+\.(png|jpg|jpeg|gif|webp)$/.test(name)) return null;
+  if (!/^[A-Za-z0-9-]+\.(png|jpg|jpeg|gif|webp|riv)$/.test(name)) return null;
   const path = join(ATTACHMENTS_DIR, name);
   if (extname(path) === ".jpeg") return null; // saved as .jpg; .jpeg is not a name we write
   try {
@@ -88,6 +130,8 @@ function mimeForExt(ext: string): string {
       return "image/gif";
     case ".webp":
       return "image/webp";
+    case ".riv":
+      return "application/octet-stream";
     default:
       return "application/octet-stream";
   }

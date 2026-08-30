@@ -1348,6 +1348,43 @@ describe("harness HTTP API", () => {
     expect(tooBig.status).toBe(413);
   });
 
+  it("saves and serves validated Rive avatar assets without widening image uploads", async () => {
+    const rive = Buffer.from("RIVE\u0000fixture", "ascii");
+    const saved = await fetch(`${BASE}/api/avatars`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/octet-stream",
+        "x-avatar-filename": "agent.riv",
+      },
+      body: rive,
+    });
+    expect(saved.status).toBe(201);
+    const body = (await saved.json()) as { path: string; mime: string; bytes: number };
+    expect(body.path).toMatch(/\.riv$/);
+    expect(body.mime).toBe("application/octet-stream");
+    expect(body.bytes).toBe(rive.byteLength);
+
+    const name = body.path.split(/[\\/]/).pop();
+    const served = await fetch(`${BASE}/api/attachments/${name}`);
+    expect(served.status).toBe(200);
+    expect(served.headers.get("content-type")).toBe("application/octet-stream");
+    expect(Buffer.from(await served.arrayBuffer()).equals(rive)).toBe(true);
+
+    const wrongMime = await fetch(`${BASE}/api/avatars`, {
+      method: "POST",
+      headers: { "content-type": "image/png", "x-avatar-filename": "agent.riv" },
+      body: rive,
+    });
+    expect(wrongMime.status).toBe(400);
+
+    const genericUpload = await fetch(`${BASE}/api/attachments`, {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: rive,
+    });
+    expect(genericUpload.status).toBe(400);
+  });
+
   it("persists only app-owned bot avatars and supported crop shapes", async () => {
     const created = await api("POST", "/api/bots");
     const bot = created.body.bot;
@@ -1391,6 +1428,9 @@ describe("harness HTTP API", () => {
         spiritTemperament: "focused",
         voice: "voice_fixture",
         speakReplies: true,
+        email: "  Agent@Example.COM ",
+        phone: "+1 (555) 123-4567",
+        whatsapp: "@agent_room",
       });
       expect(saved.status).toBe(200);
       expect(saved.body.bot).toMatchObject({
@@ -1406,6 +1446,9 @@ describe("harness HTTP API", () => {
         spiritTemperament: "focused",
         voice: "voice_fixture",
         speakReplies: true,
+        email: "agent@example.com",
+        phone: "+15551234567",
+        whatsapp: "@agent_room",
       });
       const frame = await stream.until(
         (candidate) => candidate.kind === "bot" && candidate.bot?.id === bot.id,
@@ -1433,6 +1476,9 @@ describe("harness HTTP API", () => {
         { notifications: "yes" },
         { voice: null },
         { speakReplies: 1 },
+        { email: "not-an-email" },
+        { phone: "call me" },
+        { whatsapp: "https://example.com" },
       ]) {
         expect((await api("PATCH", `/api/bots/${bot.id}/profile`, invalid)).status).toBe(400);
       }
@@ -4564,6 +4610,64 @@ describe("resumable event stream", () => {
         stream.close();
       }
     }
+  });
+});
+
+describe("external action receipt API", () => {
+  it("creates, approves, claims once, and consumes idempotently without sending", async () => {
+    const created = await api("POST", "/api/action-receipts", {
+      id: "api-receipt-test",
+      actionType: "email.send",
+      channel: "email",
+      account: "mailman@example.com",
+      destination: "janua@example.com",
+      content: "Subject: exact\n\nBody",
+      preview: "Subject: exact — Body",
+      expiresAt: Date.now() + 60_000,
+    });
+    expect(created.status).toBe(201);
+    const receipt = created.body.receipt;
+    expect(receipt.execution.state).toBe("pending");
+
+    const approved = await api("POST", `/api/action-receipts/${receipt.id}/approve`, {
+      contentHash: receipt.contentHash,
+      approvedBy: "identity:janua",
+    });
+    expect(approved.status).toBe(200);
+    expect(approved.body.receipt).toMatchObject({ approvedBy: "identity:janua", execution: { state: "approved" } });
+
+    const claimed = await api("POST", `/api/action-receipts/${receipt.id}/claim`, { contentHash: receipt.contentHash });
+    expect(claimed.status).toBe(200);
+    expect(claimed.body.receipt.execution.state).toBe("claimed");
+    const duplicateClaim = await api("POST", `/api/action-receipts/${receipt.id}/claim`, { contentHash: receipt.contentHash });
+    expect(duplicateClaim.status).toBe(409);
+    expect(duplicateClaim.body.code).toBe("already_claimed");
+
+    const consumed = await api("POST", `/api/action-receipts/${receipt.id}/consume`, {
+      contentHash: receipt.contentHash,
+      providerReceipt: { providerId: "not-sent-in-this-test" },
+    });
+    expect(consumed.status).toBe(200);
+    const repeated = await api("POST", `/api/action-receipts/${receipt.id}/consume`, {
+      contentHash: receipt.contentHash,
+      providerReceipt: { providerId: "a-different-value" },
+    });
+    expect(repeated.status).toBe(200);
+    expect(repeated.body.receipt.execution.providerReceipt).toEqual({ providerId: "not-sent-in-this-test" });
+  });
+
+  it("rejects an edited payload and invalidates the approval", async () => {
+    const created = await api("POST", "/api/action-receipts", {
+      actionType: "whatsapp.send", channel: "whatsapp", account: "business", destination: "+351900000000",
+      content: "Original", preview: "Original", expiresAt: Date.now() + 60_000,
+    });
+    const receipt = created.body.receipt;
+    await api("POST", `/api/action-receipts/${receipt.id}/approve`, { contentHash: receipt.contentHash, approvedBy: "janua" });
+    const editedHash = "f".repeat(64);
+    const rejected = await api("POST", `/api/action-receipts/${receipt.id}/consume`, { contentHash: editedHash, providerReceipt: "never" });
+    expect(rejected.status).toBe(409);
+    expect(rejected.body.code).toBe("hash_mismatch");
+    expect((await api("GET", `/api/action-receipts/${receipt.id}`)).body.receipt.execution.state).toBe("invalidated");
   });
 });
 

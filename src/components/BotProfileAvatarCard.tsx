@@ -53,6 +53,26 @@ const CROP_LABEL = {
   square: "Square",
 } satisfies Record<BotAvatarCrop, string>;
 
+const AVATAR_MAX_BYTES = 10 * 1024 * 1024;
+
+async function uploadRiveAvatar(file: File): Promise<{ path: string; mime: string; bytes: number }> {
+  if (!file.name.toLowerCase().endsWith(".riv")) throw new Error("Choose a .riv Rive avatar");
+  if (file.size > AVATAR_MAX_BYTES) throw new Error(`${file.name} exceeds 10 MB`);
+  const response = await fetch("/api/avatars", {
+    method: "POST",
+    headers: {
+      "content-type": file.type || "application/octet-stream",
+      "x-avatar-filename": file.name,
+    },
+    body: new Uint8Array(await file.arrayBuffer()),
+  });
+  if (!response.ok) {
+    const detail = (await response.json().catch(() => ({ error: response.statusText }))) as { error?: string };
+    throw new Error(detail.error ?? "Rive avatar upload failed");
+  }
+  return (await response.json()) as { path: string; mime: string; bytes: number };
+}
+
 export function BotProfileAvatarCard({
   bot,
   activeState,
@@ -106,12 +126,15 @@ export function BotProfileAvatarCard({
     setUploading(true);
     setError(null);
     try {
-      const saved = await imageAttachmentFromFile(file);
-      if (!saved) throw new Error("Choose a PNG, JPEG, GIF, or WebP image");
+      const isRive = file.name.toLowerCase().endsWith(".riv");
+      const saved = isRive
+        ? await uploadRiveAvatar(file)
+        : await imageAttachmentFromFile(file);
+      if (!saved) throw new Error("Choose a PNG, JPEG, GIF, WebP image, or Rive file");
       const avatarUrl = botAvatarUrlFromStoredPath(saved.path);
       if (!avatarUrl) throw new Error("The uploaded image could not be used as an avatar");
       const latestCrop = cropRef.current;
-      onPatch({ avatarUrl, avatarCrop: latestCrop === "mascot" ? "circle" : latestCrop });
+      onPatch({ spirit: null, avatarUrl, avatarCrop: latestCrop === "mascot" ? "circle" : latestCrop });
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : String(uploadError));
     } finally {
@@ -161,6 +184,7 @@ export function BotProfileAvatarCard({
       });
       const latestCrop = cropRef.current;
       onPatch({
+        spirit: null,
         avatarUrl: result.avatarUrl,
         avatarCrop:
           latestCrop === cropAtStart
@@ -296,12 +320,11 @@ export function BotProfileAvatarCard({
             </label>
           </div>
         )}
-
         <div className="mt-2 flex gap-2">
           <input
             ref={fileRef}
             type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp"
+            accept="image/png,image/jpeg,image/gif,image/webp,.riv,application/octet-stream"
             className="sr-only"
             onChange={(event) => void upload(event.target.files?.[0])}
           />
@@ -327,7 +350,7 @@ export function BotProfileAvatarCard({
             </button>
           )}
         </div>
-        <div className="mt-1.5 text-[11.5px] text-ink-secondary">PNG, JPEG, GIF, or WebP · up to 10 MB</div>
+        <div className="mt-1.5 text-[11.5px] text-ink-secondary">PNG, JPEG, GIF, WebP, or Rive · up to 10 MB</div>
 
         <div className="mb-2 mt-4 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
           Shape
@@ -350,7 +373,7 @@ export function BotProfileAvatarCard({
           ))}
         </div>
 
-        {crop === "mascot" && (
+        {crop === "mascot" && avatarStyle === "classic" && (
           <>
             <div className="mb-2 mt-4 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
               Expression

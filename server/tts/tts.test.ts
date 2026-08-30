@@ -9,7 +9,7 @@ import type { AppConfig } from "../config.ts";
 let server: Server;
 /** every request the stub saw, so tests can assert on what we sent */
 const seen: Array<{ method: string; url: string; headers: Record<string, string>; body: string }> = [];
-/** flipped by tests that want ElevenLabs to refuse */
+/** flipped by tests that want a provider to refuse */
 let refuse: { status: number; body: unknown } | null = null;
 
 const MP3 = Buffer.from([0xff, 0xfb, 0x90, 0x00, 0x11, 0x22, 0x33, 0x44]);
@@ -40,7 +40,19 @@ beforeAll(async () => {
           voices: [{ voice_id: "v-1", name: "Rachel", labels: { accent: "american", description: "calm" } }],
         });
       }
+      if (path === "/v1/tts/voices") {
+        return send(200, {
+          voices: [
+            { voice_id: "eve", name: "Eve", language: "multilingual" },
+            { voice_id: "ara", name: "Ara", language: "multilingual", tone: "warm" },
+          ],
+        });
+      }
       if (path.startsWith("/v1/text-to-speech/")) {
+        res.writeHead(200, { "content-type": "audio/mpeg" });
+        return res.end(MP3);
+      }
+      if (path === "/v1/tts") {
         res.writeHead(200, { "content-type": "audio/mpeg" });
         return res.end(MP3);
       }
@@ -50,6 +62,7 @@ beforeAll(async () => {
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const port = (server.address() as { port: number }).port;
   process.env.OMB_ELEVENLABS_API = `http://127.0.0.1:${port}/v1`;
+  process.env.OMB_XAI_TTS_API = `http://127.0.0.1:${port}/v1`;
 });
 
 afterAll(() => new Promise<void>((r) => server.close(() => r())));
@@ -238,5 +251,55 @@ describe("built-in macOS voices", () => {
     expect(() => speak(cfg({ provider: "system" }), "hi", undefined, fakeSay([]))).toThrow(
       "Pick a voice in the agent profile.",
     );
+  });
+});
+
+describe("xAI", () => {
+  const ready = { provider: "xai" as const, voice: "eve" };
+
+  it("does not mistake an ElevenLabs key for an xAI credential", async () => {
+    const { voiceReady, speak, NoVoiceConfigured } = await voice();
+    expect(voiceReady({ tts: { ...ready, key: "elevenlabs-secret" } })).toBe(false);
+    expect(() => speak({ tts: ready }, "hello")).toThrow(NoVoiceConfigured);
+    expect(() => speak({ tts: ready }, "hello")).toThrow("Add an xAI key");
+  });
+
+  it("uses the shared xAI key and never exposes it in the response", async () => {
+    const { describeVoice, listVoices } = await voice();
+    const described = describeVoice({ xai: { key: "xai-secret" }, tts: ready });
+    expect(described).toEqual({ provider: "xai", configured: true, ready: true, voice: "eve" });
+    expect(JSON.stringify(described)).not.toContain("xai-secret");
+    expect(await listVoices({ xai: { key: "xai-secret" }, tts: { provider: "xai" } })).toEqual([
+      { id: "eve", label: "Eve", description: "multilingual" },
+      { id: "ara", label: "Ara", description: "multilingual · warm" },
+    ]);
+    const calls = seen.filter((request) => request.url.includes("/v1/tts/voices"));
+    expect(calls.at(-1)?.headers.authorization).toBe("Bearer xai-secret");
+    expect(calls.at(-1)?.url).not.toContain("xai-secret");
+  });
+
+  it("posts the documented REST body and returns mp3 audio", async () => {
+    seen.length = 0;
+    const { speak } = await voice();
+    const audio = await speak({ xai: { key: "xai-secret" }, tts: ready }, "hello there");
+    expect(audio.mime).toBe("audio/mpeg");
+    expect(Buffer.from(audio.bytes)).toEqual(MP3);
+    const call = seen.at(-1)!;
+    expect(call.method).toBe("POST");
+    expect(call.url).toBe("/v1/tts");
+    expect(call.headers.authorization).toBe("Bearer xai-secret");
+    expect(call.url).not.toContain("xai-secret");
+    expect(JSON.parse(call.body)).toEqual({ text: "hello there", voice_id: "eve", language: "auto" });
+  });
+
+  it("reports a useful authentication error", async () => {
+    refuse = { status: 401, body: { message: "invalid api key" } };
+    const { verifyKey } = await voice();
+    const result = await verifyKey("nope", "xai");
+    refuse = null;
+    expect(result).toEqual({
+      ok: false,
+      message: "xAI rejected that key. Check that it is active and has access to Text to Speech.",
+    });
   });
 });
