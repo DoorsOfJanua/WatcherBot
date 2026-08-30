@@ -965,7 +965,7 @@ describe("harness HTTP API", () => {
     const after = await api("GET", "/api/bots");
 
     expect(status).toBe(200);
-    expect(body.templates).toHaveLength(21);
+    expect(body.templates).toHaveLength(22);
     expect(body.templates.find((template: { id: string }) => template.id === "project-steward")).toMatchObject({
       name: "Project Steward",
       origin: "janua",
