@@ -139,9 +139,11 @@ const Transcript = memo(function Transcript({
           m.kind === "connector" && m.connector && m.from?.botId ? (
             <ConnectorCard botId={m.from.botId} threadId={group.threadId} message={m} />
           ) : m.kind === "options" && m.card?.requestId && m.card.tool ? (
-            <div className="flex justify-start">
-              <ApprovalCard bot={memberOf(m.from?.botId)} message={m} />
-            </div>
+            !m.card.answered && !m.card.dismissed ? null : (
+              <div className="flex justify-start">
+                <ApprovalCard bot={memberOf(m.from?.botId)} message={m} />
+              </div>
+            )
           ) : m.kind === "activity" && m.tool ? (
             // the SAME presentation as 1:1 chat: errors get an error card,
             // everything else the standard chip — a room previously rendered
@@ -158,24 +160,24 @@ const Transcript = memo(function Transcript({
                 <PinToggle group={group} message={m} />
                 <div
                   className={cn(
-                    "max-w-[70%] rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed",
-                    user ? "whitespace-pre-wrap bg-bubble-user text-ink" : "bg-card text-ink",
+                    "max-w-[70%] text-[15px] leading-relaxed",
+                    user ? "rounded-2xl bg-bubble-user px-4 py-2.5 whitespace-pre-wrap text-ink" : "py-1 text-ink",
                   )}
                   title={new Date(m.at).toLocaleString()}
                 >
                   {m.automation && (
-                    <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary/75">
+                    <div className="mb-1.5 flex items-center gap-1.5 text-[11.5px] text-ink-secondary/70">
                       <Clock size={12} aria-hidden="true" />
                       <span>
                         {m.automation.source === "schedule"
-                          ? "Automated · scheduled"
+                          ? "Scheduled"
                           : m.automation.source === "webhook"
-                            ? "Automated · webhook"
-                            : "Automated · run"}
+                            ? "Webhook"
+                            : "Routine"}
                       </span>
                     </div>
                   )}
-                  {user ? m.text : <ChatMarkdown text={m.text} accentColor={memberOf(m.from?.botId)?.color} />}
+                  {user ? m.text : <ChatMarkdown text={m.text} accentColor={memberOf(m.from?.botId)?.color} threadId={group.threadId} />}
                 </div>
                 {!user && <ReactionBar threadId={group.threadId} message={m} />}
                 <span className="self-end pb-1 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100">
@@ -208,7 +210,7 @@ function StreamingBubble({ text }: { text: string }) {
   const deferred = useDeferredValue(text);
   return (
     <div className="flex w-full justify-start">
-      <div className="max-w-[70%] rounded-2xl bg-card px-4 py-2.5 text-[15px] leading-relaxed text-ink">
+      <div className="max-w-[70%] py-1 text-[15px] leading-relaxed text-ink">
         <ChatMarkdown text={deferred} streaming />
         <span className="animate-caret ml-0.5 inline-block h-[14px] w-[2px] bg-ink align-middle" />
       </div>

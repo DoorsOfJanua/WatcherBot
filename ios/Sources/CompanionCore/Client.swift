@@ -302,6 +302,13 @@ public struct CompanionClient: Sendable {
     private func perform(_ request: URLRequest) async throws -> (Data, URLResponse) {
         do {
             return try await session.data(for: request)
+        } catch let error as URLError {
+            // Address failures are control-flow for the companion's saved-host
+            // walk. Keep the URL error (and its code) intact so Session can
+            // move from a stale tailnet/LAN address to the next candidate.
+            // Wrapping it as APIError.transport made every host look like the
+            // same generic failure and silently disabled failover.
+            throw error
         } catch {
             throw APIError.transport(error.localizedDescription)
         }
@@ -496,6 +503,13 @@ public struct CompanionClient: Sendable {
         ).bot
     }
 
+    public func updateOrganization(botId: String, patch: BotOrganizationPatch) async throws -> Bot {
+        return try await send(
+            try makeRequest("PATCH", "/api/bots/\(botId)/organization", encodedBody: patch),
+            as: BotResponse.self
+        ).bot
+    }
+
     public func uploadAvatar(data: Data, mime: String) async throws -> String {
         let allowed = ["image/png", "image/jpeg", "image/gif", "image/webp"]
         guard allowed.contains(mime), data.count <= 10 * 1_024 * 1_024 else {
@@ -641,6 +655,59 @@ public struct CompanionClient: Sendable {
     /// the key and puts it on the card; the phone never derives its own.
     public func alwaysAllow(botId: String, key: String) async throws {
         try await send(try makeRequest("POST", "/api/bots/\(botId)/always-allow", body: ["allowKey": key]))
+    }
+
+    /// One explicit phone gesture posts only the drafts selected in the
+    /// visible review deck. The harness re-validates every id before acting.
+    public func submitReplyDraftBatch(
+        threadId: String,
+        profileId: String,
+        drafts: [ReplyDraftApproval],
+        skippedIds: [String]
+    ) async throws -> ReplyDraftBatchResult {
+        struct Submission: Encodable {
+            var threadId: String
+            var profileId: String
+            var drafts: [ReplyDraftApproval]
+            var skippedIds: [String]
+        }
+        return try await send(
+            try makeRequest(
+                "POST",
+                "/api/replyguy/drafts/batch",
+                encodedBody: Submission(threadId: threadId, profileId: profileId, drafts: drafts, skippedIds: skippedIds)
+            ),
+            as: ReplyDraftBatchResult.self
+        )
+    }
+
+    public func replyGuyApprovalPolicy(profileId: String, agentId: String? = nil) async throws -> ReplyGuyApprovalPolicy {
+        var query = [URLQueryItem(name: "profileId", value: profileId)]
+        if let agentId, !agentId.isEmpty { query.append(URLQueryItem(name: "agentId", value: agentId)) }
+        return try await send(
+            try makeRequest("GET", "/api/replyguy/approval-policy", query: query),
+            as: ReplyGuyApprovalPolicy.self
+        )
+    }
+
+    public func setReplyGuyApprovalPolicy(
+        profileId: String,
+        agentId: String? = nil,
+        approvalRequired: Bool
+    ) async throws -> ReplyGuyApprovalPolicy {
+        struct Update: Encodable {
+            var profileId: String
+            var agentId: String?
+            var approvalRequired: Bool
+        }
+        return try await send(
+            try makeRequest(
+                "PUT",
+                "/api/replyguy/approval-policy",
+                encodedBody: Update(profileId: profileId, agentId: agentId, approvalRequired: approvalRequired)
+            ),
+            as: ReplyGuyApprovalPolicy.self
+        )
     }
 
     public func toggleReaction(threadId: String, messageId: String, emoji: String) async throws -> Message {

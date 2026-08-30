@@ -36,7 +36,7 @@ export const BASE_IMAGE = `${BASE_IMAGE_REPOSITORY}@${BASE_IMAGE_DIGEST}`;
 // Image and container labels below remain the authoritative compatibility
 // check, not the mutable tag.
 export const IMAGE_REPOSITORY = "localhost/watcherbotroom/cua-local-vm";
-export const IMAGE_LAYER_VERSION = "4";
+export const IMAGE_LAYER_VERSION = "5";
 export const IMAGE_LAYER_LABEL = "com.watcherbotroom.image-layer";
 export const IMAGE = `${IMAGE_REPOSITORY}:driver-${CUA_DRIVER_VERSION}-v${IMAGE_LAYER_VERSION}`;
 export const CONTAINER = "watcherbotroom-computer";
@@ -133,9 +133,9 @@ RUN printf '%s\\n' \\
       'set -eu' \\
       'workspace=${VM_WORKSPACE_GUEST}' \\
       'profiles="$workspace/.browser-profiles"' \\
-      'mkdir -p "$profiles/google-chrome" "$profiles/chromium" "$HOME/.config"' \\
-      'if ! chmod 0700 "$workspace" "$profiles" "$profiles/google-chrome" "$profiles/chromium" 2>/dev/null; then' \\
-      '  for directory in "$workspace" "$profiles" "$profiles/google-chrome" "$profiles/chromium"; do' \\
+      'mkdir -p "$profiles/google-chrome" "$profiles/chromium" "$profiles/firefox" "$HOME/.config"' \\
+      'if ! chmod 0700 "$workspace" "$profiles" "$profiles/google-chrome" "$profiles/chromium" "$profiles/firefox" 2>/dev/null; then' \\
+      '  for directory in "$workspace" "$profiles" "$profiles/google-chrome" "$profiles/chromium" "$profiles/firefox"; do' \\
       '    test -r "$directory" && test -w "$directory" && test -x "$directory"' \\
       '  done' \\
       'fi' \\
@@ -151,6 +151,13 @@ RUN printf '%s\\n' \\
       '}' \\
       'migrate_profile google-chrome' \\
       'migrate_profile chromium' \\
+      'firefox_source="$HOME/.mozilla"' \\
+      'firefox_target="$profiles/firefox"' \\
+      'if [ -d "$firefox_source" ] && [ ! -L "$firefox_source" ] && [ -z "$(find "$firefox_target" -mindepth 1 -print -quit)" ]; then' \\
+      '  cp -a "$firefox_source"/. "$firefox_target"/' \\
+      'fi' \\
+      'rm -rf "$firefox_source"' \\
+      'ln -s "$firefox_target" "$firefox_source"' \\
       'find "$profiles" \\( -name SingletonLock -o -name SingletonSocket -o -name SingletonCookie -o -name .parentlock \\) -delete' \\
       > /usr/local/bin/prepare-watcherbotroom-workspace.sh \\
     && chmod 0755 /usr/local/bin/prepare-watcherbotroom-workspace.sh
@@ -269,6 +276,11 @@ export interface ContainerComputerStatus {
   persistence: "durable" | "unsafe" | "unknown";
   desktopReady: boolean;
   desktop_error: string | null;
+  /** A prepared image can be absent, or the runtime can be unable to read its
+   * image store. Keep those states distinct so repairable corruption is not
+   * presented as first-time setup. */
+  image_error: string | null;
+  container_error: string | null;
   create_supported: boolean;
   ready: boolean;
   problem: string | null;
@@ -299,6 +311,8 @@ function emptyStatus(platform: NodeJS.Platform, target: LocalVmTarget): Containe
     persistence: "unknown",
     desktopReady: false,
     desktop_error: null,
+    image_error: null,
+    container_error: null,
     create_supported: true,
     ready: false,
     problem: "Install a supported container runtime first",
@@ -318,6 +332,8 @@ function emptyStatus(platform: NodeJS.Platform, target: LocalVmTarget): Containe
 function statusProblem(status: ContainerComputerStatus): string | null {
   if (!status.runtime) return "Install a supported container runtime first";
   if (!status.daemonUp) return `Start ${status.runtime} first`;
+  if (status.image_error) return `The Local VM image store cannot be read: ${status.image_error}`;
+  if (status.container_error) return `The Local VM container cannot be read: ${status.container_error}`;
   if (!status.image) return `Prepare the Cua desktop image with Driver ${CUA_DRIVER_VERSION}`;
   if (status.container === "missing" && !status.create_supported) {
     return "Per-bot Local VMs require Docker or Podman because Apple container requires a fixed host port";
@@ -332,6 +348,25 @@ function statusProblem(status: ContainerComputerStatus): string | null {
   if (status.desktop_error) return `The Local VM desktop failed to start: ${status.desktop_error}`;
   if (!status.desktopReady) return "The Local VM started, but Cua Driver is not ready yet";
   return null;
+}
+
+/** Missing images/containers are ordinary lifecycle states. Storage and
+ * daemon failures are not: swallowing them produces the dangerously wrong
+ * "prepare the image" diagnosis while a corrupt container is still alive. */
+function runtimeStorageError(error: unknown): string | null {
+  const message = (error instanceof Error ? error.message : String(error))
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!message) return null;
+  if (!/(input\/output error|no space left on device|read-only file system|database disk image is malformed|failed precondition[^.]*blob|blob .* expected at)/i.test(message)) {
+    return null;
+  }
+  const cause = /no space left on device/i.test(message)
+    ? "the host disk is full"
+    : /read-only file system/i.test(message)
+      ? "the runtime storage became read-only"
+      : "the runtime storage is damaged or unreadable";
+  return `${cause}. Free disk space and repair or restart the container runtime`;
 }
 
 /** Shared with the BYO-VPS backend (vps-computer.ts): both containers are
@@ -443,8 +478,10 @@ export async function containerComputerStatus(
     const image = inspectedImage(stdout);
     status.image = imageLabelsMatch(image.labels);
     status.image_id = image.id;
-  } catch {
-    // The prepared WatcherBot Room derivative has not been built yet.
+  } catch (error) {
+    // A normal not-found error means first-time setup. A storage failure is a
+    // different state and must survive into the status/UI.
+    status.image_error = runtimeStorageError(error);
   }
 
   try {
@@ -527,8 +564,9 @@ export async function containerComputerStatus(
       ) ? "hardened" : "unsafe";
       status.viewer_url = viewerUrl(viewerPassword(detail?.Config?.Env), status.viewer_port);
     }
-  } catch {
-    // No container with this name.
+  } catch (error) {
+    // No container with this name is ordinary. A corrupt runtime store is not.
+    status.container_error = runtimeStorageError(error);
   }
 
   const canProbe =

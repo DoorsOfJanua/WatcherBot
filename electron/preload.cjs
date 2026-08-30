@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld("ogb", {
     enable: () => ipcRenderer.invoke("cua:linux-enable"),
     disable: () => ipcRenderer.invoke("cua:linux-disable"),
     retry: () => ipcRenderer.invoke("cua:linux-retry"),
+    requestAccessibility: () => ipcRenderer.invoke("cua:mac-request-accessibility"),
   },
   /** Arms exactly one display-media request from the current renderer frame. */
   beginScreenPreviewIntent: () => ipcRenderer.sendSync("screen:preview-intent"),

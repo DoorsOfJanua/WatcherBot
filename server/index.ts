@@ -118,7 +118,20 @@ import { LocalVmLease, LocalVmLeasePool } from "./local-vm-lease.ts";
 import { RepeatDetector, callKey } from "./repeat-detector.ts";
 import { ProjectContextProvider } from "./project-context.ts";
 import * as vps from "./vps-computer.ts";
-import { RoutineManager, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
+import {
+  formatAutonomyOutcome,
+  parseAutonomyOutcomeEnvelope,
+  stripAutonomyOutcomeEnvelope,
+  type AutonomyOutcome,
+} from "./autonomy-outcome.ts";
+import { MissionManager, type Mission, type WorkItem } from "./missions.ts";
+import { MissionDispatcher, type MissionExecutionResult } from "./mission-dispatcher.ts";
+import { formatMissionPrompt, parseMissionReply } from "./mission-execution.ts";
+import { MonitorEvaluator } from "./monitor-evaluator.ts";
+import { createHttpMonitorAdapter } from "./monitor-http-adapter.ts";
+import { MonitorManager } from "./monitors.ts";
+import { MonitorRunner } from "./monitor-runner.ts";
+import { RoutineManager, type RoutineRunOn, type RoutineRunTrigger, type RoutineSchedule } from "./routines.ts";
 import { fetchGithubTeam, fetchLibraryTeam, fetchTeamCatalog } from "./team-library.ts";
 import { createTeamManifest, importedMemberProfile, parseTeamManifest } from "./team-manifest.ts";
 import { readThreadEvents } from "./thread-events.ts";
@@ -133,10 +146,12 @@ import { recordWritingStyleEdit, writingStyleSystemPrompt } from "./writing-styl
 import { responseModeInstruction } from "../shared/response-mode.ts";
 import { localCalendarConfigured, localCalendarIntegration } from "./local-calendar.ts";
 import { projectMcps } from "./project-mcp.ts";
+import { approveAndPostReplyDrafts, getReplyGuyApprovalPolicy, replyGuyReceiptMessage, setReplyGuyApprovalPolicy } from "./replyguy.ts";
 
 const PORT = Number(process.env.OMB_PORT || process.env.OGB_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.OMB_WEBHOOK_PORT || PORT + 1);
 const STATIC_DIR = process.env.OMB_STATIC_DIR || null;
+const HUMAN_OUTPUT_INSTRUCTION = `Write for Janua as a thoughtful human teammate, never as a backend, terminal, audit log, or API. Lead with the useful answer in ordinary language. Do not expose tool names, JSON, shell commands, file paths, internal state names, message handles, receipt ids, OAuth/status codes, MCP/provider vocabulary, or phrases such as "this turn", "canonical state", "live evidence", "approval-gated", and "live-verified" in the normal answer. Translate failures into what Janua can understand and what happens next. If an exact identifier or diagnostic is genuinely needed, put it at the end under a short "Technical details" heading; never make it the main message. Keep updates compact and do not narrate routine tool use.`;
 const MIME: Record<string, string> = {
   ".html": "text/html",
   ".js": "text/javascript",
@@ -775,9 +790,13 @@ function requestBehavior(value: unknown): "allow" | "deny" | "answer" | null {
 // the last settled assistant text per thread, so a "finished" notification
 // can carry what the bot actually said
 const lastReply = new Map<string, string>();
+// Structured results let unattended work record a receipt without turning
+// every unchanged check into a chat bubble, unread badge, or notification.
+const autonomyOutcomes = new Map<string, AutonomyOutcome>();
 // Runtime provenance for an unattended turn. The marker is also persisted
 // onto each generated chat message, so history remains clear after restart.
-const automationThreads = new Map<string, "schedule" | "manual" | "webhook">();
+type AutomationSource = RoutineRunTrigger | "monitor" | "mission";
+const automationThreads = new Map<string, AutomationSource>();
 
 /** Put a notification on the wire. Clients decide what to do with it — a
  * desktop notification now, a push to a paired phone later. */
@@ -895,6 +914,9 @@ function isUnattended(botId?: string | null): boolean {
   return true;
 }
 let routines: RoutineManager | null = null;
+const monitors = new MonitorManager();
+const missions = new MissionManager();
+missions.recoverOrphanedClaims();
 const localVmOwnerBusy = (botId: string) => store.bot(botId)?.busy === true;
 const localVmLeases = new LocalVmLeasePool(30 * 60_000);
 const localVmLifecycleBusy = new Set<string>();
@@ -968,10 +990,15 @@ bus.subscribe((event: RuntimeEvent) => {
   }
   if (event.type === "turn.completed") {
     releaseLocalVmThread(event.threadId);
-    automationThreads.delete(event.threadId);
   }
   broadcast({ kind: "runtime", event });
   const routineRun = routines?.handleRuntimeEvent(event) ?? null;
+  const settledAutonomyOutcome = event.type === "turn.completed" ? autonomyOutcomes.get(event.threadId) : undefined;
+  const settledAutomationSource = event.type === "turn.completed" ? automationThreads.get(event.threadId) : undefined;
+  if (event.type === "turn.completed") {
+    autonomyOutcomes.delete(event.threadId);
+    automationThreads.delete(event.threadId);
+  }
   const bot = store.botByThread(event.threadId);
   const group = bot ? undefined : store.groupByThread(event.threadId);
   if (!bot && !group) return;
@@ -1013,20 +1040,30 @@ bus.subscribe((event: RuntimeEvent) => {
       break;
     case "item.completed":
       if (event.itemType === "assistant_text") {
-        const message = pushMessage({ role: "bot", kind: "text", text: event.text });
-        const memoryBot = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
-        if (memoryBot) {
-          void recordSharedMemoryTurn({
-            sharedMemoryId: memoryBot.sharedMemoryId,
-            threadId: event.threadId,
-            role: "assistant",
-            content: event.text,
-            sourceRef: `${memoryBot.id}:${event.threadId}:${message.id}`,
-          });
+        const automated = automationThreads.has(event.threadId);
+        const structured = automated ? parseAutonomyOutcomeEnvelope(event.text) : null;
+        if (structured) autonomyOutcomes.set(event.threadId, structured);
+        const humanText = automated ? stripAutonomyOutcomeEnvelope(event.text) : event.text;
+        // Models occasionally add warm prose before the required envelope.
+        // Preserve that voice, strip the protocol. Envelope-only responses
+        // still render their normalized user-facing summary/details.
+        const displayText = humanText || (structured ? formatAutonomyOutcome(structured) : "");
+        if (displayText) {
+          const message = pushMessage({ role: "bot", kind: "text", text: displayText });
+          const memoryBot = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
+          if (memoryBot) {
+            void recordSharedMemoryTurn({
+              sharedMemoryId: memoryBot.sharedMemoryId,
+              threadId: event.threadId,
+              role: "assistant",
+              content: displayText,
+              sourceRef: `${memoryBot.id}:${event.threadId}:${message.id}`,
+            });
+          }
         }
         // kept so "finished" can say what it finished with, rather than
         // just that something ended
-        lastReply.set(event.threadId, event.text);
+        lastReply.set(event.threadId, displayText);
       } else if (event.itemType === "tool" && event.itemId) {
         // Pixels a tool returned become inline screen messages, the same kind
         // a computer-use frame produces, so every client that can already
@@ -1090,8 +1127,14 @@ bus.subscribe((event: RuntimeEvent) => {
       // looks destructive stops even in auto mode.
       const asker = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
       const unattended = permission && asker && event.requestId ? isUnattended(asker.id) : false;
+      const automationSource = automationThreads.get(event.threadId);
+      const policySummary = event.policySummary ?? event.summary;
       const verdict = permission && asker && event.requestId
-        ? autoVerdict(asker, event.tool, event.summary, { unattended, scope: event.approvalScope })
+        ? autoVerdict(asker, event.tool, policySummary, {
+            unattended,
+            scope: event.approvalScope,
+            trustedAutomationRead: automationSource === "mission" || automationSource === "schedule",
+          })
         : null;
       if (verdict?.approve && asker && event.requestId) {
         const settled = verdict.approve;
@@ -1279,9 +1322,39 @@ bus.subscribe((event: RuntimeEvent) => {
         });
         // settled → idle; a setup failure already marked it dead, keep that
         if (store.bot(bot.id)?.activity !== "dead") store.setActivity(bot.id, "idle");
-        store.patchBot(bot.id, { unread: true });
-        if (routineRun?.status !== "failed") {
-          notify(buildNotification("done", bot, event.threadId, reply));
+        const routineSource = routineRun?.triggerSource ?? (routineRun?.manual ? "manual" : "schedule");
+        // Scheduled and manually-run routines are promises to come back to
+        // the user. The quiet-when-unchanged rule belongs to webhook watches,
+        // not reminders and check-ins.
+        const quietAutomation = Boolean(
+          (routineRun && routineSource === "webhook" && settledAutonomyOutcome?.notify === false) ||
+          settledAutomationSource === "mission",
+        );
+        if (!quietAutomation) store.patchBot(bot.id, { unread: true });
+        // Calendar/manual routines execute in their own durable task so their
+        // audit history and provider context stay bounded. That task must not
+        // become a silent mailbox, though: a proactive coach that speaks only
+        // in a detached thread is indistinguishable from one that never woke.
+        // Mirror the final answer into the bot's currently visible 1:1 chat
+        // without switching tasks. Webhooks remain in their dedicated feeds;
+        // high-volume event streams would otherwise flood the contact chat.
+        const shouldSurfaceRoutine =
+          routineRun?.status === "completed" &&
+          routineSource !== "webhook" &&
+          event.threadId !== bot.threadId &&
+          !quietAutomation &&
+          Boolean(reply.trim());
+        const notificationThreadId = shouldSurfaceRoutine ? bot.threadId : event.threadId;
+        if (shouldSurfaceRoutine) {
+          store.appendMessage(bot.threadId, {
+            role: "bot",
+            kind: "text",
+            text: reply,
+            automation: { source: routineSource },
+          });
+        }
+        if (routineRun?.status !== "failed" && !quietAutomation) {
+          notify(buildNotification("done", bot, notificationThreadId, reply));
         }
         if (screenPollers.has(bot.id)) {
           // the last live frame becomes a settled inline screen message —
@@ -1587,7 +1660,7 @@ async function startTurn(
     runOn?: RoutineRunOn;
     /** Lets the system prompt put externally supplied payloads behind an
      * explicit untrusted-data boundary without changing ordinary chat. */
-    automationSource?: RoutineRunTrigger;
+    automationSource?: AutomationSource;
     /** the caller was already running unattended, so this turn is too */
     unattended?: boolean;
     /** Optional routine-only model selection. Never mutates the bot profile. */
@@ -1604,8 +1677,10 @@ async function startTurn(
   if (bot.busy) throw Object.assign(new Error("the bot is already working — interrupt it first"), { status: 409 });
   const threadId = opts?.threadId ?? bot.threadId;
   if (opts?.automationSource) automationThreads.set(threadId, opts.automationSource);
-  // a webhook turn, or one inherited from a bot already running unattended
-  if (opts?.automationSource === "webhook" || opts?.unattended) markUnattended(bot.id);
+  // A scheduled job starts with nobody at the keyboard. Missions and
+  // schedules may auto-run only classified reads; webhook payloads remain
+  // fully untrusted. Manual runs are attended.
+  if (opts?.automationSource === "webhook" || opts?.automationSource === "schedule" || opts?.unattended) markUnattended(bot.id);
   // a person typing into this bot ends the unattended window immediately
   else if (opts?.automationSource === undefined && !opts?.commsDepth && !opts?.connectorContinuation) clearUnattended(bot.id);
   const task = store.taskByThread(bot.id, threadId);
@@ -1712,6 +1787,8 @@ async function startTurn(
     bot.title && `Role: ${bot.title}.`,
     bot.description && `About: ${bot.description}`,
     responseModeInstruction(bot.responseMode),
+    HUMAN_OUTPUT_INSTRUCTION,
+    "For any external action such as posting, sending, publishing, or deleting: never say whether it completed from memory, an earlier draft list, or a UI assumption. In that same turn, read the service's current status or provider receipt. A verified receipt means completed; no receipt means unverified. Never repeat an action merely to check whether it happened.",
   ]
     .filter(Boolean)
     .join(" ");
@@ -1759,7 +1836,15 @@ async function startTurn(
       // bridge can shape drafts and Series and cannot approve, schedule, arm
       // or publish: that boundary lives in Studio's own tool registry.
       if (studioConfigured() && studioBotMatches(bot)) {
-        integrations.gangaStudio = studioIntegration();
+        // Studio is a project MCP, so put it on the same mounted path as
+        // Reply Guy and the other specialist tools. `gangaStudio` used to be
+        // a bespoke integration field that no driver consumed, which meant
+        // matching Instagram agents were told about access they never
+        // actually received.
+        integrations.projectMcps = {
+          ...(integrations.projectMcps ?? {}),
+          studio: studioIntegration(),
+        };
       }
       // CLI engines work inside the bot's own workspace directory rather
       // than the user's home: a bot with file tools and acceptEdits gets a
@@ -1793,48 +1878,59 @@ async function startTurn(
       const mountsLocalComputer = instance.adapter.capabilities.localComputerMcp === true;
       let previewCapture: (() => Promise<{ png: string; format: string }>) | null = null;
       let computerKind: "box" | "vps" | "vm" | "local" | null = null;
+      let computerUnavailableReason: string | null = null;
 
-      // Explicit destinations are strict. In particular, Local VM must never
-      // fall through to host CUA and accidentally click on the user's Mac.
+      // Explicit destinations are strict about WHERE computer actions happen,
+      // but a broken optional desktop must not disable the bot's mind. When a
+      // destination is unavailable, continue without computer tools and tell
+      // the model the truth. In particular, Local VM never falls through to
+      // host CUA and accidentally clicks on the user's Mac.
       if (wants === "vm") {
         if (!mountsComputerMcp || instance.driverKind === "boxAgent") {
-          throw new Error("this model engine cannot use the Local VM — choose Claude or an ACP engine, or select another computer destination");
+          computerUnavailableReason = "this model engine cannot use the configured Local VM";
+        } else {
+          const localVmTarget = localVmTargetForBot(bot.id);
+          if (localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.has(localVmTarget.key)) {
+            computerUnavailableReason = "the Local VM is currently being prepared or replaced";
+          } else if (!localVmLeaseFor(localVmTarget).claim(threadId, bot.id, localVmOwnerBusy)) {
+            computerUnavailableReason = "the shared Local VM is currently being used by another bot";
+          } else {
+            // Claim before the first await. The lifecycle route performs its
+            // matching check synchronously, so neither side can enter while
+            // the other is between inspection and mutation.
+            localVmThreadTargets.set(threadId, localVmTarget);
+            localVmActiveThreads.set(localVmTarget.key, threadId);
+            localVmIdleFor(localVmTarget).touch();
+            const localVm = await containerComputerStatus(undefined, undefined, localVmTarget);
+            if (!localVm.ready || !localVm.runtime) {
+              computerUnavailableReason = localVm.problem ?? "the Local VM is not ready";
+              releaseLocalVmThread(threadId);
+            } else {
+              integrations.localComputer = containerComputerMcp(
+                localVm.runtime,
+                controlIntegration(bot.id),
+                localVmTarget,
+              );
+              computerKind = "vm";
+            }
+          }
         }
-        const localVmTarget = localVmTargetForBot(bot.id);
-        if (localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.has(localVmTarget.key)) {
-          throw new Error("this Local VM is being started, stopped, or replaced — wait for setup to finish");
-        }
-        // Claim before the first await. The lifecycle route performs its
-        // matching check synchronously, so neither side can enter while the
-        // other is between inspection and mutation.
-        if (!localVmLeaseFor(localVmTarget).claim(threadId, bot.id, localVmOwnerBusy)) {
-          throw new Error("this Local VM is already being used by another turn — wait for that turn to finish");
-        }
-        localVmThreadTargets.set(threadId, localVmTarget);
-        localVmActiveThreads.set(localVmTarget.key, threadId);
-        localVmIdleFor(localVmTarget).touch();
-        const localVm = await containerComputerStatus(undefined, undefined, localVmTarget);
-        if (!localVm.ready || !localVm.runtime) {
-          throw new Error(`${localVm.problem ?? "the Local VM is not ready"} (App Settings → Local VM)`);
-        }
-        integrations.localComputer = containerComputerMcp(
-          localVm.runtime,
-          controlIntegration(bot.id),
-          localVmTarget,
-        );
-        computerKind = "vm";
       } else if (wants === "local") {
         if (!shouldMountLocalComputer({
           requested: "local",
           hostPlatform: process.platform,
           providerSupportsLocal: mountsLocalComputer,
         })) {
-          throw new Error("this model engine cannot control this computer — choose Claude or an ACP engine, or select another destination");
+          computerUnavailableReason = "this model engine cannot control the configured Mac";
+        } else {
+          const cua = readCuaConnection();
+          if (!cua) {
+            computerUnavailableReason = "Mac computer control is not ready; its permissions or helper need attention";
+          } else {
+            integrations.localComputer = cua;
+            computerKind = "local";
+          }
         }
-        const cua = readCuaConnection();
-        if (!cua) throw new Error("Computer control is not ready — check permissions and restart WatcherBot Room");
-        integrations.localComputer = cua;
-        computerKind = "local";
       }
 
       // A VPS is a local-agent computer mount, never a remote agent runner.
@@ -1927,8 +2023,8 @@ async function startTurn(
           computerKind = "local";
         }
       }
-      // peer-agent comms: give a user-initiated turn the list_bots/ask_bot
-      // tools. A comms-invoked turn (depth ≥ cap) gets none — hard recursion
+      // workspace tools: give a user-initiated turn peer comms plus durable
+      // routines. A comms-invoked turn (depth ≥ cap) gets none — hard recursion
       // stop, so the user's tokens can't be burned by a bot-to-bot loop.
       // Only drivers that mount the tools get the integration (and, via the
       // integrations.agents gate below, the prompt hint) — a bot on a driver
@@ -1936,8 +2032,7 @@ async function startTurn(
       // still be the TARGET of ask_bot regardless of its driver.
       if (
         commsDepth < MAX_COMMS_DEPTH &&
-        instance.adapter.capabilities.agentsMcp === true &&
-        (store.bots.filter((b) => b.id !== bot.id && !b.hidden).length > 0 || bot.sharedMemoryId === "mailroom")
+        instance.adapter.capabilities.agentsMcp === true
       ) {
         integrations.agents = agentsIntegration(bot.id, threadId, commsDepth, bot.sharedMemoryId === "mailroom");
       }
@@ -1950,11 +2045,20 @@ async function startTurn(
             store.bots.filter((b) => b.id !== bot.id),
           )
         : [];
-      const coordinationPrompt = bot.chiefOfStaff
+      const peerPrompt = bot.chiefOfStaff
         ? chiefOfStaffSystemPrompt(bot.id, store.bots, Boolean(integrations.agents))
         : integrations.agents
           ? "You can work with the user's other bots through the agents tools — list_bots shows who's available, ask_bot sends one of them a message and returns their reply."
           : "";
+      const routinePrompt = integrations.agents
+        ? ` You own follow-through in your role. Translate time-based check-ins and reminders into durable routines, meaningful-change watching into monitors, and multi-step outcome work into missions; do not wait for the user to remind you again. "Check in at 4pm" means a one-time routine, "check in during the day" means a small sensible recurring set, and "tell me when this page changes" means a webpage monitor. Use the matching list tool before creating anything, avoid duplicates and notification spam, and tell the user what you armed. A mission starts as a bounded objective under your accountable lead; start it only after its objective is clear. You may create a sparse routine on your own initiative when a later check materially advances an open commitment or your assigned role. These definitions survive agent sessions and app restarts. Never use provider-local Cron tools for WatcherBot reminders. WatcherBot's current local date and time is ${new Date().toString()}; resolve relative schedule requests against that clock and include its explicit timezone offset for one-time routines.`
+        : "";
+      const autonomyResultPrompt = opts?.automationSource
+        ? opts.automationSource === "schedule" || opts.automationSource === "manual"
+          ? ` This is an automated ${opts.automationSource} routine. Its purpose is to come back to the user at the promised time, so always provide the requested human-facing message even when the underlying facts have not changed. Return the final result as exactly one \`\`\`autonomy-outcome fenced JSON object with kind "autonomy-outcome", status "completed", changed, notify true, summary, and optional details/artifacts/sourceLinks. Summary and details must be plain-text strings written for the user, never nested objects or backend data.`
+          : ` This is an automated ${opts.automationSource} run. Return the final result as exactly one \`\`\`autonomy-outcome fenced JSON object with kind "autonomy-outcome", status (one of "completed", "failed", "blocked", "skipped", or "unchanged"), changed, notify, summary, and optional details/artifacts/sourceLinks. When nothing meaningful changed, use status "unchanged", changed false, and notify false. Summary and details must be plain-text strings written for the user, never nested objects or backend data.`
+        : "";
+      const coordinationPrompt = `${peerPrompt}${routinePrompt}${autonomyResultPrompt}`;
       const sharedMemory = (await sharedMemoryPromise).prompt;
 
       // The system prompt as ordered, budgeted sections. Order and glue are
@@ -1981,9 +2085,12 @@ async function startTurn(
                 ? " You have your own self-hosted remote Linux computer through the official Cua tools. Its filesystem is disposable: everything on it is wiped whenever its container is recreated, so keep long-lived work somewhere durable — push it to a remote, or hand the results back in chat — instead of leaving it only on that computer. Inspect the desktop state before acting, prefer accessibility targets over raw coordinates, and act carefully."
                 : computerKind === "local"
                 ? " You can act on the user's computer through the computer tools — take a screenshot or read the desktop state first, prefer accessibility actions over raw coordinates, and act carefully."
-                : "") +
+              : "") +
             (computerKind
               ? " At a sign-in, password, MFA, CAPTCHA, or other protected-input step, stop and ask the user to complete it on the visible computer. Never type their password or ask them to paste a password or one-time code into chat."
+              : "") +
+            (computerUnavailableReason
+              ? ` Your configured computer is unavailable for this turn: ${computerUnavailableReason}. You have no computer-control tools this turn. Continue normally with conversation and any work that does not require that desktop. If the request truly requires it, explain the specific blocker briefly. Do not claim you inspected or controlled the computer.`
               : ""),
         },
         {
@@ -2136,10 +2243,152 @@ routines = new RoutineManager({
     const bot = store.bot(run.botId);
     if (!bot) return;
     const detail = run.error ? `${run.routineName}: ${run.error}` : run.routineName;
-    notify(buildNotification("routine-failed", bot, run.threadId ?? bot.threadId, detail));
+    const routineSource = run.triggerSource ?? (run.manual ? "manual" : "schedule");
+    const visibleThreadId = routineSource === "webhook" ? run.threadId ?? bot.threadId : bot.threadId;
+    // A reminder failure must be visible where the promise was made. Keeping
+    // it only in a detached task/receipt recreates the same silent failure the
+    // scheduler exists to prevent. Webhooks remain in their dedicated feed.
+    if (routineSource !== "webhook" && run.threadId !== bot.threadId) {
+      store.appendMessage(bot.threadId, {
+        role: "bot",
+        kind: "text",
+        text: `I couldn't complete ${run.routineName}: ${run.error ?? "no message was delivered"}.`,
+        automation: { source: routineSource },
+      });
+      store.patchBot(bot.id, { unread: true });
+    }
+    notify(buildNotification("routine-failed", bot, visibleThreadId, detail));
   },
 });
 routines.start();
+
+// Monitors use a cheap fetch/fingerprint pass first. A model is not woken
+// for an unchanged page, and only policy-approved changes/errors reach chat.
+const monitorEvaluator = new MonitorEvaluator(monitors, {
+  adapters: { http: createHttpMonitorAdapter() },
+});
+const monitorRunner = new MonitorRunner(monitors, monitorEvaluator, {
+  onNotify: (evaluation) => {
+    const bot = store.bot(evaluation.monitor.botId);
+    if (!bot) return;
+    const text = formatAutonomyOutcome(evaluation.outcome);
+    if (!text) return;
+    const group = store.groupByThread(evaluation.monitor.threadId);
+    const from = group ? { botId: bot.id, name: bot.name, color: bot.color } : undefined;
+    store.appendMessage(evaluation.monitor.threadId, {
+      role: "bot",
+      kind: "text",
+      text,
+      automation: { source: "monitor" },
+      ...(from ? { from } : {}),
+    });
+    store.patchBot(bot.id, { unread: true });
+    notify(buildNotification("monitor", bot, evaluation.monitor.threadId, text));
+  },
+});
+monitorRunner.start();
+
+const MISSION_TURN_CEILING_MS = 60 * 60_000;
+const activeMissionThreads = new Map<string, string>();
+
+function executeMissionAgentTurn(mission: Mission, item: WorkItem, agentId: string): Promise<MissionExecutionResult> {
+  const task = store.taskForRoutine(agentId, `mission:${mission.id}`, `Mission: ${mission.title}`);
+  const bot = store.bot(agentId);
+  if (!task || !bot) return Promise.resolve({ status: "fail", reason: "The assigned mission agent is unavailable" });
+  broadcast({ kind: "bot", bot: publicBot(bot) });
+  const prompt = formatMissionPrompt(mission, item);
+  return new Promise((resolve) => {
+    let finalReply = "";
+    let settled = false;
+    const finish = (result: MissionExecutionResult) => {
+      if (settled) return;
+      settled = true;
+      if (activeMissionThreads.get(agentId) === task.threadId) activeMissionThreads.delete(agentId);
+      clearTimeout(timer);
+      unsubscribe();
+      resolve(result);
+    };
+    const unsubscribe = bus.subscribe((event: RuntimeEvent) => {
+      if (event.threadId !== task.threadId) return;
+      if (event.type === "item.completed" && event.itemType === "assistant_text") {
+        finalReply = event.text;
+      } else if (event.type === "turn.completed") {
+        if (!event.ok) {
+          finish({ status: "fail", reason: event.stopReason ?? "The mission agent turn failed" });
+          return;
+        }
+        const usage = event.usage
+          ? { tokens: (event.usage.input ?? 0) + (event.usage.output ?? 0), cost: event.cost ?? undefined }
+          : event.cost == null ? undefined : { cost: event.cost };
+        finish(parseMissionReply(finalReply, { missionId: mission.id, currentStatus: mission.status, usage }));
+      }
+    });
+    const timer = setTimeout(() => {
+      void registry.get(bot.modelSelection.instanceId)?.adapter.interruptTurn(task.threadId).catch(() => {});
+      finish({ status: "block", reason: "Mission work exceeded the one-hour execution ceiling" });
+    }, MISSION_TURN_CEILING_MS);
+    timer.unref?.();
+    activeMissionThreads.set(agentId, task.threadId);
+    void startTurn(agentId, prompt, {
+      threadId: task.threadId,
+      automationSource: "mission",
+      unattended: true,
+      onDispatchError: (message) => finish({ status: "fail", reason: message }),
+    }).catch((error) => finish({ status: "fail", reason: error instanceof Error ? error.message : String(error) }));
+  });
+}
+
+function surfaceMissionResult(mission: Mission, agentId: string, result: MissionExecutionResult): void {
+  const bot = store.bot(agentId);
+  if (!bot) return;
+  const detail = result.status === "complete"
+    ? result.result || "The assigned work item completed."
+    : result.reason || (result.status === "block" ? "The mission needs input before it can continue." : "The mission work failed.");
+  const heading = result.status === "complete"
+    ? `Mission update: ${mission.title}`
+    : result.status === "block"
+      ? `Mission blocked: ${mission.title}`
+      : `Mission failed: ${mission.title}`;
+  const text = `${heading}\n\n${detail}`;
+  const group = store.groupByThread(mission.ownerThreadId);
+  const from = group ? { botId: bot.id, name: bot.name, color: bot.color } : undefined;
+  store.appendMessage(mission.ownerThreadId, {
+    role: "bot",
+    kind: "text",
+    text,
+    automation: { source: "mission" },
+    ...(from ? { from } : {}),
+  });
+  store.patchBot(bot.id, { unread: true });
+  notify(buildNotification("mission", bot, mission.ownerThreadId, text));
+}
+
+const missionDispatcher = new MissionDispatcher({
+  manager: missions,
+  maxItemsPerTick: 4,
+  canExecute: (_mission, _item, agentId) => {
+    const bot = store.bot(agentId);
+    return Boolean(bot && !bot.busy);
+  },
+  execute: async (mission, item, agentId) => {
+    const result = await executeMissionAgentTurn(mission, item, agentId);
+    surfaceMissionResult(mission, agentId, result);
+    return result;
+  },
+});
+let missionTicking = false;
+const missionTimer = setInterval(() => {
+  if (missionTicking) return;
+  missionTicking = true;
+  void missionDispatcher.runOnce().finally(() => { missionTicking = false; });
+}, 10_000);
+missionTimer.unref?.();
+if (missions.list().some((mission) => mission.status === "running")) {
+  queueMicrotask(() => {
+    missionTicking = true;
+    void missionDispatcher.runOnce().finally(() => { missionTicking = false; });
+  });
+}
 
 // Webhook definitions are independent from calendar schedules, but every
 // delivery joins the same RoutineManager queue. That keeps unattended work
@@ -2288,7 +2537,10 @@ async function runGroupMemberTurn(
       integrations.calendar = localCalendarIntegration();
     }
     if (studioConfigured() && studioBotMatches(bot)) {
-      integrations.gangaStudio = studioIntegration();
+      integrations.projectMcps = {
+        ...(integrations.projectMcps ?? {}),
+        studio: studioIntegration(),
+      };
     }
   } catch (error) {
     store.appendMessage(group.threadId, {
@@ -2316,6 +2568,7 @@ async function runGroupMemberTurn(
     `Room members: ${roster}, and ${userName} (the human).`,
     group.bulletin.trim() && `Room bulletin (shared instructions for everyone):\n${group.bulletin.trim()}`,
     responseModeInstruction(bot.responseMode),
+    HUMAN_OUTPUT_INSTRUCTION,
     `Reply as yourself. To bring a teammate in, mention them like @Name — they'll see the conversation and respond.`,
   ]
     .filter(Boolean)
@@ -2893,6 +3146,208 @@ const server = createServer(async (req, res) => {
           }));
         return json(res, 200, { bots });
       }
+      if (method === "GET" && path === "/api/internal/monitors") {
+        const botId = String(url.searchParams.get("botId") ?? "");
+        const threadId = String(url.searchParams.get("threadId") ?? "");
+        if (!store.bot(botId) || !senderOwnsThread(botId, threadId)) {
+          return json(res, 403, { error: "source thread does not belong to this bot" });
+        }
+        return json(res, 200, { monitors: monitors.list({ includeArchived: true, botId, threadId }) });
+      }
+      if (method === "POST" && path === "/api/internal/monitors") {
+        const body = await readBody(req);
+        const botId = String(body.botId ?? "");
+        const threadId = String(body.threadId ?? "");
+        if (!store.bot(botId) || !senderOwnsThread(botId, threadId)) {
+          return json(res, 403, { error: "source thread does not belong to this bot" });
+        }
+        try {
+          if (String(body.sourceKind ?? "") !== "webpage") throw new Error("Only webpage monitors are available in this first slice");
+          const target = new URL(String(body.target ?? ""));
+          if (target.protocol !== "http:" && target.protocol !== "https:") throw new Error("Monitor target must be an HTTP(S) URL");
+          const intervalMinutes = body.intervalMinutes == null ? 60 : Math.round(Number(body.intervalMinutes));
+          if (!Number.isFinite(intervalMinutes) || intervalMinutes < 5 || intervalMinutes > 43_200) {
+            throw new Error("Monitor interval must be between 5 minutes and 30 days");
+          }
+          const owned = monitors.list({ includeArchived: true, botId, threadId });
+          const duplicate = owned.find((candidate) =>
+            candidate.status !== "archived" &&
+            candidate.source.kind === "http" &&
+            candidate.source.url === target.toString()
+          );
+          if (duplicate) return json(res, 200, { monitor: duplicate, deduplicated: true });
+          if (owned.filter((candidate) => candidate.status === "active").length >= 24) {
+            return json(res, 409, { error: "this bot already has 24 active monitors" });
+          }
+          const monitor = monitors.create({
+            botId,
+            threadId,
+            name: String(body.name ?? ""),
+            description: String(body.description ?? ""),
+            source: { kind: "http", url: target.toString() },
+            schedule: { intervalMinutes },
+          });
+          return json(res, 201, { monitor });
+        } catch (error) {
+          return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      const internalMonitorAction = path.match(/^\/api\/internal\/monitors\/([\w-]+)\/(pause|resume|archive)$/);
+      if (method === "POST" && internalMonitorAction) {
+        const body = await readBody(req);
+        const botId = String(body.botId ?? "");
+        const threadId = String(body.threadId ?? "");
+        if (!store.bot(botId) || !senderOwnsThread(botId, threadId)) {
+          return json(res, 403, { error: "source thread does not belong to this bot" });
+        }
+        const monitor = monitors.get(internalMonitorAction[1]);
+        if (!monitor || monitor.botId !== botId || monitor.threadId !== threadId) {
+          return json(res, 404, { error: "no such monitor for this bot and thread" });
+        }
+        const updated = internalMonitorAction[2] === "pause"
+          ? monitors.pause(monitor.id)
+          : internalMonitorAction[2] === "resume"
+            ? monitors.resume(monitor.id)
+            : monitors.archive(monitor.id);
+        return json(res, 200, { monitor: updated, item: updated, name: updated?.name ?? monitor.name });
+      }
+      if (method === "GET" && path === "/api/internal/missions") {
+        const botId = String(url.searchParams.get("botId") ?? "");
+        const threadId = String(url.searchParams.get("threadId") ?? "");
+        if (!store.bot(botId) || !senderOwnsThread(botId, threadId)) {
+          return json(res, 403, { error: "source thread does not belong to this bot" });
+        }
+        return json(res, 200, {
+          missions: missions.list().filter((mission) => mission.leadAgentId === botId && mission.ownerThreadId === threadId),
+        });
+      }
+      if (method === "POST" && path === "/api/internal/missions") {
+        const body = await readBody(req);
+        const botId = String(body.botId ?? "");
+        const threadId = String(body.threadId ?? "");
+        if (!store.bot(botId) || !senderOwnsThread(botId, threadId)) {
+          return json(res, 403, { error: "source thread does not belong to this bot" });
+        }
+        try {
+          const objective = String(body.objective ?? "").trim();
+          const owned = missions.list().filter((mission) => mission.leadAgentId === botId && mission.ownerThreadId === threadId);
+          const duplicate = owned.find((mission) =>
+            !["completed", "failed", "cancelled"].includes(mission.status) && mission.objective === objective
+          );
+          if (duplicate) return json(res, 200, { mission: duplicate, deduplicated: true });
+          if (owned.filter((mission) => !["completed", "failed", "cancelled"].includes(mission.status)).length >= 12) {
+            return json(res, 409, { error: "this bot already has 12 active or draft missions" });
+          }
+          const mission = missions.create({
+            title: String(body.title ?? ""),
+            leadAgentId: botId,
+            ownerThreadId: threadId,
+            objective,
+            budget: { maxAttempts: 12 },
+          });
+          missions.addWorkItem(mission.id, {
+            title: mission.title,
+            description: objective,
+            assignee: botId,
+          });
+          return json(res, 201, { mission: missions.get(mission.id) });
+        } catch (error) {
+          return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      const internalMissionAction = path.match(/^\/api\/internal\/missions\/([\w-]+)\/(start|pause|resume|cancel)$/);
+      if (method === "POST" && internalMissionAction) {
+        const body = await readBody(req);
+        const botId = String(body.botId ?? "");
+        const threadId = String(body.threadId ?? "");
+        if (!store.bot(botId) || !senderOwnsThread(botId, threadId)) {
+          return json(res, 403, { error: "source thread does not belong to this bot" });
+        }
+        const mission = missions.get(internalMissionAction[1]);
+        if (!mission || mission.leadAgentId !== botId || mission.ownerThreadId !== threadId) {
+          return json(res, 404, { error: "no such mission for this bot and thread" });
+        }
+        try {
+          const updated = internalMissionAction[2] === "start"
+            ? missions.start(mission.id)
+            : internalMissionAction[2] === "pause"
+              ? missions.pause(mission.id)
+              : internalMissionAction[2] === "resume"
+                ? missions.resume(mission.id)
+                : missions.cancel(mission.id);
+          return json(res, 200, { mission: updated, item: updated, name: updated.title });
+        } catch (error) {
+          return json(res, 409, { error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      if (method === "GET" && path === "/api/internal/routines") {
+        const botId = String(url.searchParams.get("botId") ?? "");
+        const threadId = String(url.searchParams.get("threadId") ?? "");
+        if (!store.bot(botId) || !senderOwnsThread(botId, threadId)) {
+          return json(res, 403, { error: "source thread does not belong to this bot" });
+        }
+        return json(res, 200, {
+          routines: routines!.listRoutines().filter((routine) => routine.botId === botId),
+        });
+      }
+      if (method === "POST" && path === "/api/internal/routines") {
+        const body = await readBody(req);
+        const fromBotId = String(body.fromBotId ?? "");
+        const fromThreadId = String(body.fromThreadId ?? "");
+        if (!store.bot(fromBotId) || !senderOwnsThread(fromBotId, fromThreadId)) {
+          return json(res, 403, { error: "source thread does not belong to this bot" });
+        }
+        try {
+          const name = String(body.name ?? "");
+          const prompt = String(body.prompt ?? "");
+          const schedule = body.schedule as RoutineSchedule;
+          const owned = routines!.listRoutines().filter((routine) => routine.botId === fromBotId);
+          const duplicate = owned.find(
+            (routine) =>
+              routine.name.trim().toLowerCase() === name.trim().toLowerCase() &&
+              routine.prompt.trim() === prompt.trim() &&
+              JSON.stringify(routine.schedule) === JSON.stringify(schedule),
+          );
+          if (duplicate) {
+            const routine = duplicate.enabled ? duplicate : routines!.update(duplicate.id, { enabled: true });
+            return json(res, 200, { routine, deduplicated: true });
+          }
+          if (owned.filter((routine) => routine.enabled).length >= 24) {
+            return json(res, 409, {
+              error: "this bot already has 24 active routines — pause or delete an obsolete one before creating another",
+            });
+          }
+          const routine = routines!.create({
+            name,
+            prompt,
+            botId: fromBotId,
+            runOn: "maus",
+            schedule,
+            durationMinutes: body.durationMinutes == null ? undefined : Number(body.durationMinutes),
+          });
+          return json(res, 201, { routine });
+        } catch (error) {
+          return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      const internalRoutineMatch = path.match(/^\/api\/internal\/routines\/([\w-]+)$/);
+      if (internalRoutineMatch && (method === "PATCH" || method === "DELETE")) {
+        const body = await readBody(req);
+        const fromBotId = String(body.fromBotId ?? "");
+        const fromThreadId = String(body.fromThreadId ?? "");
+        if (!store.bot(fromBotId) || !senderOwnsThread(fromBotId, fromThreadId)) {
+          return json(res, 403, { error: "source thread does not belong to this bot" });
+        }
+        const routine = routines!.listRoutines().find((candidate) => candidate.id === internalRoutineMatch[1]);
+        if (!routine || routine.botId !== fromBotId) return json(res, 404, { error: "no such routine for this bot" });
+        if (method === "DELETE") {
+          routines!.remove(routine.id);
+          return json(res, 200, { ok: true, name: routine.name });
+        }
+        if (typeof body.enabled !== "boolean") return json(res, 400, { error: "enabled must be true or false" });
+        const updated = routines!.update(routine.id, { enabled: body.enabled });
+        return json(res, 200, { routine: updated });
+      }
       if (method === "POST" && path === "/api/internal/mail-drafts") {
         const body = await readBody(req);
         const fromBotId = String(body.fromBotId ?? "");
@@ -3003,7 +3458,7 @@ const server = createServer(async (req, res) => {
         }
         const channel = getOrCreateChannel(store, currentFrom, currentTarget);
         mirrorExchange(commsBus, currentFrom, currentTarget, message, channel, fromThreadId);
-        const prefixed = `[Message from @${currentFrom.name}, another bot in this WatcherBot Room workspace. Reply to them by simply writing your answer — it is delivered back to @${currentFrom.name} automatically when your turn ends. You have no messaging tool for this and need none.]\n\n${message}`;
+        const prefixed = `Hey ${currentTarget.name} — ${currentFrom.name} here.\n\n${message}`;
         const reply = await askBotAndWait(toBotId, prefixed, depth, fromBotId);
         mirrorReply(commsBus, currentTarget, reply, channel);
         return json(res, 200, { botName: currentTarget.name, text: reply });
@@ -3223,6 +3678,58 @@ const server = createServer(async (req, res) => {
           cancelledRuns: routineSummary.cancelledRuns,
           pausedWebhooks,
         },
+      });
+    }
+
+    // ── autonomy overview (read-only app surface) ───────────────────────
+    if (path === "/api/autonomy" && method === "GET") {
+      return json(res, 200, {
+        monitors: monitors.list({ includeArchived: true }).map((monitor) => ({
+          id: monitor.id,
+          botId: monitor.botId,
+          threadId: monitor.threadId,
+          name: monitor.name,
+          description: monitor.description,
+          status: monitor.status,
+          source: monitor.source,
+          schedule: monitor.schedule,
+          baseline: monitor.baseline && {
+            capturedAt: monitor.baseline.capturedAt,
+            fingerprint: monitor.baseline.fingerprint,
+          },
+          lastObservation: monitor.lastObservation && {
+            observedAt: monitor.lastObservation.observedAt,
+            changedAt: monitor.lastObservation.changedAt,
+            status: monitor.lastObservation.status,
+            error: monitor.lastObservation.error,
+            metadata: monitor.lastObservation.metadata,
+          },
+          createdAt: monitor.createdAt,
+          updatedAt: monitor.updatedAt,
+          archivedAt: monitor.archivedAt,
+        })),
+        missions: missions.list().map((mission) => ({
+          id: mission.id,
+          title: mission.title,
+          leadAgentId: mission.leadAgentId,
+          ownerThreadId: mission.ownerThreadId,
+          objective: mission.objective,
+          status: mission.status,
+          workItems: mission.workItems.map((item) => ({
+            id: item.id,
+            title: item.title,
+            description: item.description,
+            assignee: item.assignee,
+            status: item.status,
+            attempts: item.attempts,
+            result: item.result,
+            error: item.error,
+            updatedAt: item.updatedAt,
+            completedAt: item.completedAt,
+          })),
+          createdAt: mission.createdAt,
+          updatedAt: mission.updatedAt,
+        })),
       });
     }
 
@@ -4099,6 +4606,36 @@ const server = createServer(async (req, res) => {
       broadcast({ kind: "bot", bot: visible });
       return json(res, 200, { bot: visible });
     }
+    m = path.match(/^\/api\/bots\/([\w-]+)\/organization$/);
+    if (m && method === "PATCH") {
+      const body = await readBody(req);
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return json(res, 400, { error: "organization must be an object" });
+      }
+      const keys = Object.keys(body);
+      if (!keys.length || keys.some((key) => key !== "pinned" && key !== "section")) {
+        return json(res, 400, { error: "organization may only change pinned and folder" });
+      }
+      const patch: Record<string, unknown> = {};
+      if (body.pinned !== undefined) {
+        if (typeof body.pinned !== "boolean") return json(res, 400, { error: "pinned must be true or false" });
+        patch.pinned = body.pinned;
+      }
+      if (body.section !== undefined) {
+        if (body.section === null) patch.section = undefined;
+        else if (typeof body.section !== "string") return json(res, 400, { error: "folder must be a string" });
+        else {
+          const folder = body.section.trim();
+          if (folder.length > 60) return json(res, 400, { error: "folder must be at most 60 characters" });
+          patch.section = folder || undefined;
+        }
+      }
+      const bot = store.patchBot(m[1], patch);
+      if (!bot) return json(res, 404, { error: "no such bot" });
+      const visible = wireBot(bot);
+      broadcast({ kind: "bot", bot: visible });
+      return json(res, 200, { bot: visible });
+    }
     m = path.match(/^\/api\/bots\/([\w-]+)$/);
     if (m && method === "PATCH") {
       const body = await readBody(req);
@@ -4295,10 +4832,22 @@ const server = createServer(async (req, res) => {
       }
       // a running turn dies with its bot
       await registry.get(bot.modelSelection.instanceId)?.adapter.interruptTurn(bot.threadId).catch(() => {});
+      const missionThread = activeMissionThreads.get(bot.id);
+      if (missionThread) {
+        await registry.get(bot.modelSelection.instanceId)?.adapter.interruptTurn(missionThread).catch(() => {});
+        activeMissionThreads.delete(bot.id);
+      }
       stopScreenPoller(bot.id);
       activeVpsThreads.delete(bot.id);
       routines!.disableForBot(bot.id);
       webhooks.disableForBot(bot.id);
+      for (const monitor of monitors.list({ includeArchived: true, botId: bot.id })) {
+        if (monitor.status !== "archived") monitors.archive(monitor.id);
+      }
+      for (const mission of missions.list()) {
+        if (mission.leadAgentId !== bot.id || ["completed", "failed", "cancelled"].includes(mission.status)) continue;
+        missions.cancel(mission.id);
+      }
       lastReply.delete(bot.threadId);
       // a peer approval naming this bot can never be meaningfully answered
       // now, and its caller would otherwise wait out the 15-minute timeout
@@ -4817,6 +5366,60 @@ const server = createServer(async (req, res) => {
         return json(res, 200, { result: { approved: approved.length, approvedIds: approved, skipped } });
       } catch (error) {
         return json(res, 503, { error: error instanceof Error ? error.message : "Studio is unavailable" });
+      }
+    }
+
+    // ── ReplyGuy approval policy and exact review batches ─────────────
+    if (method === "GET" && path === "/api/replyguy/approval-policy") {
+      try {
+        return json(res, 200, await getReplyGuyApprovalPolicy(
+          url.searchParams.get("profileId") || "",
+          url.searchParams.get("agentId") || "",
+        ));
+      } catch (error) {
+        return json(res, 503, { error: error instanceof Error ? error.message : "ReplyGuy is unavailable" });
+      }
+    }
+    if (method === "PUT" && path === "/api/replyguy/approval-policy") {
+      try {
+        const body = await readBody(req);
+        return json(res, 200, await setReplyGuyApprovalPolicy({
+          profileId: typeof body?.profileId === "string" ? body.profileId : "",
+          agentId: typeof body?.agentId === "string" ? body.agentId : "",
+          approvalRequired: body?.approvalRequired,
+        }));
+      } catch (error) {
+        return json(res, 400, { error: error instanceof Error ? error.message : "Could not change reply approval" });
+      }
+    }
+
+    // Browsing and drafting do not interrupt Janua. This route is called only
+    // by the visible Card Deck's final button; it re-reads every draft from the
+    // loopback ReplyGuy service before editing, approving, and posting it.
+    if (method === "POST" && path === "/api/replyguy/drafts/batch") {
+      try {
+        const body = await readBody(req);
+        const requestedThreadId = typeof body?.threadId === "string" ? body.threadId.trim() : "";
+        const fallbackBot = store.bots.find((candidate) => candidate.name.toLowerCase().includes("gemini"));
+        const receiptThreadId = requestedThreadId || fallbackBot?.threadId || "";
+        const directBot = receiptThreadId ? store.botByThread(receiptThreadId) : null;
+        const group = receiptThreadId ? store.groupByThread(receiptThreadId) : undefined;
+        if (!receiptThreadId || (!directBot && !group)) return json(res, 400, { error: "The Gemini conversation for this review could not be found" });
+
+        const result = await approveAndPostReplyDrafts({ ...body, threadId: receiptThreadId });
+        const groupBot = group
+          ? store.bots.find((candidate) => group.memberIds.includes(candidate.id) && candidate.name.toLowerCase().includes("gemini"))
+          : null;
+        const speaker = groupBot || directBot || fallbackBot;
+        store.appendMessage(receiptThreadId, {
+          role: "bot",
+          kind: "text",
+          ...(group && speaker ? { from: { botId: speaker.id, name: speaker.name, color: speaker.color } } : {}),
+          text: replyGuyReceiptMessage(result),
+        });
+        return json(res, result.errors.length ? 207 : 200, result);
+      } catch (error) {
+        return json(res, 400, { error: error instanceof Error ? error.message : "Invalid ReplyGuy draft batch" });
       }
     }
 
@@ -5362,6 +5965,8 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     for (const idle of localVmIdles.values()) idle.cancel();
     watchdog.stop();
     routines?.stop();
+    monitorRunner.stop();
+    clearInterval(missionTimer);
     webhookIngress?.server.close();
     void registry.disposeAll().finally(() => {
       // Checkpoint the WAL and close the transcript DB so a shutdown (or the

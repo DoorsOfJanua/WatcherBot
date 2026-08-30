@@ -14,6 +14,7 @@ import { instanceSupportsLocalComputer, localComputerDisabledReason, localComput
 import { BotProfileAvatarCard } from "./BotProfileAvatarCard";
 import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 import { VoiceSettings } from "./VoiceSettings";
+import { ReplyApprovalToggle } from "./ReplyApprovalToggle";
 import { BOT_PROFILE_LIMITS, normalizeBotContact, type BotContactField } from "../../shared/bot-profile";
 import { RESPONSE_MODE_OPTIONS } from "../../shared/response-mode";
 
@@ -578,6 +579,8 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
           />
 
           <ContactChannels bot={bot} onPatch={patch} />
+
+          {bot.name.toLowerCase().includes("gemini") && <ReplyApprovalToggle />}
 
           <div className={cn(
             "rounded-xl border p-4",

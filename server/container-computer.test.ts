@@ -54,8 +54,8 @@ const statusProbe = `${driverExec} status --socket ${CUA_SOCKET}`;
 const healthProbe = `${driverExec} call health_report {} --socket ${CUA_SOCKET}`;
 const readinessProbe =
   `${driverExec} call get_desktop_state {} --socket ${CUA_SOCKET} ` +
-  "--screenshot-out-file /tmp/openmausbot-readiness.png";
-const readinessRead = `docker exec ${CONTAINER} base64 -w0 /tmp/openmausbot-readiness.png`;
+  "--screenshot-out-file /tmp/watcherbotroom-readiness.png";
+const readinessRead = `docker exec ${CONTAINER} base64 -w0 /tmp/watcherbotroom-readiness.png`;
 const validPng = Buffer.concat([
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
   Buffer.alloc(600),
@@ -187,8 +187,8 @@ describe("containerComputerStatus", () => {
         overall: "ok",
         checks: [],
       }),
-      [`${targetDriverExec} call get_desktop_state {} --socket ${CUA_SOCKET} --screenshot-out-file /tmp/openmausbot-readiness.png`]: "{}\n",
-      [`podman exec ${target.containerName} base64 -w0 /tmp/openmausbot-readiness.png`]: validPng.toString("base64"),
+      [`${targetDriverExec} call get_desktop_state {} --socket ${CUA_SOCKET} --screenshot-out-file /tmp/watcherbotroom-readiness.png`]: "{}\n",
+      [`podman exec ${target.containerName} base64 -w0 /tmp/watcherbotroom-readiness.png`]: validPng.toString("base64"),
     });
 
     const status = await containerComputerStatus(fake.run, "win32", target);
@@ -254,8 +254,8 @@ describe("containerComputerStatus", () => {
         overall: "ok",
         checks: [],
       }),
-      [`${targetDriverExec} call get_desktop_state {} --socket ${CUA_SOCKET} --screenshot-out-file /tmp/openmausbot-readiness.png`]: "{}\n",
-      [`docker exec ${target.containerName} base64 -w0 /tmp/openmausbot-readiness.png`]: validPng.toString("base64"),
+      [`${targetDriverExec} call get_desktop_state {} --socket ${CUA_SOCKET} --screenshot-out-file /tmp/watcherbotroom-readiness.png`]: "{}\n",
+      [`docker exec ${target.containerName} base64 -w0 /tmp/watcherbotroom-readiness.png`]: validPng.toString("base64"),
     });
 
     const status = await containerComputerStatus(fake.run, "linux", target);
@@ -287,7 +287,7 @@ describe("containerComputerStatus", () => {
 
     expect(status.managed).toBe(false);
     expect(status.ready).toBe(false);
-    expect(status.problem).toContain("not created by OpenMausBot");
+    expect(status.problem).toContain("not created by WatcherBot Room");
   });
 
   it("prefers a running runtime over an earlier installed but stopped one", async () => {
@@ -560,6 +560,42 @@ describe("containerComputerStatus", () => {
     expect(status.image).toBe(false);
     expect(status.problem).toContain("Prepare the Cua desktop image");
   });
+
+  it("reports a corrupt image store instead of pretending the image was never prepared", async () => {
+    const fake = runner({
+      "/usr/bin/which docker": "docker\n",
+      "/usr/bin/which podman": new Error("missing"),
+      "docker info --format {{.ServerVersion}}": "29\n",
+      [`docker image inspect ${IMAGE}`]: new Error(
+        "failed precondition: blob sha256:abc expected at /var/lib/containerd: open layer: input/output error",
+      ),
+      [`docker inspect ${CONTAINER}`]: new Error("missing container"),
+    });
+
+    const status = await containerComputerStatus(fake.run, "linux");
+
+    expect(status.image).toBe(false);
+    expect(status.image_error).toContain("storage is damaged or unreadable");
+    expect(status.problem).toContain("image store cannot be read");
+    expect(status.problem).not.toContain("Prepare the Cua desktop image");
+  });
+
+  it("distinguishes a full runtime disk from an absent container", async () => {
+    const fake = runner({
+      "/usr/bin/which docker": "docker\n",
+      "/usr/bin/which podman": new Error("missing"),
+      "docker info --format {{.ServerVersion}}": "29\n",
+      [`docker image inspect ${IMAGE}`]: preparedImageInspect(),
+      [`docker inspect ${CONTAINER}`]: new Error("open metadata.db: no space left on device"),
+    });
+
+    const status = await containerComputerStatus(fake.run, "linux");
+
+    expect(status.container).toBe("missing");
+    expect(status.container_error).toContain("host disk is full");
+    expect(status.problem).toContain("container cannot be read");
+    expect(status.problem).not.toContain("Create the Local VM");
+  });
 });
 
 describe("Cua integration", () => {
@@ -591,11 +627,13 @@ describe("Cua integration", () => {
     expect(dockerfile).toContain(`cua-driver ${CUA_DRIVER_VERSION}`);
     expect(dockerfile).toContain(`serve --socket ${CUA_SOCKET} --permission-mode standard`);
     expect(dockerfile).toContain("CUA_DRIVER_RS_TELEMETRY_ENABLED=0");
-    expect(dockerfile).toContain("prepare-openmausbot-workspace.sh");
+    expect(dockerfile).toContain("prepare-watcherbotroom-workspace.sh");
     expect(dockerfile).toContain('if ! chmod 0700 "$workspace"');
     expect(dockerfile).toContain('test -r "$directory" && test -w "$directory" && test -x "$directory"');
     expect(dockerfile).toContain("migrate_profile google-chrome");
     expect(dockerfile).toContain("migrate_profile chromium");
+    expect(dockerfile).toContain('firefox_source="$HOME/.mozilla"');
+    expect(dockerfile).toContain('firefox_target="$profiles/firefox"');
     expect(dockerfile).toContain("SingletonLock");
     expect(dockerfile).toContain(`${IMAGE_LAYER_LABEL}="${IMAGE_LAYER_VERSION}"`);
     expect(dockerfile).toContain("did not become ready within 45 seconds");
@@ -605,7 +643,7 @@ describe("Cua integration", () => {
   it("captures the preview through Cua Driver rather than xdotool or VNC", async () => {
     const screenshotCall =
       `${driverExec} call get_desktop_state {} --socket ${CUA_SOCKET} ` +
-      "--screenshot-out-file /tmp/openmausbot-preview.png";
+      "--screenshot-out-file /tmp/watcherbotroom-preview.png";
     const png = validPng;
     const fake = runner({
       "/usr/bin/which docker": "docker\n",
@@ -619,7 +657,7 @@ describe("Cua integration", () => {
       [readinessProbe]: "{}\n",
       [readinessRead]: png.toString("base64"),
       [screenshotCall]: "{}\n",
-      [`docker exec ${CONTAINER} base64 -w0 /tmp/openmausbot-preview.png`]: png.toString("base64"),
+      [`docker exec ${CONTAINER} base64 -w0 /tmp/watcherbotroom-preview.png`]: png.toString("base64"),
     });
 
     const image = await containerComputerScreenshot(fake.run, "linux");
@@ -751,7 +789,7 @@ describe("setupCommands", () => {
   });
 
   it("uses an explicit local image name so Podman never resolves the managed build on Docker Hub", () => {
-    expect(IMAGE).toMatch(/^localhost\/openmausbot\/cua-local-vm:/);
+    expect(IMAGE).toMatch(/^localhost\/watcherbotroom\/cua-local-vm:/);
     expect(setupCommands("podman", "darwin").run).toContain(IMAGE);
     expect(setupCommands("podman", "darwin").run).not.toContain("docker.io/openmausbot");
   });

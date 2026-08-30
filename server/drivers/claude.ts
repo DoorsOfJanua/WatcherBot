@@ -273,6 +273,14 @@ export function askSummary(ask: Ask): string {
   return `The agent wants to use ${String(ask.tool || "a tool").replace(/^mcp:/, "")}.`;
 }
 
+/** Policy needs the complete command: truncating visible text can cut inside
+ * a quote or hide a later write. Keep this separate and bounded. */
+export function askPolicySummary(ask: Ask): string {
+  const input = asRecord(ask.input) ?? {};
+  if (typeof input.command === "string") return input.command.slice(0, 12_000);
+  return askSummary(ask);
+}
+
 export function permissionSocketPath(threadId: string) {
   // A readable prefix alone is not unique: ids that agree on their first
   // characters ("t-perm-dup-1", "t-perm-dup-2") would share a socket. POSIX
@@ -621,7 +629,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         // improvises with SendMessage and gets "No agent named 'Poppy' is
         // reachable" — so the pair is banned outright: peer comms go through
         // mcp__agents or not at all.
-        "--disallowedTools", "SendMessage,ListAgents",
+        // Claude's native Cron tools are scoped to the provider session. They
+        // queue silently while a WatcherBot chat sleeps, then flush only when
+        // another user turn wakes that session. Durable reminders belong to
+        // the harness routines exposed through mcp__agents instead.
+        "--disallowedTools", "SendMessage,ListAgents,CronCreate,CronList,CronDelete",
       ];
       const turnEnvironment: NodeJS.ProcessEnv = { ...process.env, ...input.environment };
       const turnModel = await resolveClaudeTurnModel(turn.model, turnEnvironment);
@@ -763,6 +775,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               requestType: ask.kind,
               tool: ask.tool,
               summary: askSummary(ask),
+              policySummary: askPolicySummary(ask),
               approvalScope: controlsHost ? "local-computer" : undefined,
               choices: Array.isArray(ask.input?.choices) ? (ask.input.choices as string[]).slice(0, 5) : undefined,
             });

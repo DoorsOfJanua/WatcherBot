@@ -18,11 +18,13 @@ describe("buildNotification", () => {
     expect(buildNotification("question", bot, "thread-1", "which branch?")?.title).toBe("Scout has a question");
     expect(buildNotification("done", bot, "thread-1", "pushed the branch")?.title).toBe("Scout finished");
     expect(buildNotification("routine-failed", bot, "thread-1", "boom")?.title).toBe("Scout's routine failed");
+    expect(buildNotification("monitor", bot, "thread-1", "front page changed")?.title).toBe("Scout noticed a change");
+    expect(buildNotification("mission", bot, "thread-1", "step blocked")?.title).toBe("Scout has a mission update");
   });
 
   it("stays silent for a bot whose notifications are off", () => {
     const quiet = { ...bot, notifications: false };
-    for (const kind of ["approval", "question", "done", "routine-failed"] as const) {
+    for (const kind of ["approval", "question", "done", "routine-failed", "monitor", "mission"] as const) {
       expect(buildNotification(kind, quiet, "thread-1", "anything")).toBeNull();
     }
     // absent means "not turned off" — older bot records predate the flag

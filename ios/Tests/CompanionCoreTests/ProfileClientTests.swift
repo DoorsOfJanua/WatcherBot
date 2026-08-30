@@ -111,6 +111,31 @@ final class ProfileClientTests: XCTestCase {
         XCTAssertEqual(body["avatarCrop"] as? String, "rounded")
     }
 
+    func testOrganizationClientUsesThePairedSafeEndpoint() async throws {
+        ProfileRequestStub.responseBody = Self.botResponse
+
+        _ = try await client.updateOrganization(
+            botId: "avatar-bot",
+            patch: BotOrganizationPatch(pinned: true, folder: .set("Writing"))
+        )
+
+        let request = try XCTUnwrap(ProfileRequestStub.capturedRequest)
+        XCTAssertEqual(request.httpMethod, "PATCH")
+        XCTAssertEqual(request.url?.path, "/api/bots/avatar-bot/organization")
+        let data = try XCTUnwrap(ProfileRequestStub.capturedBody)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(body.keys.sorted(), ["pinned", "section"])
+        XCTAssertEqual(body["pinned"] as? Bool, true)
+        XCTAssertEqual(body["section"] as? String, "Writing")
+    }
+
+    func testOrganizationPatchCanRemoveAFolderWithoutChangingPinning() throws {
+        let data = try JSONEncoder().encode(BotOrganizationPatch(folder: .clear))
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(body.keys.sorted(), ["section"])
+        XCTAssertTrue(body["section"] is NSNull)
+    }
+
     func testCreateAgentSendsTheAuthoredLivingIdentity() async throws {
         ProfileRequestStub.responseBody = Self.botResponse
 
@@ -222,6 +247,31 @@ final class ProfileClientTests: XCTestCase {
         XCTAssertEqual(draft["subject"] as? String, "Farmada questionnaire — revised")
         XCTAssertEqual(draft["body"] as? String, "This is my edited reply.")
         XCTAssertEqual(draft["attachments"] as? [String], [])
+    }
+
+    func testReplyDraftDeckSubmitsOnlyTheReviewedBatch() async throws {
+        ProfileRequestStub.responseBody = Data("""
+        {"profileId":"cryptocat-btc","requested":2,"postedIds":["draft-1"],"rejectedIds":["draft-2"],"errors":[]}
+        """.utf8)
+
+        let result = try await client.submitReplyDraftBatch(
+            threadId: "gemini-thread",
+            profileId: "cryptocat-btc",
+            drafts: [ReplyDraftApproval(id: "draft-1", text: "edited reply")],
+            skippedIds: ["draft-2"]
+        )
+
+        let request = try XCTUnwrap(ProfileRequestStub.capturedRequest)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/api/replyguy/drafts/batch")
+        let data = try XCTUnwrap(ProfileRequestStub.capturedBody)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(body["threadId"] as? String, "gemini-thread")
+        XCTAssertEqual(body["profileId"] as? String, "cryptocat-btc")
+        XCTAssertEqual(body["skippedIds"] as? [String], ["draft-2"])
+        let drafts = try XCTUnwrap(body["drafts"] as? [[String: String]])
+        XCTAssertEqual(drafts, [["id": "draft-1", "text": "edited reply"]])
+        XCTAssertEqual(result.postedIds, ["draft-1"])
     }
 
     private static let botJSON = """

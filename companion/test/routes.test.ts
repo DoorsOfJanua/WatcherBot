@@ -50,6 +50,7 @@ describe("what the app may do", () => {
     ["PATCH", "/api/bots/bot_123/tasks/th_1"],
     ["DELETE", "/api/bots/bot_123/tasks/th_1"],
     ["PATCH", "/api/bots/bot_123/profile"],
+    ["PATCH", "/api/bots/bot_123/organization"],
     ["POST", "/api/bots/bot_123/avatar/generate"],
     ["POST", "/api/bots/bot_123/computer/join"],
     ["POST", "/api/groups/room-1/messages"],
@@ -81,6 +82,9 @@ describe("what the app may do", () => {
     ["GET", "/api/studio/review"],
     ["GET", "/api/studio/render/9d242d7a-637f/slide-01.png"],
     ["POST", "/api/studio/approve"],
+    ["POST", "/api/replyguy/drafts/batch"],
+    ["GET", "/api/replyguy/approval-policy"],
+    ["PUT", "/api/replyguy/approval-policy"],
   ];
 
   for (const [method, path] of calls) {
@@ -128,6 +132,15 @@ describe("what it may not", () => {
     expect(ask("DELETE", "/api/studio/review")).not.toBeNull();
   });
 
+  it("allows only ReplyGuy's exact review and approval-policy actions", () => {
+    expect(ask("POST", "/api/replyguy/drafts/batch")).toBeNull();
+    expect(ask("GET", "/api/replyguy/approval-policy")).toBeNull();
+    expect(ask("PUT", "/api/replyguy/approval-policy")).toBeNull();
+    expect(ask("GET", "/api/replyguy/drafts/batch")).not.toBeNull();
+    expect(ask("POST", "/api/replyguy/run")).not.toBeNull();
+    expect(ask("POST", "/api/replyguy/drafts/abc/post")).not.toBeNull();
+  });
+
   it("describes only refused routine operations as computer-only", () => {
     for (const [method, path] of [
       ["GET", "/api/routines/routine_1"],
@@ -171,6 +184,7 @@ describe("what it may not", () => {
     expect(allowed("POST", "/api/threads/th_1/messages")).toBe(false);
     expect(allowed("GET", "/api/groups/room-1")).toBe(false);
     expect(allowed("PATCH", "/api/bots/bot_123")).toBe(false);
+    expect(allowed("PATCH", "/api/bots/bot_123/organization/execution-policy")).toBe(false);
     expect(allowed("PATCH", "/api/bots/bot_123/profile/execution-policy")).toBe(false);
     expect(allowed("PUT", "/api/config")).toBe(false);
     expect(allowed("GET", "/api/attachments/../config.json")).toBe(false);

@@ -1,4 +1,5 @@
 import { visibleMessages, type AppState, type Bot, type Message, type MausColor } from "@/state/store";
+import { approvalExplanation, humanCardSubtitle } from "../../shared/tool-label";
 
 export type AttentionKind = "approval" | "question" | "mail" | "review" | "routine" | "working";
 export type AttentionPriority = "blocking" | "soon" | "review" | "ambient";
@@ -135,7 +136,9 @@ function cardItem(bot: Bot, message: Message): AttentionItem {
     threadId: bot.threadId,
     messageId: message.id,
     title: card.title || (isApproval ? `${bot.name} needs approval` : `${bot.name} has a question`),
-    summary: oneLine(card.subtitle) || "Open the conversation to respond",
+    summary: isApproval
+      ? approvalExplanation(card.tool, card.subtitle).what
+      : humanCardSubtitle(card.subtitle, "Open the conversation to respond"),
     at: message.at,
     actionable: true,
   };

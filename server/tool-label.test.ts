@@ -1,12 +1,22 @@
 import { describe, expect, it } from "vitest";
 
-import { approvalAsk, toolChipLabel } from "../shared/tool-label.ts";
+import { approvalAsk, approvalExplanation, humanCardSubtitle, humanErrorMessage, looksTechnicalInline, toolChipLabel } from "../shared/tool-label.ts";
 
 describe("toolChipLabel", () => {
   it("maps bare tool names to phrases with the raw name as detail", () => {
     expect(toolChipLabel("Bash")).toEqual({ label: "Ran a command", detail: "Bash" });
     expect(toolChipLabel("Read")).toEqual({ label: "Read a file", detail: "Read" });
     expect(toolChipLabel("screenshot")).toEqual({ label: "Looked at the screen", detail: "screenshot" });
+  });
+
+  it("translates backend errors and keeps their evidence as detail", () => {
+    expect(humanErrorMessage("Prepare the Cua desktop image with Driver 0.20.0 (App Settings → Local VM)")).toEqual({
+      message: "This computer is not ready yet. Open Settings → Local VM and choose Prepare.",
+      detail: "Prepare the Cua desktop image with Driver 0.20.0 (App Settings → Local VM)",
+    });
+    expect(humanErrorMessage("OAuth 401 from Gmail").message).toMatch(/connected again/);
+    expect(looksTechnicalInline("gmail:nils@example.com:1a0314d731dc5a25")).toBe(true);
+    expect(looksTechnicalInline("important phrase")).toBe(false);
   });
 
   it("classifies full command lines by the command actually run", () => {
@@ -36,9 +46,13 @@ describe("toolChipLabel", () => {
     expect(toolChipLabel("NOTION_CREATE_PAGE").label).toBe("Worked with Notion");
   });
 
-  it("passes harness chips through untouched", () => {
-    expect(toolChipLabel("error: engine crashed")).toEqual({ label: "error: engine crashed" });
-    expect(toolChipLabel("auto-approved: Bash")).toEqual({ label: "auto-approved: Bash" });
+  it("keeps harness diagnostics behind a human status label", () => {
+    expect(toolChipLabel("error: engine crashed")).toEqual({ label: "Needs attention", detail: "error: engine crashed" });
+    expect(toolChipLabel("auto-approved: Bash")).toEqual({ label: "Approved automatically", detail: "auto-approved: Bash" });
+    expect(toolChipLabel("auto-approved Bash:cd (always allowed)")).toEqual({
+      label: "Approved automatically",
+      detail: "auto-approved Bash:cd (always allowed)",
+    });
   });
 
   it("keeps unknown short names legible without inventing detail", () => {
@@ -71,6 +85,22 @@ describe("approvalAsk", () => {
     expect(approvalAsk("GMAIL_SEND_EMAIL", "…").ask).toBe("work with Gmail");
     expect(approvalAsk("mcp__calendar__calendar_create_event", "{}").ask).toBe("add a calendar event");
     expect(approvalAsk("mcp__weird-bridge__do_thing", "x").ask).toBe("use weird-bridge");
+  });
+
+  it("names the human action behind colon-style MCP approvals", () => {
+    expect(approvalExplanation(
+      "mcp:replyguy",
+      'Allow the replyguy MCP server to run tool "post_draft"?',
+    )).toMatchObject({ what: "post the approved X reply", sensitive: true });
+    expect(approvalExplanation(
+      "mcp:replyguy",
+      'Allow the replyguy MCP server to run tool "recover_error_wall"?',
+    ).what).toBe("recover ReplyGuy from an X error page");
+  });
+
+  it("keeps backend subtitles out of ordinary question cards", () => {
+    expect(humanCardSubtitle('{"tool":"Bash","command":"rm -rf build"}')).toBe("Choose how you want to continue.");
+    expect(humanCardSubtitle("Which direction should we take?")).toBe("Which direction should we take?");
   });
 
   it("never softens a delete, wherever it hides in the line", () => {

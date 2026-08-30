@@ -96,6 +96,11 @@ function desktopCapabilities({
   if (typeof localConnection?.message === "string") {
     localComputer.message = localConnection.message;
   }
+  if (Array.isArray(localConnection?.missingPermissions)) {
+    localComputer.missingPermissions = localConnection.missingPermissions.filter(
+      (permission) => permission === "accessibility" || permission === "screen",
+    );
+  }
   if (typeof localConnection?.driver?.path === "string") {
     localComputer.driverPath = localConnection.driver.path;
   }

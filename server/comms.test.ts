@@ -246,7 +246,7 @@ describe("comms e2e (fake ACP fleet)", () => {
       // plus a receive-side chip pointing at the same channel
       const helperBot = state.bots.find((b: any) => b.id === helper.id);
       const inbound = helperBot.messages.find((m: any) => m.role === "user" && m.kind === "text");
-      expect(inbound.text).toContain("[Message from @Asker");
+      expect(inbound.text).toContain("Hey Helper — Asker here.");
       expect(inbound.text).toContain("ping from fake");
       const rnote = helperBot.messages.find((m: any) => m.kind === "activity" && m.tool?.name === "Message from @Asker");
       expect(rnote?.comm?.groupId).toBe(note.comm.groupId);
@@ -327,7 +327,7 @@ describe("comms e2e (fake ACP fleet)", () => {
       const helperInbound = helperBot.messages.find(
         (m: any) => m.role === "user" && m.kind === "text",
       );
-      expect(helperInbound.text).toContain("[Delegated by @Asker");
+      expect(helperInbound.text).toContain("Hey Helper — Asker here. I’m passing this your way.");
       expect(helperInbound.text).toContain("delegated task");
       expect(helperInbound.text).toContain("[Reason: followup]");
       const helperReply = helperBot.messages.findLast(

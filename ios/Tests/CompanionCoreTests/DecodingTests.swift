@@ -198,6 +198,7 @@ final class DecodingTests: XCTestCase {
         XCTAssertTrue(card.isPending)
         XCTAssertTrue(card.isPermission)
         XCTAssertEqual(card.allowKey, "Bash:rm")
+        XCTAssertNil(card.approvalScope)
         XCTAssertEqual(card.responseBehavior(for: "Allow"), "allow")
         XCTAssertEqual(card.responseBehavior(for: "Approve"), "allow")
         XCTAssertEqual(card.responseBehavior(for: "Yes"), "allow")

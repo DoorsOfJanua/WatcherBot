@@ -1,6 +1,7 @@
-// Agent-to-agent comms MCP proxy — spawned as an MCP server inside a bot's
-// agent process (via the "agents" integration). Exposes three fleet tools
-// plus Mailman's exact-draft proposal tool when the harness enables it. They
+// WatcherBot workspace MCP proxy — spawned as an MCP server inside a bot's
+// agent process (via the "agents" integration). Exposes fleet tools, durable
+// routine tools, plus Mailman's exact-draft proposal tool when the harness
+// enables it. They
 // let one bot talk to another, routed back through the harness so the
 // harness stays the single owner of turns, permissions, and recursion
 // limits:
@@ -11,6 +12,10 @@
 //                                          immediately, the peer runs after your
 //                                          current turn finishes, the user sees
 //                                          the peer's reply as its own turn
+//   list_routines()                      → this bot's durable WatcherBot routines
+//   create_routine(...)                  → create a restart-safe reminder/job
+//   set_routine_enabled(id, enabled)     → pause or resume one of this bot's jobs
+//   delete_routine(id)                   → remove one of this bot's jobs
 //
 // Speaks raw JSON-RPC 2.0 over stdio (no MCP SDK — house style, matches
 // computer-proxy / permission-proxy). All state comes from env, injected by
@@ -28,6 +33,13 @@ const THREAD_ID = process.env.OMB_THREAD_ID ?? "";
 const TOKEN = process.env.OMB_COMMS_TOKEN ?? "";
 const DEPTH = Number(process.env.OMB_TURN_DEPTH ?? "0") || 0;
 const CAN_STAGE_EMAIL = process.env.OMB_CAN_STAGE_EMAIL === "1";
+const MAX_NAME = 160;
+const MAX_TEXT = 4_000;
+const MAX_ID = 200;
+const bounded = (value: unknown, max: number) => typeof value === "string" ? value.trim().slice(0, max) : "";
+const ownBody = (args: Json = {}): Json => ({ ...args, botId: BOT_ID, threadId: THREAD_ID });
+const resourceId = (args: Json, key: string) => bounded(args[key], MAX_ID);
+const resourceTool = (name: string, description: string, properties: Json, required: string[] = []) => ({ name, description, inputSchema: { type: "object", properties, required } });
 
 const TOOLS = [
   {
@@ -36,6 +48,23 @@ const TOOLS = [
       "List the other bots (agents) in this WatcherBot Room workspace you can message, with their model and whether they're busy. Call this before ask_bot to discover who's available.",
     inputSchema: { type: "object", properties: {} },
   },
+  resourceTool("list_monitors", "List monitors owned by this bot and thread.", {}, []),
+  resourceTool("create_monitor", "Create a restart-safe monitor owned by this bot. Use webpage for an HTTP(S) page. The first check establishes a quiet baseline; later meaningful changes can notify the user.", {
+    name: { type: "string", maxLength: MAX_NAME },
+    description: { type: "string", maxLength: MAX_TEXT },
+    source_kind: { type: "string", enum: ["webpage"] },
+    target: { type: "string", maxLength: 2_048, description: "The full HTTP(S) URL to watch." },
+    interval_minutes: { type: "integer", minimum: 5, maximum: 43_200 },
+  }, ["name", "source_kind", "target"]),
+  resourceTool("pause_monitor", "Pause one of this bot's monitors.", { monitor_id: { type: "string", maxLength: MAX_ID } }, ["monitor_id"]),
+  resourceTool("resume_monitor", "Resume one of this bot's monitors.", { monitor_id: { type: "string", maxLength: MAX_ID } }, ["monitor_id"]),
+  resourceTool("archive_monitor", "Archive one of this bot's monitors.", { monitor_id: { type: "string", maxLength: MAX_ID } }, ["monitor_id"]),
+  resourceTool("list_missions", "List missions owned by this bot and thread.", {}, []),
+  resourceTool("create_mission", "Create a bounded mission owned by this bot and thread.", { name: { type: "string", maxLength: MAX_NAME }, objective: { type: "string", maxLength: MAX_TEXT } }, ["name", "objective"]),
+  resourceTool("start_mission", "Start one of this bot's missions.", { mission_id: { type: "string", maxLength: MAX_ID } }, ["mission_id"]),
+  resourceTool("pause_mission", "Pause one of this bot's missions.", { mission_id: { type: "string", maxLength: MAX_ID } }, ["mission_id"]),
+  resourceTool("resume_mission", "Resume one of this bot's missions.", { mission_id: { type: "string", maxLength: MAX_ID } }, ["mission_id"]),
+  resourceTool("cancel_mission", "Cancel one of this bot's missions.", { mission_id: { type: "string", maxLength: MAX_ID } }, ["mission_id"]),
   {
     name: "ask_bot",
     description:
@@ -61,6 +90,58 @@ const TOOLS = [
         reason: { type: "string", description: "Optional one-line reason for the delegation (shown to the user as a chip)." },
       },
       required: ["bot_id", "message"],
+    },
+  },
+  {
+    name: "list_routines",
+    description:
+      "List your durable WatcherBot routines, including their ids, schedules, enabled state, and next run. These survive agent sessions and app restarts.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "create_routine",
+    description:
+      "Create a durable WatcherBot reminder or recurring job for yourself. Use this when the user asks for ongoing follow-through (for example, check-ins during the day), or on your own initiative when a later check materially advances your assigned role or an open commitment. It survives agent sessions and app restarts; do not use provider-local Cron tools. List existing routines first, keep notifications sparse, and tell the user what you armed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Short user-facing routine name." },
+        prompt: { type: "string", description: "Exact instructions you should execute when the routine wakes you." },
+        schedule_type: { type: "string", enum: ["once", "daily", "interval"] },
+        at_iso: { type: "string", description: "For once: ISO 8601 date-time with an explicit timezone." },
+        time: { type: "string", description: "For daily: local wall-clock HH:MM." },
+        weekdays: {
+          type: "array",
+          items: { type: "integer", minimum: 0, maximum: 6 },
+          description: "Local weekdays, Sunday=0 through Saturday=6. Omit for every day.",
+        },
+        every_minutes: { type: "integer", minimum: 5, maximum: 1440, description: "For interval schedules." },
+        start: { type: "string", description: "Optional interval window start, local HH:MM." },
+        end: { type: "string", description: "Optional interval window end, local HH:MM." },
+        duration_minutes: { type: "integer", minimum: 15, maximum: 240 },
+      },
+      required: ["name", "prompt", "schedule_type"],
+    },
+  },
+  {
+    name: "set_routine_enabled",
+    description: "Pause or resume one of your durable WatcherBot routines by id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        routine_id: { type: "string" },
+        enabled: { type: "boolean" },
+      },
+      required: ["routine_id", "enabled"],
+    },
+  },
+  {
+    name: "delete_routine",
+    description: "Delete one of your durable WatcherBot routines by id when the user asks, or when you can verify it is obsolete or duplicated.",
+    inputSchema: {
+      type: "object",
+      properties: { routine_id: { type: "string" } },
+      required: ["routine_id"],
     },
   },
   ...(CAN_STAGE_EMAIL ? [{
@@ -181,6 +262,125 @@ async function callTool(name: string, args: Json): Promise<{ text: string; isErr
     // Fire-and-forget by contract: the harness returns immediately, the
     // peer turn runs after our current turn finishes.
     return { text: typeof r.message === "string" ? r.message : "Delegation queued." };
+  }
+  if (name === "list_monitors" || name === "list_missions") {
+    const kind = name.slice(5);
+    const r = await api(`/api/internal/${kind}?botId=${encodeURIComponent(BOT_ID)}&threadId=${encodeURIComponent(THREAD_ID)}`);
+    const items = (r[ kind ] as Json[]) ?? (r.items as Json[]) ?? [];
+    if (!items.length) return { text: `No ${kind} owned by this agent.` };
+    return { text: `${kind[0].toUpperCase() + kind.slice(1)}:\n${items.map((item) => `- ${bounded(item.name ?? item.title ?? item.id, MAX_NAME)} [id: ${bounded(item.id, MAX_ID)}, ${bounded(item.status, 40) || "active"}]`).join("\n")}` };
+  }
+  const monitorAction: Record<string, string> = { pause_monitor: "pause", resume_monitor: "resume", archive_monitor: "archive" };
+  const missionAction: Record<string, string> = { start_mission: "start", pause_mission: "pause", resume_mission: "resume", cancel_mission: "cancel" };
+  const action = monitorAction[name] ?? missionAction[name];
+  if (action) {
+    const kind = monitorAction[name] ? "monitors" : "missions";
+    const key = kind === "monitors" ? "monitor_id" : "mission_id";
+    const id = resourceId(args, key);
+    if (!id) return { text: `${name} needs ${key}.`, isError: true };
+    const r = await api(`/api/internal/${kind}/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(ownBody()) });
+    const past = action === "start" ? "started" : action === "archive" ? "archived" : action === "pause" ? "paused" : action === "cancel" ? "cancelled" : "resumed";
+    return { text: `${kind.slice(0, -1)} ${bounded(r.name ?? (r.item as Json | undefined)?.name ?? id, MAX_NAME)} ${past}.` };
+  }
+  if (name === "create_monitor" || name === "create_mission") {
+    const kind = name === "create_monitor" ? "monitors" : "missions";
+    const required = name === "create_monitor" ? "name" : "objective";
+    const value = bounded(args[required], MAX_TEXT);
+    if (!value || (name === "create_monitor" && value.length > MAX_NAME)) return { text: `${name} needs a bounded ${required}.`, isError: true };
+    let resource: Json;
+    if (name === "create_monitor") {
+      const target = bounded(args.target, 2_048);
+      const sourceKind = bounded(args.source_kind, 40);
+      if (sourceKind !== "webpage" || !/^https?:\/\//i.test(target)) {
+        return { text: "create_monitor currently needs source_kind webpage and a full HTTP(S) target.", isError: true };
+      }
+      resource = {
+        name: value,
+        description: bounded(args.description, MAX_TEXT),
+        sourceKind,
+        target,
+        intervalMinutes: args.interval_minutes == null ? 60 : Number(args.interval_minutes),
+      };
+    } else {
+      resource = { title: bounded(args.name, MAX_NAME), objective: value };
+    }
+    const body = ownBody(resource);
+    const r = await api(`/api/internal/${kind}`, { method: "POST", body: JSON.stringify(body) });
+    const item = (r[kind.slice(0, -1)] ?? r.item ?? r) as Json;
+    return { text: `${kind.slice(0, -1)} created: ${bounded(item.name ?? item.id, MAX_NAME)} [id: ${bounded(item.id, MAX_ID)}].` };
+  }
+  if (name === "list_routines") {
+    const r = await api(
+      `/api/internal/routines?botId=${encodeURIComponent(BOT_ID)}&threadId=${encodeURIComponent(THREAD_ID)}`,
+    );
+    const routines = (r.routines as Array<Json>) ?? [];
+    if (!routines.length) return { text: "You have no durable WatcherBot routines." };
+    const lines = routines.map((routine) => {
+      const next = routine.nextRunAt ? new Date(Number(routine.nextRunAt)).toISOString() : "none";
+      return `- ${String(routine.name)} [id: ${String(routine.id)}, ${routine.enabled ? "enabled" : "paused"}, next: ${next}, schedule: ${JSON.stringify(routine.schedule)}]`;
+    });
+    return { text: `Your durable WatcherBot routines:\n${lines.join("\n")}` };
+  }
+  if (name === "create_routine") {
+    const scheduleType = String(args.schedule_type ?? "");
+    const weekdays = Array.isArray(args.weekdays) ? args.weekdays : [0, 1, 2, 3, 4, 5, 6];
+    let schedule: Json;
+    if (scheduleType === "once") {
+      const at = Date.parse(String(args.at_iso ?? ""));
+      if (!Number.isFinite(at)) return { text: "A one-time routine needs at_iso with an explicit timezone.", isError: true };
+      schedule = { type: "once", at };
+    } else if (scheduleType === "daily") {
+      schedule = { type: "daily", time: String(args.time ?? ""), weekdays };
+    } else if (scheduleType === "interval") {
+      schedule = {
+        type: "interval",
+        everyMinutes: Number(args.every_minutes),
+        weekdays,
+        ...(args.start ? { start: String(args.start) } : {}),
+        ...(args.end ? { end: String(args.end) } : {}),
+      };
+    } else {
+      return { text: "schedule_type must be once, daily, or interval.", isError: true };
+    }
+    const r = await api("/api/internal/routines", {
+      method: "POST",
+      body: JSON.stringify({
+        fromBotId: BOT_ID,
+        fromThreadId: THREAD_ID,
+        name: String(args.name ?? ""),
+        prompt: String(args.prompt ?? ""),
+        schedule,
+        durationMinutes: args.duration_minutes == null ? undefined : Number(args.duration_minutes),
+      }),
+    });
+    const routine = r.routine as Json;
+    const next = routine.nextRunAt ? new Date(Number(routine.nextRunAt)).toISOString() : "not scheduled";
+    return {
+      text: `${r.deduplicated ? "Matching durable routine already armed" : "Durable routine created"}: ${String(routine.name)} [id: ${String(routine.id)}]. Next run: ${next}. It will wake you through WatcherBot even when this agent session is asleep.`,
+    };
+  }
+  if (name === "set_routine_enabled") {
+    const routineId = String(args.routine_id ?? "").trim();
+    if (!routineId) return { text: "set_routine_enabled needs routine_id.", isError: true };
+    const r = await api(`/api/internal/routines/${encodeURIComponent(routineId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        fromBotId: BOT_ID,
+        fromThreadId: THREAD_ID,
+        enabled: args.enabled === true,
+      }),
+    });
+    const routine = r.routine as Json;
+    return { text: `${String(routine.name)} is now ${routine.enabled ? "enabled" : "paused"}.` };
+  }
+  if (name === "delete_routine") {
+    const routineId = String(args.routine_id ?? "").trim();
+    if (!routineId) return { text: "delete_routine needs routine_id.", isError: true };
+    const r = await api(`/api/internal/routines/${encodeURIComponent(routineId)}`, {
+      method: "DELETE",
+      body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID }),
+    });
+    return { text: `Deleted durable routine ${String(r.name ?? routineId)}.` };
   }
   if (name === "propose_email_draft" && CAN_STAGE_EMAIL) {
     const r = await api("/api/internal/mail-drafts", {

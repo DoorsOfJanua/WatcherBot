@@ -2,6 +2,8 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { useStore, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
+import { humanCardSubtitle, looksTechnicalText } from "../../shared/tool-label";
+import { TechnicalDetails } from "./TechnicalDetails";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
 
@@ -23,23 +25,26 @@ export function OptionCard({
   };
 
   return (
-    <div className="w-full max-w-[840px] rounded-2xl border border-hairline/50 bg-card p-4">
+    <div className="w-full max-w-[760px] border-y border-hairline/50 bg-card/35 px-1 py-4 sm:px-2">
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-[16px] font-semibold text-ink">{card.title}</div>
           <div className="mt-0.5 text-[14px] text-ink-secondary">
-            {card.subtitle}
+            {humanCardSubtitle(card.subtitle)}
           </div>
         </div>
         <button
           onClick={() =>
             dispatch({ type: "dismissCard", botId, messageId: message.id })
           }
-          className="rounded-md p-1 text-ink-secondary hover:bg-raised hover:text-ink"
+          aria-label="Dismiss"
+          className="flex size-11 items-center justify-center rounded-full text-ink-secondary hover:bg-raised hover:text-ink"
         >
           <X size={16} />
         </button>
       </div>
+
+      {looksTechnicalText(card.subtitle) && <TechnicalDetails detail={card.subtitle} label="Exact request" />}
 
       <div className="mt-3 overflow-hidden rounded-lg border border-hairline/40">
         {card.options.map((opt, i) => (
@@ -48,7 +53,7 @@ export function OptionCard({
             disabled={!!card.answered}
             onClick={() => answer(opt)}
             className={cn(
-              "flex w-full items-center gap-3 px-3 py-3 text-left text-[15px] text-ink",
+              "flex min-h-11 w-full items-center gap-3 px-3 py-3 text-left text-[15px] text-ink",
               i > 0 && "border-t border-hairline/40",
               card.answered === opt
                 ? "bg-raised"

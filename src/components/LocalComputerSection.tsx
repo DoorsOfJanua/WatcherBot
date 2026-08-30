@@ -29,6 +29,9 @@ interface Status {
   security: "hardened" | "unsafe" | "unknown";
   persistence: "durable" | "unsafe" | "unknown";
   desktopReady: boolean;
+  desktop_error: string | null;
+  image_error: string | null;
+  container_error: string | null;
   ready: boolean;
   problem: string | null;
   image_ref: string;

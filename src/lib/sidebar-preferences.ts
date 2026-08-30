@@ -1,6 +1,12 @@
 export type SidebarDensity = "comfortable" | "compact" | "icons";
 
+export interface SidebarOrganization {
+  roomsCollapsed: boolean;
+  collapsedFolders: string[];
+}
+
 export const SIDEBAR_DENSITY_KEY = "watcherbotroom.sidebarDensity";
+export const SIDEBAR_ORGANIZATION_KEY = "watcherbotroom.sidebarOrganization";
 
 export function parseSidebarDensity(value: string | null): SidebarDensity {
   switch (value) {
@@ -32,5 +38,42 @@ export function saveSidebarDensity(
   } catch {
     // Private browsing and locked-down webviews may reject localStorage.
     // The in-memory React state still makes the control useful this session.
+  }
+}
+
+export function parseSidebarOrganization(value: string | null): SidebarOrganization {
+  if (!value) return { roomsCollapsed: false, collapsedFolders: [] };
+  try {
+    const parsed = JSON.parse(value) as Partial<SidebarOrganization>;
+    const collapsedFolders = Array.isArray(parsed.collapsedFolders)
+      ? [...new Set(parsed.collapsedFolders.filter((folder): folder is string => typeof folder === "string" && Boolean(folder.trim())))]
+      : [];
+    return {
+      roomsCollapsed: parsed.roomsCollapsed === true,
+      collapsedFolders,
+    };
+  } catch {
+    return { roomsCollapsed: false, collapsedFolders: [] };
+  }
+}
+
+export function loadSidebarOrganization(storage?: Pick<Storage, "getItem"> | null): SidebarOrganization {
+  try {
+    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
+    return parseSidebarOrganization(target?.getItem(SIDEBAR_ORGANIZATION_KEY) ?? null);
+  } catch {
+    return { roomsCollapsed: false, collapsedFolders: [] };
+  }
+}
+
+export function saveSidebarOrganization(
+  organization: SidebarOrganization,
+  storage?: Pick<Storage, "setItem"> | null,
+): void {
+  try {
+    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
+    target?.setItem(SIDEBAR_ORGANIZATION_KEY, JSON.stringify(organization));
+  } catch {
+    // Keep the in-memory state useful when storage is unavailable.
   }
 }

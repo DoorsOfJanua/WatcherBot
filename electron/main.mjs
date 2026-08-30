@@ -38,6 +38,26 @@ let desktopViewerContextId = null;
 // identities match. This must run before Electron becomes ready.
 if (process.platform === "linux") app.setDesktopName("com.janua.watcherbotroom.desktop");
 
+// Exactly one packaged instance owns the window, the embedded server, and the
+// CUA daemon. macOS keeps the app alive after its window closes, and duplicate
+// bundle copies (installed app + build outputs) let a fresh open spawn a full
+// second app with a second server. The lock lives in the shared userData dir,
+// so it covers every copy; a second launch hands off and exits before starting
+// anything. Dev runs skip the lock so they can coexist with the installed app.
+if (app.isPackaged) {
+  if (!app.requestSingleInstanceLock()) {
+    app.exit(0);
+  } else {
+    app.on("second-instance", () => {
+      const win = BrowserWindow.getAllWindows().find((w) => w !== desktopViewerWindow);
+      if (!win) return void createWindow();
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    });
+  }
+}
+
 // Packaged: the harness server ships in Resources (compiled JS, zero deps)
 // and runs on Electron's own Node via utilityProcess. It serves the built
 // UI too, so the window talks to one origin and there is no dev proxy.

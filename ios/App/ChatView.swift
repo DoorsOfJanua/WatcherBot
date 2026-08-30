@@ -980,7 +980,26 @@ struct MessageRow: View {
     private var content: some View {
         switch message.kind {
         case .text:
-            TextBubble(message: message, chat: chat, tailed: endsRun)
+            if let envelope = ReplyDraftEnvelope.parse(message.text ?? "") {
+                VStack(alignment: .leading, spacing: 10) {
+                    if !envelope.prose.isEmpty {
+                        HStack(alignment: .bottom, spacing: 0) {
+                            MarkdownText(source: envelope.prose)
+                                .foregroundStyle(Color.primary)
+                                .textSelection(.enabled)
+                                .padding(.horizontal, 15)
+                                .padding(.vertical, 11)
+                                .background(
+                                    SpeechBubble(tail: .none).fill(BubbleColor.theirs)
+                                )
+                            Spacer(minLength: 44)
+                        }
+                    }
+                    ReplyDraftDeckView(batch: envelope.batch, tint: WatcherPalette.color(chat.color), threadId: chat.threadId)
+                }
+            } else {
+                TextBubble(message: message, chat: chat, tailed: endsRun)
+            }
         case .options:
             CardView(chat: chat, message: message)
         case .activity:
@@ -1075,18 +1094,357 @@ struct TextBubble: View {
 /// transcript and they are context, not content.
 struct ActivityChip: View {
     let tool: ToolActivity?
+    @State private var showingDetails = false
 
     var body: some View {
         if let tool {
-            Label {
-                Text(tool.name).lineLimit(1)
-            } icon: {
-                Image(systemName: tool.ok == false ? "exclamationmark.triangle" : "wrench.and.screwdriver")
+            let presentation = ActivityPresentation.tool(tool)
+            VStack(alignment: .leading, spacing: 5) {
+                Button {
+                    guard presentation.technicalDetail != nil else { return }
+                    withAnimation(.easeOut(duration: 0.18)) { showingDetails.toggle() }
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: presentation.failed ? "exclamationmark.circle.fill" : "checkmark.circle")
+                        Text(presentation.label).lineLimit(1)
+                        if presentation.technicalDetail != nil {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 9, weight: .bold))
+                                .rotationEffect(.degrees(showingDetails ? 180 : 0))
+                        }
+                    }
+                    .frame(minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(presentation.technicalDetail == nil ? "" : "Shows technical details")
+
+                if showingDetails, let detail = presentation.technicalDetail {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        Text(detail)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(Color.secondary.opacity(0.82))
+                            .textSelection(.enabled)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.secondary.opacity(0.10))
+                    )
+                }
             }
             .font(.system(size: 13))
-            .foregroundStyle(tool.ok == false ? Color.red : Color.secondary)
+            .foregroundStyle(presentation.failed ? Color.red : Color.secondary)
             .padding(.leading, 4)
         }
+    }
+}
+
+/// The native counterpart of the desktop review deck. One draft is large
+/// enough to judge; the batch remains one decision moment, and nothing posts
+/// until the single final button is pressed.
+struct ReplyDraftDeckView: View {
+    let batch: ReplyDraftBatch
+    let tint: Color
+    let threadId: String
+    @EnvironmentObject private var session: Session
+    @State private var index = 0
+    @State private var decisions: [String: Bool] = [:]
+    @State private var edits: [String: String]
+    @State private var posting = false
+    @State private var result: ReplyDraftBatchResult?
+    @State private var error = ""
+    @State private var approvalPolicy: ReplyGuyApprovalPolicy?
+    @State private var approvalSaving = false
+    @State private var approvalError = ""
+
+    init(batch: ReplyDraftBatch, tint: Color, threadId: String) {
+        self.batch = batch
+        self.tint = tint
+        self.threadId = threadId
+        _edits = State(initialValue: Dictionary(uniqueKeysWithValues: batch.items.map { ($0.id, $0.reply) }))
+    }
+
+    private var item: ReplyDraftItem { batch.items[index] }
+    private var reviewedCount: Int { decisions.count }
+    private var approvedCount: Int { decisions.values.filter { $0 }.count }
+
+    var body: some View {
+        if let result {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    Image(systemName: result.errors.isEmpty ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(result.errors.isEmpty ? Color.green : Color.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(result.errors.isEmpty ? "Review finished" : "Review partly finished")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text("\(result.postedIds.count) posted · \(result.queuedIds?.count ?? 0) queued · \(result.rejectedIds.count) skipped")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color.secondary)
+                    }
+                }
+                ForEach(result.postedReceipts ?? [], id: \.id) { receipt in
+                    if let url = URL(string: receipt.postedUrl) {
+                        Link("View posted reply on X", destination: url)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(tint)
+                    }
+                }
+            }
+            .padding(.vertical, 10)
+            .accessibilityElement(children: .combine)
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(batch.title)
+                            .font(.system(size: 17, weight: .semibold))
+                        Text("\(reviewedCount) reviewed · \(approvedCount) approved")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Text("\(index + 1) of \(batch.items.count)")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color.secondary)
+                        .monospacedDigit()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+
+                Divider().opacity(0.45)
+
+                Toggle(isOn: Binding(
+                    get: { approvalPolicy?.approvalRequired ?? true },
+                    set: { value in Task { await setApprovalRequired(value) } }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Ask me first")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text(approvalPolicy?.approvalRequired == false
+                             ? "Off — Gemini can queue and post its own replies."
+                             : "On — Gemini shows you a reply deck before posting.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+                .tint(tint)
+                .disabled(
+                    approvalPolicy == nil || approvalSaving ||
+                    (approvalPolicy?.approvalRequired == true && approvalPolicy?.canPostAutomatically == false)
+                )
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                if !approvalError.isEmpty {
+                    Text(approvalError)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.red)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 10)
+                }
+
+                Divider().opacity(0.45)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 8) {
+                        Text("@\(item.author)")
+                            .font(.system(size: 13, weight: .semibold))
+                        if let raw = item.url, let url = URL(string: raw) {
+                            Link("View post", destination: url)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(tint)
+                                .frame(minHeight: 44)
+                        }
+                    }
+
+                    Text(item.post)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.secondary)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    TextField("Reply", text: Binding(
+                        get: { edits[item.id] ?? item.reply },
+                        set: { edits[item.id] = String($0.prefix(280)) }
+                    ), axis: .vertical)
+                        .font(.system(size: 19, weight: .medium))
+                        .lineLimit(2...6)
+                        .textFieldStyle(.plain)
+                        .padding(.vertical, 2)
+                        .accessibilityLabel("Reply to @\(item.author)")
+
+                    HStack(spacing: 8) {
+                        Button {
+                            decide(true)
+                        } label: {
+                            Label("Approve", systemImage: "checkmark")
+                                .font(.system(size: 15, weight: .semibold))
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .foregroundStyle(.white)
+                                .background(Capsule().fill(tint))
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            decide(false)
+                        } label: {
+                            Label("Skip", systemImage: "xmark")
+                                .font(.system(size: 15, weight: .medium))
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .foregroundStyle(Color.primary)
+                                .background(Capsule().fill(Color.secondary.opacity(0.14)))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(16)
+
+                Divider().opacity(0.45)
+
+                HStack(spacing: 4) {
+                    Button { index = max(0, index - 1) } label: {
+                        Image(systemName: "chevron.left").frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(index == 0)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 4) {
+                            ForEach(Array(batch.items.enumerated()), id: \.element.id) { offset, draft in
+                                Button { index = offset } label: {
+                                    ZStack {
+                                        Circle()
+                                            .fill(offset == index ? tint.opacity(0.18) : Color.clear)
+                                        if decisions[draft.id] == true {
+                                            Image(systemName: "checkmark")
+                                                .font(.system(size: 11, weight: .bold))
+                                                .foregroundStyle(tint)
+                                        } else if decisions[draft.id] == false {
+                                            Image(systemName: "minus")
+                                                .font(.system(size: 11, weight: .bold))
+                                                .foregroundStyle(Color.secondary)
+                                        } else {
+                                            Text("\(offset + 1)")
+                                                .font(.system(size: 11, weight: .medium))
+                                                .foregroundStyle(Color.secondary)
+                                        }
+                                    }
+                                    .frame(width: 44, height: 44)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Open draft \(offset + 1)")
+                            }
+                        }
+                    }
+
+                    Button { index = min(batch.items.count - 1, index + 1) } label: {
+                        Image(systemName: "chevron.right").frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(index == batch.items.count - 1)
+                }
+                .padding(.horizontal, 6)
+
+                Button {
+                    Task { await finish() }
+                } label: {
+                    HStack(spacing: 8) {
+                        if posting { ProgressView().tint(.white) }
+                        if !posting { Image(systemName: "paperplane.fill") }
+                        Text(posting ? "Posting…" : approvedCount > 0 ? "Post approved (\(approvedCount))" : "Finish review")
+                    }
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .foregroundStyle(.white)
+                    .background(Capsule().fill(tint))
+                }
+                .buttonStyle(.plain)
+                .disabled(reviewedCount != batch.items.count || posting)
+                .opacity(reviewedCount == batch.items.count ? 1 : 0.38)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 14)
+
+                if !error.isEmpty {
+                    Text(error)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.red)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 12)
+                        .accessibilityLabel("Could not finish review. \(error)")
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.secondary.opacity(0.09))
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(tint.opacity(0.28), lineWidth: 1)
+            }
+            .task(id: batch.profileId) { await loadApprovalPolicy() }
+        }
+    }
+
+    @MainActor
+    private func loadApprovalPolicy() async {
+        do {
+            approvalPolicy = try await session.replyGuyApprovalPolicy(
+                profileId: batch.profileId,
+                agentId: batch.agentId
+            )
+            approvalError = ""
+        } catch {
+            approvalError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func setApprovalRequired(_ value: Bool) async {
+        guard !approvalSaving else { return }
+        approvalSaving = true
+        approvalError = ""
+        do {
+            approvalPolicy = try await session.setReplyGuyApprovalPolicy(
+                profileId: batch.profileId,
+                agentId: batch.agentId,
+                approvalRequired: value
+            )
+        } catch {
+            approvalError = error.localizedDescription
+        }
+        approvalSaving = false
+    }
+
+    private func decide(_ approved: Bool) {
+        decisions[item.id] = approved
+        if index < batch.items.count - 1 { index += 1 }
+    }
+
+    @MainActor
+    private func finish() async {
+        guard reviewedCount == batch.items.count, !posting else { return }
+        posting = true
+        error = ""
+        do {
+            let approved = batch.items.compactMap { draft -> ReplyDraftApproval? in
+                guard decisions[draft.id] == true else { return nil }
+                return ReplyDraftApproval(id: draft.id, text: edits[draft.id] ?? draft.reply)
+            }
+            let skipped = batch.items.filter { decisions[$0.id] == false }.map(\.id)
+            result = try await session.submitReplyDraftBatch(
+                threadId: threadId,
+                profileId: batch.profileId,
+                drafts: approved,
+                skippedIds: skipped
+            )
+        } catch {
+            self.error = error.localizedDescription
+        }
+        posting = false
     }
 }
 
@@ -1099,6 +1457,7 @@ struct CardView: View {
     @EnvironmentObject private var session: Session
     @State private var answering = false
     @State private var editingMail = false
+    @State private var showingDetails = false
 
     /// The option this card offers that means "go ahead".
     ///
@@ -1131,38 +1490,78 @@ struct CardView: View {
 
     var body: some View {
         if let card = message.card {
-            VStack(alignment: .leading, spacing: 10) {
-                if card.isPending {
-                    Label("\(chat.name) is waiting on you", systemImage: "hand.raised.fill")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(tint)
+            let presentation = CardPresentation.approval(card)
+            VStack(alignment: .leading, spacing: card.isPending ? 14 : 8) {
+                HStack(alignment: .top, spacing: 11) {
+                    Image(systemName: card.isPending ? (presentation.sensitive ? "shield.lefthalf.filled" : "checkmark.seal") : "checkmark.circle")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(card.isPending ? tint : Color.secondary)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill((card.isPending ? tint : Color.secondary).opacity(0.12)))
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        if card.isPending {
+                            Text(card.isPermission ? "YOUR DECISION" : "QUESTION FROM \(chat.name.uppercased())")
+                                .font(.system(size: 10, weight: .bold))
+                                .tracking(1.2)
+                                .foregroundStyle(tint)
+                        }
+                        Text(card.isPermission ? "\(chat.name) wants to \(presentation.action)" : presentation.action)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(Color.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if !presentation.note.isEmpty {
+                            Text(presentation.note)
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 }
-                Text(card.title)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.primary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if !editingMail, !card.subtitle.isEmpty {
+
+                if !editingMail, card.tool == "email.send", !card.subtitle.isEmpty {
                     Text(card.subtitle)
-                        .font(.system(size: 15))
-                        .foregroundStyle(Color.secondary)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if let held = card.held {
-                    Label(held, systemImage: "exclamationmark.shield")
                         .font(.system(size: 13))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color.secondary)
+                        .lineLimit(6)
+                        .textSelection(.enabled)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.09)))
+                } else if card.isPermission, let detail = presentation.technicalDetail {
+                    DisclosureGroup(isExpanded: $showingDetails) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            if let tool = card.tool {
+                                Text(tool)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(Color.secondary)
+                            }
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                Text(detail)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(Color.secondary)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                        .padding(.top, 8)
+                    } label: {
+                        Text("Technical details")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color.secondary)
+                            .frame(minHeight: 44, alignment: .leading)
+                    }
+                    .tint(Color.secondary)
+                    .accessibilityHint("Shows the exact command or tool request")
                 }
 
-                if canReviseEmail(card), let requestId = card.requestId {
+                if canReviseEmail(card) {
                     Button {
                         editingMail = true
                     } label: {
                         Label(card.isPending ? "Edit draft" : "Revise draft", systemImage: "pencil")
                             .font(.system(size: 15, weight: .semibold))
                             .frame(maxWidth: .infinity)
-                            .frame(height: 40)
+                            .frame(minHeight: 44)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(tint)
@@ -1170,37 +1569,20 @@ struct CardView: View {
                 }
 
                 if card.isPending, !editingMail {
-                    HStack(spacing: 8) {
-                        ForEach(card.options, id: \.self) { option in
-                            Button {
-                                answering = true
-                                Task {
-                                    await session.answer(chat: chat, card: card, choice: option)
-                                    answering = false
-                                }
-                            } label: {
-                                Text(option)
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(Self.isRefusal(option) ? Color.primary : .white)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 40)
-                                    .background(
-                                        Capsule().fill(Self.isRefusal(option) ? Color.secondary.opacity(0.18) : tint)
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(answering)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            cardOptionButtons(card)
+                        }
+                        VStack(spacing: 8) {
+                            cardOptionButtons(card)
                         }
                     }
                     .padding(.top, 2)
 
                     // The grant key comes from the card. The phone never
-                    // derives its own, so it cannot permit something subtly
-                    // wider than the computer would have. The same goes for
-                    // the answer: it is one of the options the card offered,
-                    // never a string invented here.
+                    // derives its own, so it cannot permit anything wider.
                     if card.allowKey != nil, let allow = allowChoice, case let .bot(bot) = chat {
-                        Button("Always allow this tool") {
+                        Button("Always allow this kind") {
                             answering = true
                             Task {
                                 await session.alwaysAllow(bot: bot, card: card)
@@ -1213,26 +1595,26 @@ struct CardView: View {
                                 answering = false
                             }
                         }
-                        .font(.system(size: 12))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Color.secondary)
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, minHeight: 44)
                         .disabled(answering)
                     }
                 } else if !editingMail, let answered = card.answered {
-                    Label(answered, systemImage: "checkmark.circle")
-                        .font(.system(size: 14))
+                    Label(answered.lowercased() == "deny" ? "Not allowed" : "Approved", systemImage: answered.lowercased() == "deny" ? "xmark.circle" : "checkmark.circle")
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(Color.secondary)
                 }
             }
-            .padding(14)
+            .padding(card.isPending ? 16 : 12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(card.isPending ? tint.opacity(0.12) : Color.secondary.opacity(0.13))
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(card.isPending ? tint.opacity(0.10) : Color.secondary.opacity(0.08))
             )
             .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(card.isPending ? tint : .clear, lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(card.isPending ? tint.opacity(0.42) : Color.clear, lineWidth: 1)
             }
             .sheet(isPresented: $editingMail) {
                 NavigationStack {
@@ -1252,6 +1634,30 @@ struct CardView: View {
                 .presentationDragIndicator(.visible)
             }
         }
+    }
+
+    @ViewBuilder
+    private func cardOptionButtons(_ card: OptionCard) -> some View {
+                        ForEach(card.options, id: \.self) { option in
+                            Button {
+                                answering = true
+                                Task {
+                                    await session.answer(chat: chat, card: card, choice: option)
+                                    answering = false
+                                }
+                            } label: {
+                                    Text(option)
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(Self.isRefusal(option) ? Color.primary : .white)
+                                        .frame(maxWidth: .infinity)
+                                        .frame(minHeight: 44)
+                                        .background(
+                                            Capsule().fill(Self.isRefusal(option) ? Color.secondary.opacity(0.18) : tint)
+                                        )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(answering)
+                        }
     }
 
     private func requestIdForMail(_ card: OptionCard) -> String {

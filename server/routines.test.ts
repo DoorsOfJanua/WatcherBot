@@ -359,6 +359,85 @@ describe("RoutineManager", () => {
     });
   });
 
+  it("never stores an internal autonomy envelope in a routine receipt", async () => {
+    const h = harness();
+    const routine = h.manager.create({
+      name: "Sensei nudge",
+      prompt: "Send a midday nudge",
+      botId: "sensei",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    h.manager.handleRuntimeEvent({
+      eventId: "sensei-output",
+      provider: "fake",
+      threadId: "thread-1",
+      createdAt: new Date().toISOString(),
+      type: "item.completed",
+      itemType: "assistant_text",
+      text: 'Move and drink water.\n\n```autonomy-outcome\n{"kind":"autonomy-outcome","status":"ok"}\n```',
+    });
+
+    expect(h.manager.listRuns()[0]?.output).toBe("Move and drink water.");
+  });
+
+  it("stores the summary from an envelope-only successful reminder", async () => {
+    const h = harness();
+    const routine = h.manager.create({
+      name: "Sensei nudge",
+      prompt: "Send a midday nudge",
+      botId: "sensei",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    const base = {
+      eventId: "sensei-envelope",
+      provider: "fake",
+      threadId: "thread-1",
+      createdAt: new Date().toISOString(),
+    } as const;
+    h.manager.handleRuntimeEvent({
+      ...base,
+      type: "item.completed",
+      itemType: "assistant_text",
+      text: '```autonomy-outcome\n{"kind":"autonomy-outcome","status":"ok","notify":true,"summary":"Move and drink water, grasshopper."}\n```',
+    });
+    h.manager.handleRuntimeEvent({ ...base, type: "turn.completed", ok: true });
+
+    expect(h.manager.listRuns()[0]).toMatchObject({
+      status: "completed",
+      output: "Move and drink water, grasshopper.",
+    });
+  });
+
+  it("fails a scheduled run that completed without a deliverable message", async () => {
+    const h = harness();
+    const routine = h.manager.create({
+      name: "Silent reminder",
+      prompt: "Come back to me",
+      botId: "sensei",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    h.manager.handleRuntimeEvent({
+      eventId: "silent-completion",
+      provider: "fake",
+      threadId: "thread-1",
+      createdAt: new Date().toISOString(),
+      type: "turn.completed",
+      ok: true,
+    });
+
+    expect(h.manager.listRuns()[0]).toMatchObject({
+      status: "failed",
+      error: "The bot finished without producing a message for you",
+    });
+    expect(h.failed).toHaveLength(1);
+  });
+
   it("reports a failed run once with its detached thread", async () => {
     const h = harness();
     const routine = h.manager.create({

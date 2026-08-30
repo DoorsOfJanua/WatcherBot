@@ -8,13 +8,16 @@ import {
   Bot as BotIcon,
   CalendarDays,
   Check,
+  ChevronDown,
   ClipboardCopy,
   Copy,
   Crown,
+  FolderClosed,
   FolderMinus,
   FolderPlus,
   Library,
   Loader2,
+  MoreHorizontal,
   Pencil,
   PanelLeftClose,
   PanelLeftOpen,
@@ -44,7 +47,9 @@ import { TeamLibraryPanel, type TeamImportResult } from "./TeamLibraryPanel";
 import { RenameTitle } from "./RenameTitle";
 import {
   loadSidebarDensity,
+  loadSidebarOrganization,
   saveSidebarDensity,
+  saveSidebarOrganization,
   type SidebarDensity,
 } from "@/lib/sidebar-preferences";
 
@@ -225,36 +230,59 @@ function GroupListItem({
     .map((id) => state.bots.find((b) => b.id === id))
     .filter((b): b is Bot => Boolean(b));
   const last = group.messages.at(-1);
+  const iconOnly = density === "icons";
+  const openMenu = (event: React.MouseEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    onMenu({ groupId: group.id, x: Math.min(rect.right, window.innerWidth - 8), y: rect.bottom });
+  };
   return (
-    <button
-      onClick={() => dispatch({ type: "select", id: group.id })}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        onMenu({ groupId: group.id, x: e.clientX, y: e.clientY });
-      }}
-      className={cn(
-        "relative flex w-full items-center rounded-xl text-left",
-        density === "icons" ? "justify-center px-1 py-1.5" : density === "compact" ? "gap-2 px-2 py-1.5" : "gap-3 px-3 py-2.5",
-        selected ? "bg-raised" : "hover:bg-raised/50",
-      )}
-      title={density === "icons" ? group.name : undefined}
-      aria-label={density === "icons" ? group.name : undefined}
-    >
-      <StackedMauses members={members} density={density} />
-      <div className={cn("min-w-0 flex-1", density === "icons" && "hidden")}>
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="truncate text-[15px] font-semibold text-ink">{group.name}</span>
-          {selected && last && <span className="shrink-0 text-xs text-ink-secondary">{formatTime(last.at)}</span>}
+    <div className="group relative" title={iconOnly ? group.name : undefined}>
+      <button
+        onClick={() => dispatch({ type: "select", id: group.id })}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onMenu({ groupId: group.id, x: event.clientX, y: event.clientY });
+        }}
+        className={cn(
+          "relative flex w-full items-center rounded-xl text-left",
+          iconOnly
+            ? "justify-center px-1 py-1.5"
+            : density === "compact"
+              ? "gap-2 px-2 py-1.5 pr-11"
+              : "gap-3 px-3 py-2.5 pr-12",
+          selected ? "bg-raised" : "hover:bg-raised/50",
+        )}
+        aria-label={iconOnly ? group.name : undefined}
+      >
+        <StackedMauses members={members} density={density} />
+        <div className={cn("min-w-0 flex-1", iconOnly && "hidden")}>
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="truncate text-[15px] font-semibold text-ink">{group.name}</span>
+            {selected && last && <span className="shrink-0 text-xs text-ink-secondary">{formatTime(last.at)}</span>}
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-[13px] text-ink-secondary">{groupPreview(group, state.bots)}</span>
+            {group.unread && <span className="size-2 shrink-0 rounded-full bg-accent" />}
+          </div>
         </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-[13px] text-ink-secondary">{groupPreview(group, state.bots)}</span>
-          {group.unread && <span className="size-2 shrink-0 rounded-full bg-accent" />}
-        </div>
-      </div>
-      {density === "icons" && group.unread && (
-        <span className="absolute bottom-1.5 right-1.5 size-2 rounded-full border border-panel bg-accent" />
+        {iconOnly && group.unread && (
+          <span className="absolute bottom-1.5 right-1.5 size-2 rounded-full border border-panel bg-accent" />
+        )}
+      </button>
+      {!iconOnly && (
+        <button
+          type="button"
+          onClick={openMenu}
+          aria-label={`Room actions for ${group.name}`}
+          title="Room actions"
+          className="absolute right-1 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-lg text-ink-secondary opacity-0 transition-[opacity,background-color,color] duration-150 hover:bg-raised hover:text-ink focus:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100"
+        >
+          <MoreHorizontal size={17} />
+        </button>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -448,20 +476,116 @@ function NewRoomPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Labeled divider between sidebar sections. Same typographic register as
- * EngineGroupLabel so the sidebar reads as one system. */
-function SectionDivider({ name }: { name: string }) {
+/** Quiet label between sidebar groups. The count makes large teams scannable
+ * without turning each group into another card. */
+function SectionLabel({ name, count }: { name: string; count?: number }) {
   return (
     <div className="flex items-center gap-2 px-3 pb-1 pt-3 first:pt-0" data-section={name}>
       <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
         {name}
       </span>
+      {count !== undefined && <span className="text-[10px] tabular-nums text-ink-secondary/70">{count}</span>}
       <span className="h-px flex-1 bg-hairline/40" />
     </div>
   );
 }
 
-/** Move-to-section popover: existing sections as chips (checkmark on the
+function CollapsibleSectionHeader({
+  name,
+  count,
+  collapsed,
+  density,
+  hasUnread = false,
+  working = false,
+  kind,
+  onToggle,
+  onAdd,
+}: {
+  name: string;
+  count: number;
+  collapsed: boolean;
+  density: SidebarDensity;
+  hasUnread?: boolean;
+  working?: boolean;
+  kind: "rooms" | "folder";
+  onToggle: () => void;
+  onAdd?: () => void;
+}) {
+  const iconOnly = density === "icons";
+  const Icon = kind === "rooms" ? Users : FolderClosed;
+  if (iconOnly) {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        aria-label={`${collapsed ? "Expand" : "Collapse"} ${name}`}
+        title={`${name} · ${count}`}
+        className="relative mx-auto flex size-10 items-center justify-center rounded-lg text-ink-secondary hover:bg-raised hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      >
+        <Icon size={17} />
+        {(hasUnread || working) && (
+          <span className={cn("absolute right-1.5 top-1.5 size-1.5 rounded-full bg-accent", working && "animate-pulse motion-reduce:animate-none")} />
+        )}
+      </button>
+    );
+  }
+  return (
+    <div className="flex min-h-10 items-center gap-1 px-2 pt-1" data-section={name}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        className="flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 text-left text-ink-secondary transition-colors duration-150 hover:bg-raised/50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent max-md:min-h-11"
+      >
+        <ChevronDown
+          size={14}
+          className={cn(
+            "shrink-0 transition-transform duration-200 motion-reduce:transition-none",
+            collapsed && "-rotate-90",
+          )}
+        />
+        <Icon size={14} className="shrink-0" />
+        <span className="truncate text-[11px] font-semibold uppercase tracking-[0.07em]">{name}</span>
+        <span className="text-[10.5px] tabular-nums text-ink-secondary/70">{count}</span>
+        {(hasUnread || working) && (
+          <span
+            className={cn("ml-auto size-1.5 shrink-0 rounded-full bg-accent", working && "animate-pulse motion-reduce:animate-none")}
+            title={working ? "Work in progress" : "Unread messages"}
+          />
+        )}
+      </button>
+      {onAdd && (
+        <button
+          type="button"
+          onClick={onAdd}
+          aria-label={`Create ${kind === "rooms" ? "room" : "folder"}`}
+          title={`New ${kind === "rooms" ? "room" : "folder"}`}
+          className="flex size-10 shrink-0 items-center justify-center rounded-lg text-ink-secondary transition-colors duration-150 hover:bg-raised hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent max-md:size-11"
+        >
+          <Plus size={15} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function CollapsibleSectionBody({ expanded, children }: { expanded: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      className={cn(
+        "grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none",
+        expanded ? "grid-rows-[1fr] opacity-100" : "pointer-events-none grid-rows-[0fr] opacity-0",
+      )}
+      aria-hidden={!expanded}
+      inert={expanded ? undefined : true}
+    >
+      <div className="min-h-0 overflow-hidden">{children}</div>
+    </div>
+  );
+}
+
+/** Move-to-folder popover: existing folders as chips (checkmark on the
  * bot's current one), a create field, and a remove action. Mirrors the
  * context menu's fixed positioning + dismiss-on-outside-click contract. */
 function SectionPicker({
@@ -494,7 +618,7 @@ function SectionPicker({
   }, [onClose]);
 
   if (!bot) return null;
-  // hidden bots can carry a stale assignment; don't offer it as a section
+  // hidden bots can carry a stale assignment; don't offer it as a folder
   const sections = [...new Set(state.bots.filter((b) => !b.hidden && b.section).map((b) => b.section!))];
 
   const assign = (section: string) => {
@@ -512,7 +636,7 @@ function SectionPicker({
       className="fixed z-40 w-[236px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-2 shadow-2xl shadow-black/60"
     >
       <div className="px-3.5 pb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
-        Move to section
+        Move to folder
       </div>
       {sections.length > 0 && (
         <div className="flex flex-col gap-0.5 px-1.5 py-1">
@@ -544,8 +668,8 @@ function SectionPicker({
           maxLength={60}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="New section…"
-          aria-label="New section name"
+          placeholder="New folder…"
+          aria-label="New folder name"
           className="w-full rounded-lg bg-raised/70 px-2.5 py-1.5 text-[13px] text-ink placeholder:text-ink-secondary focus:outline-none"
         />
         <button
@@ -570,7 +694,7 @@ function SectionPicker({
             className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[13px] text-danger hover:bg-raised/70"
           >
             <FolderMinus size={15} />
-            Remove from section
+            Remove from folder
           </button>
         </>
       )}
@@ -668,7 +792,7 @@ function BotContextMenu({
             hint: !bot.chiefOfStaff && !canCoordinate ? "Choose a Claude or ACP engine first" : undefined,
           },
         ),
-        item(<FolderPlus size={16} className="text-ink-secondary" />, "Move to section", () => {
+        item(<FolderPlus size={16} className="text-ink-secondary" />, "Move to folder", () => {
           onClose();
           onMoveToSection(bot.id);
         }),
@@ -709,14 +833,10 @@ function BotListItem({
   bot,
   density,
   onMenu,
-  onArchive,
-  archiveDisabled,
 }: {
   bot: Bot;
   density: SidebarDensity;
   onMenu: (menu: MenuState) => void;
-  onArchive: (bot: Bot) => void;
-  archiveDisabled: boolean;
 }) {
   const { state, dispatch } = useStore();
   const [renaming, setRenaming] = useState(false);
@@ -794,6 +914,12 @@ function BotListItem({
     event.preventDefault();
     onMenu({ botId: bot.id, x: event.clientX, y: event.clientY });
   };
+  const openMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    onMenu({ botId: bot.id, x: Math.min(rect.right, window.innerWidth - 8), y: rect.bottom });
+  };
 
   // Keep the rename <input> out of role="button" — a button's descendants
   // are presentational, which hides the field from assistive tech.
@@ -826,22 +952,17 @@ function BotListItem({
       {iconOnly && bot.unread && (
         <span className="pointer-events-none absolute bottom-1.5 right-1.5 size-2 rounded-full border border-panel bg-accent" />
       )}
-      {!iconOnly && <button
-        type="button"
-        disabled={archiveDisabled}
-        onClick={() => onArchive(bot)}
-        aria-label={`Archive ${bot.name}`}
-        title={
-          bot.chiefOfStaff
-            ? "Choose another Chief of Staff first"
-            : archiveDisabled
-              ? "Keep at least one active bot"
-              : `Archive ${bot.name}`
-        }
-        className="absolute right-1 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-lg bg-card/90 text-ink-secondary opacity-0 shadow-sm transition hover:bg-raised hover:text-ink focus:opacity-100 disabled:cursor-default disabled:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100"
-      >
-        <Archive size={14} />
-      </button>}
+      {!iconOnly && (
+        <button
+          type="button"
+          onClick={openMenu}
+          aria-label={`Agent actions for ${bot.name}`}
+          title="Agent actions"
+          className="absolute right-1 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-lg text-ink-secondary opacity-0 transition-[opacity,background-color,color] duration-150 hover:bg-raised hover:text-ink focus:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100"
+        >
+          <MoreHorizontal size={17} />
+        </button>
+      )}
     </div>
   );
 }
@@ -1009,12 +1130,34 @@ export function Sidebar({
   } | null>(null);
   const [query, setQuery] = useState("");
   const [density, setDensityState] = useState<SidebarDensity>(() => loadSidebarDensity());
+  const [organization, setOrganization] = useState(() => loadSidebarOrganization());
   const [lastExpandedDensity, setLastExpandedDensity] = useState<Exclude<SidebarDensity, "icons">>(() => {
     const saved = loadSidebarDensity();
     return saved === "icons" ? "comfortable" : saved;
   });
   const [densityOpen, setDensityOpen] = useState(false);
   const [stoppingAll, setStoppingAll] = useState(false);
+
+  const updateOrganization = (update: (current: typeof organization) => typeof organization) => {
+    setOrganization((current) => {
+      const next = update(current);
+      saveSidebarOrganization(next);
+      return next;
+    });
+  };
+
+  const toggleRooms = () => {
+    updateOrganization((current) => ({ ...current, roomsCollapsed: !current.roomsCollapsed }));
+  };
+
+  const toggleFolder = (folder: string) => {
+    updateOrganization((current) => {
+      const collapsed = new Set(current.collapsedFolders);
+      if (collapsed.has(folder)) collapsed.delete(folder);
+      else collapsed.add(folder);
+      return { ...current, collapsedFolders: [...collapsed] };
+    });
+  };
 
   const setDensity = (next: SidebarDensity) => {
     setDensityState(next);
@@ -1259,11 +1402,14 @@ export function Sidebar({
         preview(b).toLowerCase().includes(q),
     );
   const chiefBot = matchingBots.find((bot) => bot.chiefOfStaff);
+  const pinnedBots = matchingBots
+    .filter((bot) => !bot.chiefOfStaff && bot.pinned)
+    .sort((a, b) => a.name.localeCompare(b.name));
   const sectionedBots = matchingBots
-    .filter((bot) => !bot.chiefOfStaff && bot.section)
+    .filter((bot) => !bot.chiefOfStaff && !bot.pinned && bot.section)
     .sort((a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false));
   const visibleBots = matchingBots
-    .filter((bot) => !bot.chiefOfStaff && !bot.section)
+    .filter((bot) => !bot.chiefOfStaff && !bot.pinned && !bot.section)
     .sort((a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false));
   // sections keep first-appearance order within the current list; a section
   // whose bots all moved away (or fell out of the filter) simply vanishes
@@ -1272,7 +1418,9 @@ export function Sidebar({
     if (!sectionNames.includes(bot.section!)) sectionNames.push(bot.section!);
   }
   const visibleGroups = state.groups.filter((g) => !q || g.name.toLowerCase().includes(q));
-  const activeBotCount = state.bots.filter((bot) => !bot.hidden).length;
+  const roomsExpanded = Boolean(q) || !organization.roomsCollapsed;
+  const roomsHaveUnread = state.groups.some((group) => group.unread);
+  const roomsWorking = state.groups.some((group) => Boolean(group.busyBotId));
   const archivedBots = state.bots.filter((bot) => bot.hidden);
   const pendingTeamUndo = teamFeedback?.undo;
   const pendingBotUndo = teamFeedback?.restoreBot;
@@ -1486,7 +1634,7 @@ export function Sidebar({
       {/* Bot list */}
       <div className="flex-1 overflow-y-auto px-2">
         <div className="flex flex-col gap-0.5">
-          {!chiefBot && visibleBots.length === 0 && sectionedBots.length === 0 && visibleGroups.length === 0 && q && q.length < MIN_QUERY && (
+          {!chiefBot && pinnedBots.length === 0 && visibleBots.length === 0 && sectionedBots.length === 0 && visibleGroups.length === 0 && q && q.length < MIN_QUERY && (
             <div className="px-3 py-6 text-center text-[13px] text-ink-secondary">Nothing matches “{query}”</div>
           )}
           {chiefBot && (
@@ -1495,39 +1643,80 @@ export function Sidebar({
                 bot={chiefBot}
                 density={density}
                 onMenu={setMenu}
-                onArchive={(bot) => void archiveBot(bot)}
-                archiveDisabled
               />
             </div>
           )}
-          {visibleGroups.map((g) => (
-            <GroupListItem key={g.id} group={g} density={density} onMenu={setRoomMenu} />
-          ))}
+          {pinnedBots.length > 0 && (
+            <>
+              {density !== "icons" && <SectionLabel name="Pinned" count={pinnedBots.length} />}
+              {pinnedBots.map((bot) => (
+                <BotListItem key={bot.id} bot={bot} density={density} onMenu={setMenu} />
+              ))}
+            </>
+          )}
+          <CollapsibleSectionHeader
+            name="Rooms"
+            count={state.groups.length}
+            collapsed={!roomsExpanded}
+            density={density}
+            hasUnread={roomsHaveUnread}
+            working={roomsWorking}
+            kind="rooms"
+            onToggle={toggleRooms}
+            onAdd={() => setNewRoom(true)}
+          />
+          <CollapsibleSectionBody expanded={roomsExpanded}>
+            <div className="flex flex-col gap-0.5">
+              {visibleGroups.map((group) => (
+                <GroupListItem key={group.id} group={group} density={density} onMenu={setRoomMenu} />
+              ))}
+              {!q && state.groups.length === 0 && density !== "icons" && (
+                <button
+                  type="button"
+                  onClick={() => setNewRoom(true)}
+                  className="mx-2 flex min-h-11 items-center gap-2 rounded-lg px-3 text-left text-[12.5px] text-ink-secondary hover:bg-raised/50 hover:text-ink"
+                >
+                  <Plus size={14} /> Create your first room
+                </button>
+              )}
+            </div>
+          </CollapsibleSectionBody>
+          {visibleBots.length > 0 && density !== "icons" && <SectionLabel name="Agents" count={visibleBots.length} />}
           {visibleBots.map((b) => (
             <BotListItem
               key={b.id}
               bot={b}
               density={density}
               onMenu={setMenu}
-              onArchive={(bot) => void archiveBot(bot)}
-              archiveDisabled={activeBotCount <= 1}
             />
           ))}
           {sectionNames.map((name) => (
             <Fragment key={name}>
-              {density !== "icons" && <SectionDivider name={name} />}
-              {sectionedBots
-                .filter((b) => b.section === name)
-                .map((b) => (
-                  <BotListItem
-                    key={b.id}
-                    bot={b}
-                    density={density}
-                    onMenu={setMenu}
-                    onArchive={(bot) => void archiveBot(bot)}
-                    archiveDisabled={activeBotCount <= 1}
-                  />
-                ))}
+              {(() => {
+                const folderBots = sectionedBots.filter((bot) => bot.section === name);
+                const folderExpanded = Boolean(q) || !organization.collapsedFolders.includes(name);
+                return (
+                  <>
+                    <CollapsibleSectionHeader
+                      name={name}
+                      count={folderBots.length}
+                      collapsed={!folderExpanded}
+                      density={density}
+                      hasUnread={folderBots.some((bot) => bot.unread)}
+                      working={folderBots.some((bot) => bot.busy)}
+                      kind="folder"
+                      onToggle={() => toggleFolder(name)}
+                    />
+                    <CollapsibleSectionBody expanded={folderExpanded}>
+                      <div className="flex flex-col gap-0.5">
+                        {folderBots.map((bot) => (
+                          <BotListItem key={bot.id} bot={bot} density={density} onMenu={setMenu} />
+                        ))}
+                      </div>
+                    </CollapsibleSectionBody>
+                  </>
+                );
+              })()}
             </Fragment>
           ))}
           <SearchResults query={query} onLanded={() => setQuery("")} />

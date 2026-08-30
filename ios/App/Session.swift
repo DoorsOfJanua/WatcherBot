@@ -527,6 +527,44 @@ final class Session: ObservableObject {
         await perform { try await $0.alwaysAllow(botId: bot.id, key: key) }
     }
 
+    func submitReplyDraftBatch(
+        threadId: String,
+        profileId: String,
+        drafts: [ReplyDraftApproval],
+        skippedIds: [String]
+    ) async throws -> ReplyDraftBatchResult {
+        guard let client else { throw APIError.transport("This computer is offline.") }
+        do {
+            return try await client.submitReplyDraftBatch(
+                threadId: threadId,
+                profileId: profileId,
+                drafts: drafts,
+                skippedIds: skippedIds
+            )
+        } catch let error as APIError where error.isUnauthorized {
+            status = .unauthorized
+            throw error
+        }
+    }
+
+    func replyGuyApprovalPolicy(profileId: String, agentId: String? = nil) async throws -> ReplyGuyApprovalPolicy {
+        guard let client else { throw APIError.transport("This computer is offline.") }
+        return try await client.replyGuyApprovalPolicy(profileId: profileId, agentId: agentId)
+    }
+
+    func setReplyGuyApprovalPolicy(
+        profileId: String,
+        agentId: String? = nil,
+        approvalRequired: Bool
+    ) async throws -> ReplyGuyApprovalPolicy {
+        guard let client else { throw APIError.transport("This computer is offline.") }
+        return try await client.setReplyGuyApprovalPolicy(
+            profileId: profileId,
+            agentId: agentId,
+            approvalRequired: approvalRequired
+        )
+    }
+
     func mailDraft(requestId: String) async throws -> MailDraft {
         guard let client else { throw APIError.transport("This computer is offline.") }
         do {
@@ -707,6 +745,19 @@ final class Session: ObservableObject {
         guard let client else { return nil }
         do {
             let updated = try await client.updateProfile(botId: bot.id, patch: patch)
+            guard !Task.isCancelled else { return nil }
+            state.apply(.bot(updated))
+            return updated
+        } catch {
+            if !Task.isCancelled { actionError = error.localizedDescription }
+            return nil
+        }
+    }
+
+    func updateOrganization(_ patch: BotOrganizationPatch, for bot: Bot) async -> Bot? {
+        guard let client else { return nil }
+        do {
+            let updated = try await client.updateOrganization(botId: bot.id, patch: patch)
             guard !Task.isCancelled else { return nil }
             state.apply(.bot(updated))
             return updated
@@ -1110,8 +1161,10 @@ extension CompanionState {
         // says "waiting on you" beside it
         case .options:
             guard let card = last.card else { return "" }
-            return card.isPending && !card.subtitle.isEmpty ? card.subtitle : card.title
-        case .activity: return last.tool?.name ?? ""
+            return card.isPending ? CardPresentation.preview(card) : card.title
+        case .activity:
+            guard let tool = last.tool else { return "" }
+            return ActivityPresentation.tool(tool).label
         case .screen: return "Screenshot"
         case .unknown: return last.text ?? ""
         }

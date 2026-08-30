@@ -76,6 +76,9 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   // Paired-safe profile subset. The harness route itself rejects fields
   // outside identity, avatar, notifications, and voice preferences.
   { method: "PATCH", path: /^\/api\/bots\/[\w-]+\/profile$/ },
+  // Sidebar organization only: the harness accepts pinned + folder and
+  // rejects execution policy, permissions, engines, and every other field.
+  { method: "PATCH", path: /^\/api\/bots\/[\w-]+\/organization$/ },
   { method: "POST", path: /^\/api\/bots\/[\w-]+\/avatar\/generate$/ },
   // Full cloud desktop access. The route is narrow and the proxy applies a
   // second, per-device capability check before it reaches the harness.
@@ -104,6 +107,13 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "GET", path: /^\/api\/studio\/review$/ },
   { method: "GET", path: /^\/api\/studio\/render\/[\w-]+\/[\w.-]+$/ },
   { method: "POST", path: /^\/api\/studio\/approve$/ },
+
+  // One exact ReplyGuy review batch. This is the phone equivalent of the
+  // desktop Card Deck's final button; the harness re-reads every draft and
+  // rejects stale, foreign, or changed rows before anything is posted.
+  { method: "POST", path: /^\/api\/replyguy\/drafts\/batch$/ },
+  { method: "GET", path: /^\/api\/replyguy\/approval-policy$/ },
+  { method: "PUT", path: /^\/api\/replyguy\/approval-policy$/ },
 
   // App-owned profile images. Upload is image-only and capped at 10 MB by
   // the harness; GET is a single bare generated filename, never a path.

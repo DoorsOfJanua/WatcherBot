@@ -91,6 +91,16 @@ const finishIfDone = () => {
 const playTurn = (prompt: JsonValue) => {
   turnRunning = true;
   steered = [];
+  const completeMatch = process.env.FAKE_CLAUDE_COMPLETE_MATCH ?? "";
+  const outcomeMatch = process.env.FAKE_CLAUDE_OUTCOME_MATCH ?? "";
+  const missionMatch = process.env.FAKE_CLAUDE_MISSION_MATCH ?? "";
+  const completesFixture =
+    (completeMatch && promptText(prompt).includes(completeMatch)) ||
+    (outcomeMatch && promptText(prompt).includes(outcomeMatch)) ||
+    (missionMatch && promptText(prompt).includes(missionMatch));
+  const turnMode = mode === "hang" && completesFixture
+    ? "happy"
+    : mode;
   if (!dumped && process.env.FAKE_CLAUDE_DUMP) {
     dumped = true;
     const configPath = argAfter("--mcp-config");
@@ -105,7 +115,7 @@ const playTurn = (prompt: JsonValue) => {
     writeFileSync(process.env.FAKE_CLAUDE_DUMP, JSON.stringify({ pid: process.pid, argv, env: process.env, prompt, mcpConfig }, null, 2));
   }
 
-  if (mode === "exit-early") {
+  if (turnMode === "exit-early") {
     process.stderr.write("fake-claude: simulated crash before result\n");
     process.exit(3);
   }
@@ -113,18 +123,18 @@ const playTurn = (prompt: JsonValue) => {
   // the real CLI re-announces init on every turn of a live process
   out({ type: "system", subtype: "init", session_id: sessionId, model });
 
-  if (mode === "hang") {
+  if (turnMode === "hang") {
     // stay alive until killed — lets tests exercise interrupt + the
     // permission broker while a turn is officially in flight
     setInterval(() => {}, 1_000);
     return;
   }
 
-  if (mode === "malformed") {
+  if (turnMode === "malformed") {
     process.stdout.write("this is not json\n{broken\n");
   }
 
-  if (mode === "stream") {
+  if (turnMode === "stream") {
     const delta = (d: unknown) => out({ type: "stream_event", event: { type: "content_block_delta", delta: d } });
     delta({ type: "thinking_delta", thinking: "hmm" });
     delta({ type: "text_delta", text: "hello from " });
@@ -141,7 +151,14 @@ const playTurn = (prompt: JsonValue) => {
     type: "assistant",
     message: {
       content: [
-        { type: "text", text: "hello from fake claude" },
+        {
+          type: "text",
+          text: missionMatch && promptText(prompt).includes(missionMatch)
+            ? process.env.FAKE_CLAUDE_MISSION_OUTCOME ?? "hello from fake claude"
+            : outcomeMatch && promptText(prompt).includes(outcomeMatch)
+              ? process.env.FAKE_CLAUDE_OUTCOME ?? "hello from fake claude"
+              : "hello from fake claude",
+        },
         { type: "tool_use", id: "tu-1", name: "Bash" },
       ],
       usage: { input_tokens: 10, cache_read_input_tokens: 2, output_tokens: 5 },
@@ -154,7 +171,7 @@ const playTurn = (prompt: JsonValue) => {
     turnRunning = false;
     finishIfDone();
   };
-  if (mode === "slow") {
+  if (turnMode === "slow") {
     // a gap a test can steer into; the closing reply carries anything that
     // was folded in, the way the real CLI includes a mid-turn message in
     // the same turn's next model call

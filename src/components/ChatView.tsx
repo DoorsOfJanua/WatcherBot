@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   ArrowDown,
   Brain,
-  Braces,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -41,6 +40,7 @@ import { showWorkingDots } from "@/lib/turn-tail";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { OptionCard } from "./OptionCard";
 import { ApprovalCard } from "./ApprovalCard";
+import { TechnicalDetails } from "./TechnicalDetails";
 import { Composer } from "./Composer";
 import { ConnectorCard } from "./ConnectorCard";
 import { ModelPicker } from "./ModelPicker";
@@ -61,6 +61,7 @@ import { workingPhrase } from "@/lib/work-language";
 import { useDevMode } from "@/lib/display-mode";
 import { DevModeToggle } from "./DevModeToggle";
 import { publicBotDescription } from "../../shared/bot-profile";
+import { humanErrorMessage } from "../../shared/tool-label";
 import {
   TRANSCRIPT_WINDOW_SIZE,
   expandWindowStart,
@@ -198,13 +199,15 @@ export function ErrorRow({
   onRetry?: () => void;
   setupInstance?: InstanceInfo;
 }) {
+  const presented = humanErrorMessage(message);
   return (
     <div className="flex justify-start">
       <div className="max-w-[70%] rounded-xl border border-danger/30 bg-danger/10 px-3.5 py-2.5 text-[13.5px] text-danger">
         <div className="flex items-start gap-2">
           <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-          <span className="min-w-0 break-words">{message}</span>
+          <span className="min-w-0 break-words">{presented.message}</span>
         </div>
+        {presented.detail && <TechnicalDetails detail={presented.detail} label="Technical details" className="mt-1" />}
         {setupInstance &&
         !(setupInstance.snapshot.state === "available" && setupInstance.snapshot.authenticated !== false) ? (
           <EngineSetup instance={setupInstance} className="mt-2 text-ink-secondary" />
@@ -233,7 +236,7 @@ class MessageBoundary extends Component<{ children: ReactNode; fallbackText: str
   render() {
     if (this.state.failed) {
       return (
-        <div className="max-w-[70%] rounded-2xl bg-card px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-ink">
+        <div className="max-w-[70%] py-1 text-[15px] leading-relaxed whitespace-pre-wrap text-ink">
           {this.props.fallbackText}
         </div>
       );
@@ -381,12 +384,12 @@ function Bubble({
         </button>
         <div
           className={cn(
-            "max-w-[70%] rounded-2xl text-[15px] leading-relaxed",
+            "max-w-[70%] text-[15px] leading-relaxed",
             user && webhookView
-              ? "overflow-hidden border border-accent/25 bg-card text-ink shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
+              ? "overflow-hidden rounded-2xl border border-accent/25 bg-card text-ink shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
               : user
-                ? "bg-bubble-user px-4 py-2.5 whitespace-pre-wrap text-ink"
-                : "bg-card px-4 py-2.5 text-ink",
+                ? "rounded-2xl bg-bubble-user px-4 py-2.5 whitespace-pre-wrap text-ink"
+                : "py-1 text-ink",
           )}
           title={new Date(message.at).toLocaleString()}
         >
@@ -467,18 +470,18 @@ function Bubble({
             <MessageBoundary fallbackText={text}>
               <>
                 {message.automation && (
-                  <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary/75">
-                    <Clock size={12} aria-hidden="true" />
-                    <span>
-                      {message.automation.source === "schedule"
-                        ? "Automated · scheduled"
-                        : message.automation.source === "webhook"
-                          ? "Automated · webhook"
-                          : "Automated · run"}
+                <div className="mb-1.5 flex items-center gap-1.5 text-[11.5px] text-ink-secondary/70">
+                  <Clock size={12} aria-hidden="true" />
+                  <span>
+                    {message.automation.source === "schedule"
+                      ? "Scheduled"
+                      : message.automation.source === "webhook"
+                        ? "Webhook"
+                        : "Routine"}
                     </span>
                   </div>
                 )}
-                <ChatMarkdown text={text} accentColor={bot.color} />
+                <ChatMarkdown text={text} accentColor={bot.color} threadId={bot.threadId} />
               </>
             </MessageBoundary>
           )}
@@ -633,13 +636,13 @@ export function ActivityGroupRow({ bot, group }: { bot?: Bot; group: ActivityGro
 
   return (
     <div className="flex w-full justify-start">
-      <div className="max-w-[70%] min-w-[240px]">
+      <div className="max-w-[70%]">
         <button
           type="button"
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
           className={cn(
-            "flex w-full items-center gap-2 rounded-xl border border-hairline/35 bg-panel px-3 py-2 text-left text-[13px] transition-colors hover:bg-raised/70",
+            "inline-flex items-center gap-1.5 rounded-full bg-raised/55 px-2.5 py-1.5 text-left text-[12.5px] transition-colors hover:bg-raised",
             failed ? "text-danger" : "text-ink-secondary hover:text-ink",
           )}
         >
@@ -648,16 +651,16 @@ export function ActivityGroupRow({ bot, group }: { bot?: Bot; group: ActivityGro
           ) : failed ? (
             <X size={13} className="shrink-0" />
           ) : (
-            <Braces size={13} className="shrink-0" />
+            <Check size={13} className="shrink-0" />
           )}
           <span className="min-w-0 flex-1 truncate">{label}</span>
-          <span className="shrink-0 text-[11px] tabular-nums text-ink-secondary/70">
+          <span className="shrink-0 text-[11px] tabular-nums text-ink-secondary/65">
             {group.messages.length} {group.messages.length === 1 ? "action" : "actions"}
           </span>
           <ChevronDown size={13} className={cn("shrink-0 transition-transform", open && "rotate-180")} />
         </button>
         {open && (
-          <div className="mt-1.5 flex flex-col gap-1.5 rounded-xl border border-hairline/25 bg-inset/35 p-2">
+          <div className="mt-1.5 flex flex-col gap-1.5 py-1 pl-2">
             {/* the revealed trail is where someone decides they want raw argv */}
             <DevModeToggle className="self-end" />
             {/* identical consecutive steps fold into one ×N chip — repetition
@@ -690,7 +693,7 @@ function StreamingBubble({ text, accentColor }: { text: string; accentColor?: Bo
   const deferred = useDeferredValue(text);
   return (
     <div className="flex w-full justify-start">
-      <div className="max-w-[70%] rounded-2xl bg-card px-4 py-2.5 text-[15px] leading-relaxed text-ink">
+      <div className="max-w-[70%] py-1 text-[15px] leading-relaxed text-ink">
         <MessageBoundary fallbackText={deferred}>
           <ChatMarkdown text={deferred} streaming accentColor={accentColor} />
         </MessageBoundary>
@@ -781,7 +784,7 @@ const MessagesList = memo(function MessagesList({
               // a live permission ask gets the approval box; questions and
               // the onboarding quiz keep the list card
               return m.card?.requestId && m.card.tool ? (
-                <ApprovalCard bot={bot} message={m} />
+                !m.card.answered && !m.card.dismissed ? null : <ApprovalCard bot={bot} message={m} />
               ) : (
                 <OptionCard botId={bot.id} message={m} />
               );

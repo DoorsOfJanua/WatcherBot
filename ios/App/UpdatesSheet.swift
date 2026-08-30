@@ -106,7 +106,7 @@ private struct UpdateRow: View {
                                         .font(.system(size: 13, weight: .semibold))
                                         .foregroundStyle(CardStyle.isRefusal(option) ? Color.primary : .white)
                                         .padding(.horizontal, 14)
-                                        .frame(height: 32)
+                                        .frame(minHeight: 44)
                                         .background(
                                             Capsule().fill(
                                                 CardStyle.isRefusal(option)

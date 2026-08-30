@@ -102,10 +102,10 @@ const WRITE_INTENT = /\b(send|create|add|update|edit|delete|remove|write|publish
 const READ_PROGRAMS = new Set([
   "ls", "cat", "head", "tail", "wc", "pwd", "date", "which", "file", "stat",
   "du", "df", "ps", "lsof", "echo", "printf", "grep", "egrep", "fgrep", "rg",
-  "find", "sort", "uniq", "cut", "tr", "diff", "shasum", "md5", "basename",
+  "find", "sort", "uniq", "cut", "tr", "diff", "comm", "cmp", "nl", "shasum", "md5", "basename",
   "dirname", "uname", "whoami", "hostname", "uptime", "sw_vers", "true",
   "test", "[", "cd", "type", "column", "jq", "strings",
-  "readlink", "realpath", "sleep", "wait",
+  "readlink", "realpath", "sleep", "wait", "read", "mdls",
 ]);
 // listed programs that can still execute or write through their own flags —
 // `env cmd` runs cmd, `find -exec` runs anything, `sort -o` writes a file
@@ -124,6 +124,117 @@ const WRAPPER_WORDS = new Set(["do", "then", "time", "!", "{", "}", "while", "un
 // segment-level keywords whose own line executes nothing (loop headers, closers)
 const CONTROL_SEGMENTS = new Set(["for", "case", "done", "fi", "esac", "else", "in"]);
 
+/** Split command operators without mistaking quoted regex/data for code.
+ * This deliberately handles only the operators the read classifier needs;
+ * malformed quoting fails closed. */
+function shellSegments(command: string): string[] | null {
+  const segments: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+    if (escaped) { current += char; escaped = false; continue; }
+    if (char === "\\" && quote !== "'") { current += char; escaped = true; continue; }
+    if (quote) {
+      current += char;
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "'" || char === '"') { quote = char; current += char; continue; }
+    const pair = command.slice(index, index + 2);
+    if (pair === "&&" || pair === "||") {
+      segments.push(current); current = ""; index += 1; continue;
+    }
+    if (char === ";" || char === "|" || char === "\n") {
+      segments.push(current); current = ""; continue;
+    }
+    current += char;
+  }
+  if (escaped || quote) return null;
+  segments.push(current);
+  return segments;
+}
+
+function hasUnquotedRedirect(command: string): boolean {
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  for (const char of command) {
+    if (escaped) { escaped = false; continue; }
+    if (char === "\\" && quote !== "'") { escaped = true; continue; }
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "'" || char === '"') { quote = char; continue; }
+    if (char === ">") return true;
+  }
+  return Boolean(escaped || quote);
+}
+
+function extractShellSubstitutions(command: string): { outer: string; bodies: string[] } | null {
+  const bodies: string[] = [];
+  let outer = "";
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+    if (escaped) { outer += char; escaped = false; continue; }
+    if (char === "\\" && quote !== "'") { outer += char; escaped = true; continue; }
+
+    if (quote !== "'" && char === "`") {
+      let end = index + 1;
+      let innerEscaped = false;
+      for (; end < command.length; end += 1) {
+        const inner = command[end];
+        if (innerEscaped) { innerEscaped = false; continue; }
+        if (inner === "\\") { innerEscaped = true; continue; }
+        if (inner === "`") break;
+      }
+      if (end >= command.length) return null;
+      bodies.push(command.slice(index + 1, end));
+      outer += "substitution";
+      index = end;
+      continue;
+    }
+
+    const pair = command.slice(index, index + 2);
+    if (quote !== "'" && (pair === "$(" || pair === "<(")) {
+      let depth = 1;
+      let end = index + 2;
+      let innerQuote: "'" | '"' | null = null;
+      let innerEscaped = false;
+      for (; end < command.length; end += 1) {
+        const inner = command[end];
+        if (innerEscaped) { innerEscaped = false; continue; }
+        if (inner === "\\" && innerQuote !== "'") { innerEscaped = true; continue; }
+        if (innerQuote) {
+          if (inner === innerQuote) innerQuote = null;
+          continue;
+        }
+        if (inner === "'" || inner === '"') { innerQuote = inner; continue; }
+        if (inner === "(") depth += 1;
+        else if (inner === ")" && --depth === 0) break;
+      }
+      if (end >= command.length || depth !== 0) return null;
+      bodies.push(command.slice(index + 2, end));
+      outer += "substitution";
+      index = end;
+      continue;
+    }
+
+    if (quote) {
+      outer += char;
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "'" || char === '"') quote = char;
+    outer += char;
+  }
+  if (escaped || quote) return null;
+  return { outer, bodies };
+}
+
 export function isReadOnlyShellCommand(command: string): boolean {
   if (!command.trim()) return false;
   if (/\bsudo\b/.test(command)) return false;
@@ -132,18 +243,15 @@ export function isReadOnlyShellCommand(command: string): boolean {
   const withoutSafeRedirects = command
     .replace(/\d?>&\d/g, " ")
     .replace(/\d?>>?\s*\/dev\/null/g, " ");
-  if (/>/.test(withoutSafeRedirects)) return false;
+  if (hasUnquotedRedirect(withoutSafeRedirects)) return false;
   // curl with a substitution anywhere in its arguments is the exfil shape
   // (`curl "url?data=$(cat file)"`): the inner command classifies as a read
   // on its own, so the outer curl must refuse instead
   if (/curl[^\n;|&]*(\$\(|`)/.test(command)) return false;
-  // substitution bodies become segments of their own: `echo $(rm x)` must
-  // classify the rm, and `cat <(curl ...)` must classify the curl. Closing
-  // parens/backticks just end up as harmless trailing characters on the
-  // last argument. (`>(...)` needs no case here — its `>` already failed
-  // the redirect check above.)
-  const flattened = command.replace(/\$\(/g, "; ").replace(/<\(/g, "; ").replace(/`/g, "; ");
-  const segments = flattened.split(/\|\||&&|;|\||\n/);
+  const extracted = extractShellSubstitutions(command);
+  if (!extracted || extracted.bodies.some((body) => !isReadOnlyShellCommand(body))) return false;
+  const segments = shellSegments(extracted.outer);
+  if (!segments) return false;
   for (const segment of segments) {
     let words = segment.trim().split(/\s+/).filter(Boolean);
     if (!words.length) continue;
@@ -159,7 +267,31 @@ export function isReadOnlyShellCommand(command: string): boolean {
     if (CONTROL_SEGMENTS.has(first)) continue;
     const program = first.split("/").pop() ?? "";
     if (program === "git") {
-      if (!words[1] || !READ_GIT.has(words[1])) return false;
+      // `git -C /repo status` is the normal safe way for an agent to inspect
+      // a project outside its current working directory. Only accept that
+      // one global option here; options such as `-c core.pager=...` can run
+      // arbitrary commands and therefore remain fail-closed.
+      let subcommandIndex = 1;
+      while (words[subcommandIndex] === "-C" && words[subcommandIndex + 1]) subcommandIndex += 2;
+      const subcommand = words[subcommandIndex];
+      if (!subcommand) return false;
+      if (subcommand === "remote") {
+        const args = words.slice(subcommandIndex + 1);
+        if (args.length > 1 || (args[0] !== undefined && args[0] !== "-v" && args[0] !== "--verbose")) return false;
+        continue;
+      }
+      if (!READ_GIT.has(subcommand)) return false;
+      continue;
+    }
+    if (program === "xargs") {
+      // xargs is only as safe as the command it invokes. Support the common
+      // null-delimited read pipeline, then recursively classify the invoked
+      // program. Unknown xargs options fail closed; no command means echo.
+      let nestedIndex = 1;
+      while (words[nestedIndex] === "-0" || words[nestedIndex] === "--null") nestedIndex += 1;
+      if (!words[nestedIndex]) continue;
+      if (words[nestedIndex].startsWith("-")) return false;
+      if (!isReadOnlyShellCommand(words.slice(nestedIndex).join(" "))) return false;
       continue;
     }
     if (program === "curl") {
@@ -237,6 +369,7 @@ export type AutoVerdictSource =
   | "always-allow"
   | "auto-mode"
   | "policy-read"
+  | "trusted-automation-read"
   | "unattended-block"
   | "local-computer-block"
   | "destructive-guard"
@@ -268,6 +401,9 @@ export function autoVerdict(
   context?: {
     /** the turn was started by an outside event, with nobody at the keyboard */
     unattended?: boolean;
+    /** The server itself scheduled this mission/routine. Only clearly
+     * read-only requests may pass; webhook payloads never set this. */
+    trustedAutomationRead?: boolean;
     /** the request controls the user's active desktop */
     scope?: "local-computer";
   },
@@ -311,6 +447,25 @@ export function autoVerdict(
       ? { approve: `auto-approved ${tool} (read-only)`, source: "policy-read" as const, rule: "read-only request" }
       : null;
   if (context?.unattended) {
+    // A mission or scheduled routine was explicitly created inside the app,
+    // unlike a webhook whose payload may have been written by anyone. Let
+    // those trusted jobs inspect their inputs without parking on a card.
+    // Shell access is still fail-closed through isReadOnlyShellCommand, and
+    // secrets, host-computer reads, outward actions, and writes all stop.
+    if (
+      context.trustedAutomationRead
+      && !context.scope
+      && readOnly
+      && !destructive
+      && !sensitive
+      && !outward
+    ) {
+      return {
+        approve: `auto-approved ${tool} (trusted automation read-only)`,
+        source: "trusted-automation-read",
+        rule: "trusted automation read-only",
+      };
+    }
     // Auto mode is something a person switched on for turns they are present
     // for. A webhook turn begins with nobody watching, on a payload someone
     // else wrote, so it does not inherit that decision — the guard above is a
@@ -361,6 +516,8 @@ export function autoDecision(
   context?: {
     /** the turn was started by an outside event, with nobody at the keyboard */
     unattended?: boolean;
+    /** Server-authored mission/schedule; permits only classified reads. */
+    trustedAutomationRead?: boolean;
     /** the request controls the user's active desktop */
     scope?: "local-computer";
   },

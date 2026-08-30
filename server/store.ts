@@ -81,7 +81,7 @@ export interface Message {
   kind: "text" | "options" | "activity" | "screen" | "connector";
   text?: string;
   /** Provenance for unattended work, retained for the chat UI and audit trail. */
-  automation?: { source: "schedule" | "manual" | "webhook" };
+  automation?: { source: "schedule" | "manual" | "webhook" | "monitor" | "mission" };
   card?: OptionCardData;
   connector?: ConnectorCardData;
   /** activity messages: tool name + outcome. `spoken` is the same chip as

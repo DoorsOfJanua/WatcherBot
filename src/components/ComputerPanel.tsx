@@ -930,9 +930,9 @@ export function ComputerPanel({ bot, embedded = false }: { bot: Bot; embedded?: 
           </div>
         )}
 
-        <LocalScreenPreview />
-        <LinuxLocalControl />
-        <MacLocalControl />
+        {phase === "local" && <LocalScreenPreview />}
+        {phase === "local" && <LinuxLocalControl />}
+        {phase === "local" && <MacLocalControl />}
 
         {/* Computer source */}
           <div className="mt-4 rounded-xl bg-card p-4">

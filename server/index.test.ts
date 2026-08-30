@@ -251,12 +251,20 @@ beforeAll(async () => {
       ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
       HOME: home,
       USERPROFILE: home,
+      MYAGENT_ROOM_DATA_DIR: join(home, ".openmausbot"),
       OMB_PORT: String(PORT),
       OMB_WEBHOOK_PORT: String(WEBHOOK_PORT),
       OMB_BOX_API: `http://127.0.0.1:${boxStubPort}`,
       OMB_COMPOSIO_API: `http://127.0.0.1:${boxStubPort}/api/v3.1`,
       OMB_STATIC_DIR: staticDir,
       FAKE_CLAUDE_MODE: "hang",
+      FAKE_CLAUDE_COMPLETE_MATCH: "Give the morning training nudge",
+      FAKE_CLAUDE_OUTCOME_MATCH: "Quiet unchanged monitor",
+      // Deliberately generic: real models sometimes ignore the requested
+      // fence label. The semantic kind must still yield clean human copy.
+      FAKE_CLAUDE_OUTCOME: '```json\n{"kind":"autonomy-outcome","version":1,"status":"unchanged","changed":false,"notify":false,"summary":"No meaningful change"}\n```',
+      FAKE_CLAUDE_MISSION_MATCH: "You are executing one bounded mission work item.",
+      FAKE_CLAUDE_MISSION_OUTCOME: '```autonomy-outcome\n{"kind":"autonomy-outcome","version":1,"status":"completed","changed":true,"notify":true,"summary":"Source inventory complete","details":"Found the canonical material and recorded the blockers."}\n```',
       FAKE_CLAUDE_DUMP: fakeClaudeDump,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -298,7 +306,7 @@ describe("harness HTTP API", () => {
   it("identifies itself on /api/health", async () => {
     const { status, body } = await api("GET", "/api/health");
     expect(status).toBe(200);
-    expect(body.app).toBe("openmausbot");
+    expect(body.app).toBe("watcherbotroom");
     expect(typeof body.pid).toBe("number");
     expect(body.static).toBe(true);
   });
@@ -516,6 +524,21 @@ describe("harness HTTP API", () => {
     const patched = await api("PATCH", `/api/bots/${bot.id}`, { name: "Renamed", pinned: true });
     expect(patched.status).toBe(200);
     expect(patched.body.bot).toMatchObject({ name: "Renamed", pinned: true });
+
+    // The paired phone gets a deliberately narrow organization endpoint:
+    // pinning and folders, with no path into execution or permission policy.
+    const organized = await api("PATCH", `/api/bots/${bot.id}/organization`, {
+      pinned: false,
+      section: "  Writing  ",
+    });
+    expect(organized.status).toBe(200);
+    expect(organized.body.bot).toMatchObject({ pinned: false, section: "Writing" });
+    expect((await api("PATCH", `/api/bots/${bot.id}/organization`, { autoApprove: true })).status).toBe(400);
+    expect((await api("PATCH", `/api/bots/${bot.id}/organization`, { pinned: "yes" })).status).toBe(400);
+    expect((await api("PATCH", `/api/bots/${bot.id}/organization`, { section: "F".repeat(61) })).status).toBe(400);
+    const unfiled = await api("PATCH", `/api/bots/${bot.id}/organization`, { section: null });
+    expect(unfiled.status).toBe(200);
+    expect(unfiled.body.bot).not.toHaveProperty("section");
 
     const missing = await api("PATCH", "/api/bots/does-not-exist", { name: "x" });
     expect(missing.status).toBe(404);
@@ -828,7 +851,7 @@ describe("harness HTTP API", () => {
     expect(exported.body.team).not.toHaveProperty("room");
     expect(JSON.stringify(exported.body)).not.toMatch(/Archived|autoApprove|alwaysAllow|modelSelection|threadId/);
     expect((await api("GET", "/api/bots")).body.groups).toHaveLength(roomsBefore);
-    expect((await api("POST", "/api/teams/export", {})).body.team.name).toBe("My OpenMaus Team");
+    expect((await api("POST", "/api/teams/export", {})).body.team.name).toBe("My WatcherBot Team");
 
     const stream = await openSse(`${BASE}/api/events`);
     try {
@@ -1556,6 +1579,163 @@ describe("harness HTTP API", () => {
 
     const after = await api("GET", "/api/config");
     expect(after.body.profile).toEqual({ name: "Ada Lovelace", email: "Ada@Example.com" });
+  });
+
+  it("surfaces a completed scheduled routine in the bot's visible chat without activating its task", async () => {
+    const createdBot = await api("POST", "/api/bots", { name: "Proactive Sensei" });
+    const botId = createdBot.body.bot.id;
+    const visibleThreadId = createdBot.body.bot.threadId;
+    let routineId = "";
+    try {
+      expect((await api("PATCH", `/api/bots/${botId}`, {
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+
+      const createdRoutine = await api("POST", "/api/routines", {
+        name: "Morning training bell",
+        prompt: "Give the morning training nudge",
+        botId,
+        runOn: "maus",
+        schedule: { type: "once", at: Date.now() + 60_000 },
+      });
+      expect(createdRoutine.status).toBe(201);
+      routineId = createdRoutine.body.routine.id;
+
+      const launched = await api("POST", `/api/routines/${routineId}/run`);
+      expect(launched.status).toBe(201);
+
+      await expect.poll(async () => {
+        const state = await api("GET", "/api/bots");
+        const bot = state.body.bots.find((candidate: { id: string }) => candidate.id === botId);
+        return bot?.messages.find((message: { text?: string; automation?: { source?: string } }) =>
+          message.text === "hello from fake claude" && message.automation?.source === "manual"
+        );
+      }, { timeout: 10_000 }).toMatchObject({
+        role: "bot",
+        kind: "text",
+        text: "hello from fake claude",
+        automation: { source: "manual" },
+      });
+
+      const after = (await api("GET", "/api/bots")).body.bots.find(
+        (candidate: { id: string }) => candidate.id === botId,
+      );
+      expect(after.threadId).toBe(visibleThreadId);
+      const receipt = (await api("GET", "/api/routines")).body.runs.find(
+        (run: { id: string }) => run.id === launched.body.run.id,
+      );
+      expect(receipt).toMatchObject({ status: "completed", triggerSource: "manual" });
+      expect(receipt.threadId).not.toBe(visibleThreadId);
+    } finally {
+      if (routineId) await api("DELETE", `/api/routines/${routineId}`);
+      await api("DELETE", `/api/bots/${botId}`);
+    }
+  });
+
+  it("surfaces a scheduled routine even when its result says unchanged and quiet", async () => {
+    const createdBot = await api("POST", "/api/bots", { name: "Quiet Watcher" });
+    const botId = createdBot.body.bot.id;
+    let routineId = "";
+    try {
+      expect((await api("PATCH", `/api/bots/${botId}`, {
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+
+      const createdRoutine = await api("POST", "/api/routines", {
+        name: "Quiet monitor",
+        prompt: "Quiet unchanged monitor",
+        botId,
+        runOn: "maus",
+        schedule: { type: "once", at: Date.now() + 60_000 },
+      });
+      routineId = createdRoutine.body.routine.id;
+      const launched = await api("POST", `/api/routines/${routineId}/run`);
+      expect(launched.status).toBe(201);
+
+      await expect.poll(async () => {
+        const receipts = await api("GET", "/api/routines");
+        return receipts.body.runs.find((run: { id: string }) => run.id === launched.body.run.id)?.status;
+      }, { timeout: 10_000 }).toBe("completed");
+
+      const after = (await api("GET", "/api/bots")).body.bots.find(
+        (candidate: { id: string }) => candidate.id === botId,
+      );
+      expect(after.unread).toBe(true);
+      expect(after.messages).toContainEqual(expect.objectContaining({
+        kind: "text",
+        text: "No meaningful change",
+        automation: { source: "manual" },
+      }));
+      expect(JSON.stringify(after.messages)).not.toContain("```autonomy-outcome");
+    } finally {
+      if (routineId) await api("DELETE", `/api/routines/${routineId}`);
+      await api("DELETE", `/api/bots/${botId}`);
+    }
+  });
+
+  it("dispatches a bot-owned mission and returns its structured result to the originating chat", async () => {
+    const createdBot = await api("POST", "/api/bots", { name: "Mission Lead" });
+    const botId = createdBot.body.bot.id;
+    const threadId = createdBot.body.bot.threadId;
+    try {
+      expect((await api("PATCH", `/api/bots/${botId}`, {
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+
+      // Mount the agent proxy once and read its test-process environment so
+      // this smoke test can call the same authenticated internal route the
+      // conversational tools call. The token never leaves this temp home.
+      writeFileSync(fakeClaudeDump, "");
+      expect((await api("POST", `/api/bots/${botId}/messages`, { text: "Give the morning training nudge" })).status).toBe(202);
+      let token = "";
+      await expect.poll(() => {
+        try {
+          token = JSON.parse(readFileSync(fakeClaudeDump, "utf8")).mcpConfig?.mcpServers?.agents?.env?.OMB_COMMS_TOKEN ?? "";
+          return Boolean(token);
+        } catch { return false; }
+      }, { timeout: 10_000 }).toBe(true);
+      const internal = async (method: string, path: string, body?: unknown) => {
+        const response = await fetch(`${BASE}${path}`, {
+          method,
+          headers: { authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}) },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        return { status: response.status, body: await response.json() as any };
+      };
+
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots")).body.bots.find((candidate: { id: string }) => candidate.id === botId);
+        return state?.busy;
+      }, { timeout: 10_000 }).toBe(false);
+
+      const created = await internal("POST", "/api/internal/missions", {
+        botId,
+        threadId,
+        title: "Inventory Volume 1",
+        objective: "Inventory the canonical source material and record blockers.",
+      });
+      expect(created.status).toBe(201);
+      expect(created.body.mission).toMatchObject({ leadAgentId: botId, ownerThreadId: threadId, status: "draft" });
+      expect(created.body.mission.workItems).toHaveLength(1);
+
+      expect((await internal("POST", `/api/internal/missions/${created.body.mission.id}/start`, { botId, threadId })).status).toBe(200);
+      await expect.poll(async () => {
+        const listed = await internal("GET", `/api/internal/missions?botId=${botId}&threadId=${threadId}`);
+        return listed.body.missions.find((mission: { id: string }) => mission.id === created.body.mission.id)?.status;
+      }, { timeout: 20_000, interval: 250 }).toBe("completed");
+
+      const after = (await api("GET", "/api/bots")).body.bots.find(
+        (candidate: { id: string }) => candidate.id === botId,
+      );
+      expect(after.messages).toContainEqual(expect.objectContaining({
+        kind: "text",
+        text: expect.stringContaining("Mission update: Inventory Volume 1"),
+        automation: { source: "mission" },
+      }));
+      expect(JSON.stringify(after.messages)).not.toContain("```autonomy-outcome");
+    } finally {
+      await api("DELETE", `/api/bots/${botId}`);
+    }
   });
 
   it("creates an independent webhook, accepts a delivery, deduplicates it, and rotates its secret", async () => {

@@ -113,6 +113,9 @@ export type RuntimeEvent = RuntimeEventBase &
         requestType: "permission" | "question";
         tool: string;
         summary: string;
+        /** Full bounded input used only for permission policy. The visible
+         * summary may be shortened mid-quote and must never be classified. */
+        policySummary?: string;
         choices?: string[];
         approvalScope?: "local-computer";
       }

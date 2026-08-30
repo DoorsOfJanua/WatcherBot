@@ -22,6 +22,9 @@ struct ChatListView: View {
     @State private var showingUpdates = false
     @State private var showingNewAgent = false
     @State private var showingNewGroup = false
+    @State private var folderBot: Bot?
+    @AppStorage("watcher.sidebar.roomsCollapsed") private var roomsCollapsed = false
+    @AppStorage("watcher.sidebar.collapsedFolders") private var collapsedFoldersJSON = "[]"
     @FocusState private var searchFocused: Bool
 
     /// Room for the floating bar, so the last row can scroll clear of it.
@@ -37,10 +40,8 @@ struct ChatListView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if query.isEmpty {
-                            groupsStrip
-                            sectionLabel("Agents")
-                                .padding(.top, 18)
-                                .padding(.bottom, 4)
+                            roomsSection
+                            agentSections
                         }
 
                         if !query.isEmpty, !searchHits.isEmpty {
@@ -68,19 +69,11 @@ struct ChatListView: View {
                                 .padding(.bottom, 4)
                         }
 
-                        let rows = chats
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, summary in
-                            NavigationLink(value: summary.chat) {
-                                ChatRow(
-                                    chat: summary.chat,
-                                    preview: summary.preview,
-                                    at: summary.lastActivity,
-                                    state: WatcherState.forChat(summary.chat, in: session.state),
-                                    waiting: waitingChats.contains(summary.chat.id),
-                                    last: index == rows.count - 1
-                                )
+                        if !query.isEmpty {
+                            let rows = chats
+                            ForEach(Array(rows.enumerated()), id: \.element.id) { index, summary in
+                                chatLink(summary, last: index == rows.count - 1)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.bottom, Self.barClearance)
@@ -154,6 +147,9 @@ struct ChatListView: View {
                     path.append(Chat.bot(bot))
                 }
             }
+            .sheet(item: $folderBot) { bot in
+                AgentFolderSheet(bot: bot, folders: folderNames)
+            }
             .task(id: query) {
                 let expected = query
                 guard expected.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 else {
@@ -224,31 +220,93 @@ struct ChatListView: View {
         }
     }
 
-    // MARK: - Groups
+    // MARK: - Rooms and agents
 
-    private var groupsStrip: some View {
+    private var roomsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionLabel("Groups")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(session.state.rooms) { room in
-                        NavigationLink(value: Chat.room(room)) {
-                            GroupTile(room: room)
+            collapsibleLabel(
+                "Rooms",
+                count: session.state.rooms.count,
+                expanded: !roomsCollapsed,
+                active: session.state.rooms.contains { $0.unread || $0.busyBotId != nil }
+            ) {
+                withAnimation(.snappy(duration: 0.22)) { roomsCollapsed.toggle() }
+            } trailing: {
+                Button { showingNewGroup = true } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("New room")
+            }
+
+            if !roomsCollapsed {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(session.state.rooms) { room in
+                            NavigationLink(value: Chat.room(room)) {
+                                GroupTile(room: room)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Button {
+                            showingNewGroup = true
+                        } label: {
+                            GroupTile(room: nil)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("New room")
                     }
-                    Button {
-                        showingNewGroup = true
-                    } label: {
-                        GroupTile(room: nil)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("New group")
+                    .padding(.horizontal, 16)
                 }
-                .padding(.horizontal, 16)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .padding(.top, 2)
+        .animation(.snappy(duration: 0.22), value: roomsCollapsed)
+    }
+
+    @ViewBuilder
+    private var agentSections: some View {
+        if !pinnedAgents.isEmpty {
+            sectionLabel("Pinned", count: pinnedAgents.count)
+                .padding(.top, 18)
+                .padding(.bottom, 4)
+            ForEach(Array(pinnedAgents.enumerated()), id: \.element.id) { index, summary in
+                agentRow(summary, last: index == pinnedAgents.count - 1)
+            }
+        }
+
+        if !unfiledAgents.isEmpty {
+            sectionLabel("Agents", count: unfiledAgents.count)
+                .padding(.top, pinnedAgents.isEmpty ? 18 : 12)
+                .padding(.bottom, 4)
+            ForEach(Array(unfiledAgents.enumerated()), id: \.element.id) { index, summary in
+                agentRow(summary, last: index == unfiledAgents.count - 1)
+            }
+        }
+
+        ForEach(folderNames, id: \.self) { folder in
+            let rows = agents(in: folder)
+            let expanded = !collapsedFolders.contains(folder)
+            collapsibleLabel(
+                folder,
+                count: rows.count,
+                expanded: expanded,
+                active: rows.contains { $0.chat.unread || $0.chat.busy }
+            ) {
+                toggleFolder(folder)
+            }
+            .padding(.top, 10)
+
+            if expanded {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, summary in
+                    agentRow(summary, last: index == rows.count - 1)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
     }
 
     // MARK: - Bottom bar
@@ -326,16 +384,227 @@ struct ChatListView: View {
         }
     }
 
+    private var botChats: [ChatSummary] {
+        session.state.chatSummaries.filter { if case .bot = $0.chat { return true } else { return false } }
+    }
+
+    private var pinnedAgents: [ChatSummary] {
+        botChats.filter { if case let .bot(bot) = $0.chat { return bot.pinned == true } else { return false } }
+    }
+
+    private var unfiledAgents: [ChatSummary] {
+        botChats.filter {
+            if case let .bot(bot) = $0.chat { return bot.pinned != true && normalizedFolder(bot.section) == nil }
+            return false
+        }
+    }
+
+    private var folderNames: [String] {
+        Array(Set(session.state.bots.compactMap { bot in
+            bot.hidden == true ? nil : normalizedFolder(bot.section)
+        })).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func agents(in folder: String) -> [ChatSummary] {
+        botChats.filter {
+            if case let .bot(bot) = $0.chat { return bot.pinned != true && normalizedFolder(bot.section) == folder }
+            return false
+        }
+    }
+
+    private func normalizedFolder(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let folder = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return folder.isEmpty ? nil : folder
+    }
+
+    private var collapsedFolders: Set<String> {
+        guard let data = collapsedFoldersJSON.data(using: .utf8),
+              let values = try? JSONDecoder().decode([String].self, from: data)
+        else { return [] }
+        return Set(values)
+    }
+
+    private func toggleFolder(_ folder: String) {
+        var folders = collapsedFolders
+        if folders.contains(folder) { folders.remove(folder) } else { folders.insert(folder) }
+        if let data = try? JSONEncoder().encode(folders.sorted()),
+           let value = String(data: data, encoding: .utf8) {
+            withAnimation(.snappy(duration: 0.22)) { collapsedFoldersJSON = value }
+        }
+    }
+
     private var waitingChats: Set<String> {
         Set(session.state.pendingApprovals.compactMap { session.state.chat(forThread: $0.threadId)?.id })
     }
 
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(.system(size: 13, weight: .semibold))
-            .tracking(0.4)
-            .foregroundStyle(Color.secondary)
-            .padding(.horizontal, 20)
+    private func sectionLabel(_ text: String, count: Int? = nil) -> some View {
+        HStack(spacing: 7) {
+            Text(text.uppercased())
+                .font(.system(size: 13, weight: .semibold))
+                .tracking(0.4)
+            if let count {
+                Text("\(count)")
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+            }
+        }
+        .foregroundStyle(Color.secondary)
+        .padding(.horizontal, 20)
+    }
+
+    private func collapsibleLabel<Trailing: View>(
+        _ text: String,
+        count: Int,
+        expanded: Bool,
+        active: Bool,
+        action: @escaping () -> Void,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        HStack(spacing: 4) {
+            Button(action: action) {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .rotationEffect(.degrees(expanded ? 0 : -90))
+                    Image(systemName: text == "Rooms" ? "person.2" : "folder")
+                        .font(.system(size: 13, weight: .semibold))
+                    sectionLabel(text, count: count).padding(.horizontal, -20)
+                    Spacer(minLength: 4)
+                    if active {
+                        Circle().fill(WatcherTheme.ultraviolet).frame(width: 7, height: 7)
+                    }
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(expanded ? "Collapse" : "Expand") \(text)")
+            .accessibilityValue("\(count) items")
+            trailing()
+        }
+        .padding(.leading, 20)
+        .padding(.trailing, 8)
+    }
+
+    private func collapsibleLabel(
+        _ text: String,
+        count: Int,
+        expanded: Bool,
+        active: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        collapsibleLabel(text, count: count, expanded: expanded, active: active, action: action) { EmptyView() }
+    }
+
+    private func chatLink(_ summary: ChatSummary, last: Bool) -> some View {
+        NavigationLink(value: summary.chat) {
+            ChatRow(
+                chat: summary.chat,
+                preview: summary.preview,
+                at: summary.lastActivity,
+                state: WatcherState.forChat(summary.chat, in: session.state),
+                waiting: waitingChats.contains(summary.chat.id),
+                last: last
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func agentRow(_ summary: ChatSummary, last: Bool) -> some View {
+        ZStack(alignment: .trailing) {
+            chatLink(summary, last: last)
+                .padding(.trailing, 42)
+            if case let .bot(bot) = summary.chat {
+                Menu {
+                    Button {
+                        Task { await session.updateOrganization(BotOrganizationPatch(pinned: bot.pinned != true), for: bot) }
+                    } label: {
+                        Label(bot.pinned == true ? "Unpin" : "Pin", systemImage: bot.pinned == true ? "pin.slash" : "pin")
+                    }
+                    Button {
+                        folderBot = bot
+                    } label: {
+                        Label("Move to Folder…", systemImage: "folder")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color.secondary)
+                        .frame(width: 44, height: 52)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Agent actions for \(bot.name)")
+            }
+        }
+    }
+}
+
+private struct AgentFolderSheet: View {
+    @EnvironmentObject private var session: Session
+    @Environment(\.dismiss) private var dismiss
+    let bot: Bot
+    let folders: [String]
+    @State private var newFolder = ""
+    @State private var saving = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    folderButton("No folder", value: nil)
+                    ForEach(folders, id: \.self) { folder in folderButton(folder, value: folder) }
+                } header: {
+                    Text(bot.pinned == true ? "Choose where \(bot.name) returns when unpinned" : "Move \(bot.name)")
+                }
+
+                Section("New folder") {
+                    TextField("Folder name", text: $newFolder)
+                    Button("Create and move") {
+                        let name = newFolder.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !name.isEmpty else { return }
+                        move(to: name)
+                    }
+                    .disabled(saving || newFolder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .navigationTitle("Agent folder")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            }
+            .disabled(saving)
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func folderButton(_ label: String, value: String?) -> some View {
+        Button {
+            if value == bot.section || (value == nil && normalizedCurrentFolder == nil) { dismiss(); return }
+            move(to: value)
+        } label: {
+            HStack {
+                Text(label).foregroundStyle(Color.primary)
+                Spacer()
+                if value == normalizedCurrentFolder {
+                    Image(systemName: "checkmark").foregroundStyle(WatcherTheme.ultraviolet)
+                }
+            }
+        }
+    }
+
+    private var normalizedCurrentFolder: String? {
+        guard let section = bot.section?.trimmingCharacters(in: .whitespacesAndNewlines), !section.isEmpty else { return nil }
+        return section
+    }
+
+    private func move(to folder: String?) {
+        saving = true
+        Task {
+            let change: BotOrganizationPatch.Folder = folder.map(BotOrganizationPatch.Folder.set) ?? .clear
+            _ = await session.updateOrganization(BotOrganizationPatch(folder: change), for: bot)
+            dismiss()
+        }
     }
 }
 

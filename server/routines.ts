@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 
 import { DATA_DIR } from "./config.ts";
 import type { ModelSelection, RuntimeEvent } from "./contracts.ts";
+import { formatAutonomyOutcome, parseAutonomyOutcomeEnvelope, stripAutonomyOutcomeEnvelope } from "./autonomy-outcome.ts";
 
 export type RoutineSchedule =
   | { type: "once"; at: number }
@@ -699,7 +700,9 @@ export class RoutineManager {
     } else if (event.type === "request.resolved") {
       run.status = "running";
     } else if (event.type === "item.completed" && event.itemType === "assistant_text") {
-      run.output = event.text.trim().slice(0, 2_000);
+      const prose = stripAutonomyOutcomeEnvelope(event.text);
+      const outcome = parseAutonomyOutcomeEnvelope(event.text);
+      run.output = (prose || (outcome ? formatAutonomyOutcome(outcome) : "")).slice(0, 2_000);
     } else if (event.type === "runtime.error") {
       run.error = event.message.slice(0, 500);
     } else if (event.type === "turn.completed") {
@@ -707,6 +710,16 @@ export class RoutineManager {
       run.denials = event.denials;
       if (!event.ok) {
         this.failRun(run, event.stopReason ?? run.error ?? "The bot did not complete this run");
+        queueMicrotask(() => void this.tick());
+        return { ...run };
+      }
+      // A scheduled/manual routine exists to come back to the user. Provider
+      // success without a human-visible answer is failed delivery, not a
+      // completed reminder. Webhooks may deliberately stay quiet when their
+      // watched input did not change.
+      const triggerSource = run.triggerSource ?? (run.manual ? "manual" : "schedule");
+      if (triggerSource !== "webhook" && !run.output?.trim()) {
+        this.failRun(run, "The bot finished without producing a message for you");
         queueMicrotask(() => void this.tick());
         return { ...run };
       }

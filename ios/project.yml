@@ -142,3 +142,22 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+
+  # A real installed-app pairing check. The live test is opt-in because it
+  # consumes a two-minute credential from the desktop companion; ordinary CI
+  # still builds the target without changing pairing state.
+  WatcherBotUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: WatcherBot
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.doorsofjanua.agentroom.uitests
+        DEVELOPMENT_TEAM: K4UKN2LKXF
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.9"
+        TEST_TARGET_NAME: WatcherBot

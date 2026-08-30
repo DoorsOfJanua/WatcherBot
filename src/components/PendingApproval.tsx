@@ -9,12 +9,12 @@
 // sits one line below, and the Code toggle opens the full untruncated
 // monospace block for anyone who wants to read exactly what will run.
 import { memo } from "react";
+import { ShieldCheck } from "lucide-react";
 import { useStore, type Bot, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
-import { approvalExplanation } from "../../shared/tool-label";
+import { approvalExplanation, approvalHoldNote } from "../../shared/tool-label";
 import { mailProviderFromDetail, ProviderMark } from "./ProviderMark";
-import { useDevMode } from "@/lib/display-mode";
-import { DevModeToggle } from "./DevModeToggle";
+import { TechnicalDetails } from "./TechnicalDetails";
 
 export interface Pending {
   message: Message;
@@ -51,39 +51,34 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
   index: number;
   bot?: Bot;
 }) {
-  const dev = useDevMode();
   const explanation = approvalExplanation(pending.tool, pending.detail);
+  const holdNote = approvalHoldNote(pending.held);
   const provider = pending.tool === "email.send" ? mailProviderFromDetail(pending.detail) : undefined;
   return (
-    <div className="rounded-t-2xl border-b border-accent/15 bg-gradient-to-br from-card via-card to-accent/[0.04] px-4 py-4 sm:px-6 sm:py-5">
-      <div className="flex items-start gap-3">
-        {provider ? <ProviderMark provider={provider} className="mt-0.5 size-9" /> : <span className={cn("mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl", explanation.sensitive ? "bg-warning/12 text-warning" : "bg-accent/12 text-accent")}><span className="text-[16px]">{explanation.sensitive ? "!" : "?"}</span></span>}
+    <div className="border-b border-hairline/35 px-4 py-3.5 sm:px-5">
+      <div className="flex items-start gap-2.5">
+        {provider ? <ProviderMark provider={provider} className="mt-0.5 size-8" /> : <span className={cn("mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full", explanation.sensitive ? "bg-warning/10 text-warning" : "bg-accent/10 text-accent")}><ShieldCheck size={15} /></span>}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-secondary">{provider === "gmail" ? "Gmail" : provider === "proton-bridge" ? "Proton Mail" : "Your decision"}</span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-secondary">{provider === "gmail" ? "Gmail" : provider === "proton-bridge" ? "Proton Mail" : "Approval"}</span>
             {count > 1 && (
               <span className="rounded-full bg-raised px-1.5 py-0.5 text-[11px] tabular-nums text-ink-secondary">
                 {index + 1} of {count}
               </span>
             )}
           </div>
-          <div className="mt-1 text-[16px] font-semibold leading-snug tracking-[-0.01em] text-ink">
+          <div className="mt-0.5 text-[15px] font-semibold leading-snug text-ink">
             {bot?.name ? `${bot.name} wants to ` : "The agent wants to "}{explanation.what}
           </div>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-secondary">{explanation.note}</p>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-ink-secondary">{explanation.note}</p>
+          {holdNote && <p className="mt-1 text-[12px] leading-relaxed text-warning">{holdNote}</p>}
         </div>
-        <DevModeToggle className="shrink-0" />
       </div>
-      {dev ? (
-        <>
-          <div className="mt-1.5 font-mono text-[11px] text-ink-secondary">{pending.tool}</div>
-          {/* never truncated in code view — long commands wrap and scroll */}
-          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-ink">
-            {pending.detail}
-          </pre>
-        </>
-      ) : null}
-      {pending.held && <div className="mt-3 flex items-start gap-2 rounded-xl border border-warning/25 bg-warning/8 px-3 py-2.5 text-[12px] leading-relaxed text-warning"><span aria-hidden="true">⚠</span><span>{pending.held}</span></div>}
+      {pending.tool === "email.send" ? (
+        <div className="mt-3 whitespace-pre-wrap border-t border-hairline/35 pt-3 text-[13px] leading-relaxed text-ink">{pending.detail}</div>
+      ) : (
+        <TechnicalDetails detail={pending.detail} meta={pending.tool} label="Exact request" className="mt-1" />
+      )}
     </div>
   );
 });
@@ -112,9 +107,9 @@ export function PendingApprovalActions({
       alwaysAllow: always && bot && pending.allowKey ? { botId: bot.id, key: pending.allowKey } : undefined,
     });
 
-  const base = "min-h-10 rounded-xl px-4 text-[13px] font-medium transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+  const base = "min-h-11 rounded-full px-4 text-[13px] font-medium transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-hairline/30 bg-raised/20 px-4 py-3.5 sm:px-6">
+    <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-5">
       {!exactEmail && (
         <button onClick={onCancelTurn} className={cn(base, "mr-auto text-ink-secondary hover:bg-raised hover:text-ink")}>
           Stop this task

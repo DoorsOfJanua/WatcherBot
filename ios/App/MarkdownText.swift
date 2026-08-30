@@ -82,27 +82,16 @@ struct MarkdownText: View {
             .fixedSize(horizontal: false, vertical: true)
 
         case let .code(language, text):
-            VStack(alignment: .leading, spacing: 4) {
-                if let language, !language.isEmpty {
-                    Text(language)
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Color.secondary)
-                }
-                // Horizontal scroll rather than wrapping: wrapped code is
-                // harder to read than code you have to push sideways, and
-                // indentation is most of what a snippet is saying.
-                ScrollView(.horizontal, showsIndicators: false) {
-                    (Text(text) + caretText(tail))
-                        .font(.system(size: 14, design: .monospaced))
-                        .textSelection(.enabled)
-                }
+            if language?.lowercased() == "autonomy-outcome" {
+                EmptyView()
+            } else if MarkdownPresentation.isProseFence(language: language, text: text) {
+                (Text(text) + caretText(tail))
+                    .font(.system(size: 16))
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                CollapsibleTechnicalBlock(language: language, text: text, caret: tail)
             }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.secondary.opacity(0.14))
-            )
 
         case .rule:
             Divider().padding(.vertical, 2)
@@ -146,5 +135,39 @@ struct MarkdownText: View {
     /// concatenated in costs nothing and keeps the callers branch-free.
     private func caretText(_ tail: Bool) -> Text {
         tail ? Text("\u{2007}▍").foregroundStyle(Color.secondary) : Text("")
+    }
+}
+
+/// Exact code, command output and diagnostics remain available without
+/// dominating an ordinary conversation. Closed is the default; opening it
+/// is an intentional request for the machinery underneath the result.
+private struct CollapsibleTechnicalBlock: View {
+    let language: String?
+    let text: String
+    let caret: Bool
+    @State private var expanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: 6) {
+                if let language, !language.isEmpty {
+                    Text(language)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.secondary)
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    (Text(text) + (caret ? Text("\u{2007}▍").foregroundStyle(Color.secondary) : Text("")))
+                        .font(.system(size: 13, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(.top, 6)
+        } label: {
+            Label("Technical details", systemImage: "chevron.left.forwardslash.chevron.right")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color.secondary)
+                .frame(minHeight: 44, alignment: .leading)
+        }
+        .tint(Color.secondary)
     }
 }

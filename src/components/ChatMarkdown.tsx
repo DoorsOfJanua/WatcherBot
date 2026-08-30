@@ -10,10 +10,14 @@
 import { memo, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, Copy } from "lucide-react";
+import { Check, ChevronDown, Code2, Copy } from "lucide-react";
 import { sharedDocumentHref } from "../../shared/shared-document";
 import { addReadableEmphasis } from "../lib/readable-emphasis";
+import { chatBlockKind, isArrowOutline } from "../lib/chat-blocks";
 import { MAUS_COLORS, type MausColor } from "../lib/mascot";
+import { parseReplyDraftBatch } from "../lib/reply-draft-deck";
+import { ReplyDraftDeck } from "./ReplyDraftDeck";
+import { looksTechnicalInline } from "../../shared/tool-label";
 
 // tiny highlight cache so revisiting a thread doesn't re-tokenize settled
 // blocks; keys are content-hashed and capped. Streamed partials may land here
@@ -89,8 +93,14 @@ function CodeBlock({ code, lang, streaming }: { code: string; lang: string; stre
   };
 
   return (
-    <div className="my-2 overflow-hidden rounded-lg border border-hairline/40 bg-inset">
-      <div className="flex items-center justify-between border-b border-hairline/30 px-3 py-1">
+    <details className="group/code my-2 border-y border-hairline/35 text-ink-secondary">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 py-1 text-[12px] font-medium hover:text-ink [&::-webkit-details-marker]:hidden">
+        <Code2 size={13} />
+        <span>{lang ? `${lang} details` : "Technical details"}</span>
+        <ChevronDown size={12} className="transition-transform group-open/code:rotate-180" />
+      </summary>
+      <div className="overflow-hidden border-t border-hairline/30 bg-inset">
+      <div className="flex items-center justify-between px-3 py-1">
         <span className="text-[11px] uppercase tracking-wide text-ink-secondary">{lang || "code"}</span>
         <button
           onClick={copy}
@@ -108,6 +118,40 @@ function CodeBlock({ code, lang, streaming }: { code: string; lang: string; stre
       ) : (
         <pre className="overflow-x-auto p-3 text-[13px] leading-relaxed text-ink">{code}</pre>
       )}
+      </div>
+    </details>
+  );
+}
+
+/** Agent-authored diagrams and prose fences should read like a note from a
+ * teammate, not like a terminal. Arrow outlines get a tiny visual rhythm while
+ * preserving the agent's intended sequence. */
+function NoteBlock({ text }: { text: string }) {
+  const arrowOutline = isArrowOutline(text);
+  if (!arrowOutline) {
+    return (
+      <div className="my-2 max-w-[65ch] whitespace-pre-wrap py-1 text-[13.5px] leading-relaxed text-ink-secondary">
+        {text}
+      </div>
+    );
+  }
+
+  return (
+    <div className="my-2 grid max-w-[65ch] gap-0.5 py-1 text-[13.5px] leading-snug">
+      {text.split("\n").map((raw, index) => {
+        const line = raw.trim();
+        if (!line) return <div key={index} className="h-1" aria-hidden="true" />;
+        const arrow = /^(?:↓|→|->|=>)\s*(.*)$/.exec(line);
+        if (arrow) {
+          return (
+            <div key={index} className="flex items-baseline gap-2 pl-3 text-ink-secondary">
+              <span aria-hidden="true" className="text-[12px] text-accent-text">↓</span>
+              <span>{arrow[1]}</span>
+            </div>
+          );
+        }
+        return <div key={index} className="font-medium text-ink">{line}</div>;
+      })}
     </div>
   );
 }
@@ -154,7 +198,7 @@ function Spoiler({ children }: { children?: ReactNode }) {
   );
 }
 
-function ChatMarkdownComponent({ text, streaming = false, accentColor }: { text: string; streaming?: boolean; accentColor?: MausColor }) {
+function ChatMarkdownComponent({ text, streaming = false, accentColor, threadId }: { text: string; streaming?: boolean; accentColor?: MausColor; threadId?: string }) {
   return (
     <div
       className="chat-md min-w-0 [&>*+*]:mt-2"
@@ -173,6 +217,13 @@ function ChatMarkdownComponent({ text, streaming = false, accentColor }: { text:
             const flat = (n: any): string =>
               typeof n === "string" ? n : Array.isArray(n) ? n.map(flat).join("") : (n?.props?.children ? flat(n.props.children) : "");
             const code = flat(child?.props?.children).replace(/\n$/, "");
+            if (lang === "reply-drafts") {
+              const batch = parseReplyDraftBatch(code);
+              return batch ? <ReplyDraftDeck batch={batch} threadId={threadId} /> : <CodeBlock code={code} lang={lang} streaming={streaming} />;
+            }
+            const kind = chatBlockKind(lang, code);
+            if (kind === "hidden") return null;
+            if (kind === "note") return <NoteBlock text={code} />;
             return <CodeBlock code={code} lang={lang} streaming={streaming} />;
           },
           img({ src, alt }: { src?: string; alt?: string }) {
@@ -186,6 +237,15 @@ function ChatMarkdownComponent({ text, streaming = false, accentColor }: { text:
             );
           },
           code({ children }: { children?: ReactNode }) {
+            const value = String(children ?? "").trim();
+            if (looksTechnicalInline(value)) {
+              return (
+                <details className="group/inline mx-0.5 inline-block align-baseline text-[11.5px] text-ink-secondary">
+                  <summary className="cursor-pointer list-none rounded bg-inset px-1.5 py-0.5 hover:text-ink [&::-webkit-details-marker]:hidden">reference</summary>
+                  <code className="mt-1 block max-w-[65ch] break-all rounded bg-inset px-2 py-1 text-[11px]">{value}</code>
+                </details>
+              );
+            }
             return (
               <code className="rounded bg-inset px-1 py-px text-[13px]">{children}</code>
             );

@@ -9,10 +9,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, Loader2, Mail, Pencil, ShieldCheck, Sparkles, X } from "lucide-react";
 import { api, type Bot, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
-import { approvalExplanation } from "../../shared/tool-label";
+import { approvalExplanation, approvalHoldNote } from "../../shared/tool-label";
 import { mailProviderFromDetail, ProviderMark } from "./ProviderMark";
-import { useDevMode } from "@/lib/display-mode";
-import { DevModeToggle } from "./DevModeToggle";
+import { TechnicalDetails } from "./TechnicalDetails";
 
 interface MailDraft {
   fromAccount: string;
@@ -189,50 +188,43 @@ export function ApprovalCard({
 }) {
   const [editingDraft, setEditingDraft] = useState(false);
   const [savedNotice, setSavedNotice] = useState("");
-  const dev = useDevMode();
   const card = message.card;
   if (!card) return null;
   const settled = card.answered;
   const exactEmail = card.tool === "email.send";
   const revisableEmail = exactEmail && Boolean(card.requestId) && settled !== "allow" && settled !== "failed";
   const explanation = approvalExplanation(card.tool, card.subtitle);
+  const holdNote = approvalHoldNote(card.held);
   const provider = exactEmail ? mailProviderFromDetail(card.subtitle) : undefined;
 
   return (
     <div
       className={cn(
-        "w-full max-w-[840px] rounded-3xl border bg-card p-4 sm:p-5",
-        settled && !revisableEmail ? "border-hairline/30 opacity-70" : "border-accent/40",
+        "w-full max-w-[760px] border-y bg-card/35 px-1 py-3 sm:px-2",
+        settled && !revisableEmail ? "border-hairline/30" : "border-hairline/55",
       )}
     >
-      <div className="flex items-start gap-3">
-        {provider ? <ProviderMark provider={provider} /> : <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-[10px] text-[14px] font-semibold", explanation.sensitive ? "bg-warning/12 text-warning" : "bg-accent/12 text-accent")}>{explanation.sensitive ? "!" : "?"}</span>}
+      <div className="flex items-start gap-2.5">
+        {provider ? <ProviderMark provider={provider} /> : <span className={cn("mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full", explanation.sensitive ? "bg-warning/10 text-warning" : "bg-accent/10 text-accent")}><ShieldCheck size={14} /></span>}
         <div className="min-w-0 flex-1">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-secondary">{provider === "gmail" ? "Gmail" : provider === "proton-bridge" ? "Proton Mail" : "Approval needed"}</div>
-          <div className="mt-1 text-[15px] font-semibold leading-snug text-ink">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-secondary">{provider === "gmail" ? "Gmail" : provider === "proton-bridge" ? "Proton Mail" : settled ? "Decision recorded" : "Approval"}</div>
+          <div className="mt-0.5 text-[15px] font-semibold leading-snug text-ink">
             {bot ? `${bot.name} wants to ` : "The agent wants to "}{explanation.what}
           </div>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-ink-secondary">{explanation.note}</p>
+          {!settled && <p className="mt-1 text-[12.5px] leading-relaxed text-ink-secondary">{explanation.note}</p>}
+          {holdNote && <p className="mt-1 text-[12px] leading-relaxed text-warning">{holdNote}</p>}
         </div>
-        <DevModeToggle />
       </div>
 
       {/* The exact email summary always stays readable — approving a send
           on plain words alone is not informed consent. Everything else
           shows one dimmed line, with the full text behind the Code toggle. */}
-      {exactEmail || dev ? (
-        <>
-          {dev && card.tool && <div className="mt-1.5 font-mono text-[11px] text-ink-secondary">{card.tool}</div>}
-          <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-inset px-3 py-2 font-mono text-[12.5px] leading-relaxed text-ink">
-            {card.subtitle}
-          </pre>
-        </>
+      {exactEmail ? (
+        <div className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap border-t border-hairline/35 pt-3 text-[13px] leading-relaxed text-ink">
+          {card.subtitle}
+        </div>
       ) : (
-        card.subtitle && (
-          <div className="mt-1.5 truncate font-mono text-[11px] text-ink-secondary/80" title={card.subtitle}>
-            {card.subtitle}
-          </div>
-        )
+        <TechnicalDetails detail={card.subtitle} meta={card.tool} label="Exact request" className="mt-1" />
       )}
       {revisableEmail && card.requestId && (
         <button
@@ -249,15 +241,9 @@ export function ApprovalCard({
 
       {savedNotice && <div role="status" className="mt-2 flex items-center gap-1.5 text-[12.5px] text-success"><Check size={13} /> {savedNotice}</div>}
 
-      {card.held && (
-        <div className="mt-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12.5px] text-warning">
-          {card.held}
-        </div>
-      )}
-
       {/* The decision lives in the composer (one place to answer, and it
           can't be scrolled past); here we only record what happened. */}
-      <div className="mt-3 flex items-center gap-1.5 text-[13px] text-ink-secondary">
+      <div className="mt-2 flex items-center gap-1.5 text-[12.5px] text-ink-secondary">
         {settled === "allow" ? (
           <>
             <Check size={14} className="text-success" /> {card.tool === "email.send" ? "Approved and sent" : "Allowed"}

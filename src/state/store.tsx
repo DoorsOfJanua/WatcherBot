@@ -66,7 +66,7 @@ export interface Message {
   kind: "text" | "options" | "activity" | "screen" | "connector";
   text?: string;
   /** Provenance for unattended work, shown as a compact chat badge. */
-  automation?: { source: "schedule" | "manual" | "webhook" };
+  automation?: { source: "schedule" | "manual" | "webhook" | "monitor" | "mission" };
   card?: OptionCardData;
   connector?: ConnectorCardData;
   /** activity messages: tool name + outcome. `spoken` is the server's

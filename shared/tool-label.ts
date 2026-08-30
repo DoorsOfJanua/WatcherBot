@@ -107,12 +107,15 @@ function commandLabel(command: string): string {
   return "Ran a command";
 }
 
-/** Deterministic label for a raw tool title. Harness-authored chips
- * ("error:...", "auto-approved:...") pass through untouched. */
+/** Deterministic label for a raw tool title. Harness-authored status chips
+ * still keep their exact text as detail, but their conversation label stays
+ * human — providers emit both `auto-approved: Bash` and `auto-approved Bash`.
+ */
 export function toolChipLabel(raw: string): ToolChipLabel {
   const title = raw.trim();
   if (!title) return { label: "Ran a tool" };
-  if (/^(error|auto-approved):/i.test(title)) return { label: title };
+  if (/^auto-approved(?::|\s)/i.test(title)) return withDetail("Approved automatically", title);
+  if (/^error(?::|\s)/i.test(title)) return withDetail("Needs attention", title);
 
   // mcp__server__tool → try the tool part, else name the server
   const mcp = title.match(/^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/);
@@ -156,6 +159,28 @@ export interface ApprovalExplanation {
   /** A short reason/risk note, never raw command text. */
   note: string;
   sensitive: boolean;
+}
+
+const MCP_ACTIONS: Record<string, string> = {
+  post_draft: "post the approved X reply",
+  run_start: "start a ReplyGuy discovery run",
+  run_stop: "stop the ReplyGuy run",
+  recover_error_wall: "recover ReplyGuy from an X error page",
+  review_deck: "prepare the ReplyGuy review deck",
+  create_original_draft: "save an X post draft",
+  generate_original: "draft an X post",
+  studio_approve: "approve the selected Studio posts",
+};
+
+function readableService(raw: string): string {
+  const clean = raw.replace(/[_-]+/g, " ").trim();
+  if (!clean) return "a connected service";
+  if (/^replyguy$/i.test(clean)) return "ReplyGuy";
+  return clean.split(/\s+/).map(titleCase).join(" ");
+}
+
+function requestedMcpTool(summary: string): string | undefined {
+  return summary.match(/run\s+tool\s+["'`](\w[\w.-]*)["'`]/i)?.[1]?.toLowerCase();
 }
 
 /** Chip labels whose word-by-word rewrite would read badly. */
@@ -240,6 +265,16 @@ export function approvalAsk(tool: string | undefined, summary: string): Approval
   const text = summary.trim();
   if (raw === "email.send") return { ask: "send this exact email" };
 
+  // Permission brokers often expose only the server name (`mcp:replyguy`)
+  // while putting the real operation in the summary. Name the action rather
+  // than asking a person to interpret backend protocol vocabulary.
+  const colonMcp = raw.match(/^mcp:([\w.-]+)$/i);
+  if (colonMcp) {
+    const requested = requestedMcpTool(text);
+    if (requested && MCP_ACTIONS[requested]) return { ask: MCP_ACTIONS[requested] };
+    return { ask: `use ${readableService(colonMcp[1])}` };
+  }
+
   const mcp = raw.match(/^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/);
   const name = mcp ? mcp[2] : raw;
 
@@ -283,9 +318,64 @@ export function approvalExplanation(tool: string | undefined, summary: string): 
     };
   }
   const ask = approvalAsk(tool, summary);
+  const what = [ask.ask, ask.gist].filter(Boolean).join(" · ");
+  const external = /\b(post|publish|send|reply)\b/i.test(what);
+  const destructive = /delete|overwrite|remove|reset/i.test(what);
   return {
-    what: [ask.ask, ask.gist].filter(Boolean).join(" · "),
-    note: "This action is paused until you choose what should happen.",
-    sensitive: false,
+    what,
+    note: external
+      ? "This changes an external account and will happen only once after approval."
+      : destructive
+        ? "This can remove or overwrite data, so it needs your decision."
+        : "Nothing happens until you choose.",
+    sensitive: external || destructive,
   };
+}
+
+/** Provider safety prose is useful for audit logs but repetitive in the UI.
+ * Keep only a short human reason when it adds information beyond the card. */
+export function approvalHoldNote(held: string | undefined): string | undefined {
+  const value = held?.trim();
+  if (!value) return undefined;
+  if (/looked destructive|auto mode stopped to ask|paused until you/i.test(value)) return undefined;
+  if (/sensitive|external/i.test(value)) return "This affects something outside WatcherBot.";
+  return value.length > 140 ? `${value.slice(0, 139).trimEnd()}…` : value;
+}
+
+export function looksTechnicalText(value: string | undefined): boolean {
+  const text = value?.trim() ?? "";
+  if (!text) return false;
+  return /^(?:\{|\[|\/bin\/|curl\s|git\s|npm\s|pnpm\s|node\s|python\s|mcp[:_]|allow the \w+ mcp server)/i.test(text)
+    || /"(?:command|tool|requestId|profileId)"\s*:/.test(text)
+    || (text.length > 220 && /(?:--[\w-]+|https?:\/\/127\.0\.0\.1|\/[\w.-]+\/){2,}/.test(text));
+}
+
+export function humanCardSubtitle(value: string | undefined, fallback = "Choose how you want to continue."): string {
+  const text = value?.replace(/\s+/g, " ").trim() ?? "";
+  if (!text || looksTechnicalText(text)) return fallback;
+  return text.length > 180 ? `${text.slice(0, 179).trimEnd()}…` : text;
+}
+
+export function humanErrorMessage(value: string): { message: string; detail?: string } {
+  const raw = value.replace(/^error:\s*/i, "").trim();
+  if (/prepare the cua desktop image|driver\s+0\.20\.0/i.test(raw)) {
+    return { message: "This computer is not ready yet. Open Settings → Local VM and choose Prepare.", detail: raw };
+  }
+  if (/oauth\s*401|invalid[_ -]?grant|unauthori[sz]ed.*gmail/i.test(raw)) {
+    return { message: "Gmail needs to be connected again before Mailman can check it.", detail: raw };
+  }
+  if (/error[- ]wall|safety latch|latch is still active/i.test(raw)) {
+    return { message: "X paused ReplyGuy after an error page. Recover it before trying to post again.", detail: raw };
+  }
+  if (looksTechnicalText(raw) || /\b(?:mcp|api|json|stderr|exit code|stack trace)\b/i.test(raw)) {
+    return { message: "The agent hit a technical problem while working.", detail: raw };
+  }
+  return { message: raw || "Something went wrong.", ...(raw ? {} : { detail: value }) };
+}
+
+export function looksTechnicalInline(value: string): boolean {
+  const text = value.trim();
+  return /^(?:gmail|proton|receipt|message|draft):[^\s]+$/i.test(text)
+    || /^(?:[a-f\d]{16,}|[\w-]+\.(?:json|ya?ml|md)|\/[\w./-]+)$/i.test(text)
+    || /^(?:mcp[:_]|oauth|http\s*\d{3})/i.test(text);
 }

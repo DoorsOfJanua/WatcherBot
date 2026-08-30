@@ -192,7 +192,7 @@ describe("drainDelegations", () => {
     const call = runTargetCalls[0]!;
     expect(call.toBotId).toBe(target.id);
     expect(call.commsDepth).toBe(1);
-    expect(call.message).toContain("Delegated by @");
+    expect(call.message).toContain("here. I’m passing this your way.");
     expect(call.message).toContain("do this");
 
     // Both 1:1 threads picked up their comm chips, attributed to the

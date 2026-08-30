@@ -33,7 +33,12 @@ extension CompanionState {
         for pending in pendingApprovals {
             guard let chat = chat(forThread: pending.threadId), seen.insert(chat.id).inserted else { continue }
             let card = pending.message.card
-            out.append(ChatUpdate(chat: chat, kind: .needsYou, line: card?.subtitle ?? card?.title ?? "", card: card))
+            out.append(ChatUpdate(
+                chat: chat,
+                kind: .needsYou,
+                line: card.map(CardPresentation.preview) ?? "",
+                card: card
+            ))
         }
 
         for bot in bots where bot.hidden != true {
@@ -72,7 +77,7 @@ extension CompanionState {
             return String(live.suffix(120)).replacingOccurrences(of: "\n", with: " ")
         }
         if let last = visibleTranscript(forThread: threadId).last, last.kind == .activity, let tool = last.tool {
-            return tool.name
+            return ActivityPresentation.tool(tool).label
         }
         return "Working…"
     }
@@ -82,7 +87,9 @@ extension CompanionState {
         switch last.kind {
         case .text, .unknown: return last.text ?? ""
         case .options: return last.card?.title ?? ""
-        case .activity: return last.tool?.name ?? ""
+        case .activity:
+            guard let tool = last.tool else { return "" }
+            return ActivityPresentation.tool(tool).label
         case .screen: return "Screenshot"
         }
     }

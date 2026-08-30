@@ -172,6 +172,31 @@ describe("unattended turns", () => {
     expect(autoDecision(bot, "Bash", "git status")).toBeTruthy();
     expect(autoDecision(bot, "Bash", "git status", { unattended: false })).toBeTruthy();
   });
+
+  it("lets a trusted mission run a classified read-only shell inspection", () => {
+    const verdict = autoVerdict({}, "Bash", "ls -la /Users/janua/Documents && git status", {
+      unattended: true,
+      trustedAutomationRead: true,
+    });
+    expect(verdict.approve).toContain("trusted automation read-only");
+    expect(verdict.source).toBe("trusted-automation-read");
+  });
+
+  it("does not let trusted automation write, read secrets, or control the host", () => {
+    expect(autoDecision({}, "Bash", "echo changed > STATE.md", {
+      unattended: true,
+      trustedAutomationRead: true,
+    })).toBeNull();
+    expect(autoDecision({}, "Bash", "cat .env", {
+      unattended: true,
+      trustedAutomationRead: true,
+    })).toBeNull();
+    expect(autoDecision({}, "computer_observation", "Check what is on the screen", {
+      unattended: true,
+      trustedAutomationRead: true,
+      scope: "local-computer",
+    })).toBeNull();
+  });
 });
 
 // The three-tier policy (ruled by Janua 2026-08-24): reads are silent for
@@ -319,9 +344,19 @@ describe("isReadOnlyShellCommand", () => {
     "curl -s 127.0.0.1:4173/api/telegram/status | jq .",
     "find . -name '*.md' | wc -l",
     "git status && git log --oneline | head -5",
+    "git -C /Users/janua/Documents/ganga-mira log --oneline -5 | head -10",
+    "git remote -v",
     "echo done > /dev/null 2>&1",
     "echo \"$(date +%Y-%m-%d)\"",
     "sed -n '30,48p' src/session.js",
+    "ls -la PDF | grep -iE 'vol *1|vol one|era|VOL1'",
+    "rg 'send;publish|delete' server | head -20",
+    "mdls -name kMDItemNumberOfPages 'PDF/FIERCE GRACE VOL 1.pdf'",
+    "jq -r '.[] | select(.date >= \"2022-01-01\") | \"\\(.unit_id)\"' BOOK_INPUT.json",
+    "comm -23 <(sort expected.txt) <(sort actual.txt)",
+    "head -25 \"$(ls BOOK_DRAFT/*.md | head -1)\"",
+    "find . -print0 | xargs -0 stat -f '%N'",
+    "printf '%s\\n' a b | while read -r f; do find . -name \"$f\" -type f; done",
   ];
   for (const command of reads) {
     it(`classifies as read: ${command.slice(0, 50)}`, () => {
@@ -337,10 +372,14 @@ describe("isReadOnlyShellCommand", () => {
     "ls && npm install",
     "git push origin main",
     "git stash",
+    "git remote add origin https://example.com/repo.git",
     "sed -i '' 's/a/b/' file.txt",
     "find . -name '*.tmp' -delete",
     "sudo ls /root",
     "echo $(rm -rf /tmp/x)",
+    "echo \"$(rm -rf /tmp/x)\"",
+    "find . -print0 | xargs -0 rm",
+    "printf '%s\\n' a | while read -r f; do rm \"$f\"; done",
     "cat notes.md | tee copy.md",
     "",
   ];

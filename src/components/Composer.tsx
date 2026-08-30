@@ -402,7 +402,7 @@ export function Composer({
         {/* An approval takes over the composer: you answer it before you
             can type again, so a waiting bot is impossible to miss. */}
         {approval && (
-          <div className="mb-2 overflow-hidden rounded-2xl border border-accent/40 bg-card">
+          <div className="mb-2 border-y border-hairline/55 bg-card/35">
             <PendingApprovalPanel pending={approval} count={approvals.length} index={0} bot={approvalBot} />
             <PendingApprovalActions
               pending={approval}
@@ -415,6 +415,7 @@ export function Composer({
             />
           </div>
         )}
+        {!approval && <>
         <ComposerAttachments
           items={attachments}
           onAdd={addAttachments}
@@ -589,6 +590,7 @@ export function Composer({
           </button>
         )}
         </div>
+        </>}
       </div>
     </div>
   );

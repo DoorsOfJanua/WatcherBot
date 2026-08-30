@@ -285,7 +285,7 @@ async function processOne(
   // persona and response contract; repeating a paragraph of routing prose on
   // every peer turn wastes context and leaks backend language into replies.
   const reasonLine = item.reason ? `\n[Reason: ${item.reason}]` : "";
-  const prefixed = `[Delegated by @${sender.name}. Answer the task directly; your reply is mirrored.]\n\n${item.message}${reasonLine}`;
+  const prefixed = `Hey ${target.name} — ${sender.name} here. I’m passing this your way.\n\n${item.message}${reasonLine}`;
   await runTarget(item.toBotId, prefixed, item.depth + 1, sourceThreadId, channel);
 }
 

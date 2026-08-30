@@ -27,6 +27,8 @@ public struct OptionCard: Codable, Hashable, Sendable {
     public var held: String?
     /// The narrow grant "always allow" would remember, e.g. `Bash:git`.
     public var allowKey: String?
+    /// Local-computer asks never share grants with ordinary tools.
+    public var approvalScope: String?
 
     /// A card is actionable while it is unanswered and still has a request
     /// behind it. Everything else is transcript.
@@ -128,6 +130,8 @@ public struct ToolActivity: Codable, Hashable, Sendable {
     public var spoken: String?
     /// Marks an error fixed by installing something, not by retrying.
     public var setup: Bool?
+    /// Raw tool/command metadata. Never shown unless the person opens details.
+    public var detail: String?
 }
 
 public struct Sender: Codable, Hashable, Sendable {
@@ -244,6 +248,9 @@ public struct Bot: Codable, Hashable, Identifiable, Sendable {
     public var createdAt: Double
     public var busy: Bool?
     public var pinned: Bool?
+    /// Optional sidebar folder. A pinned agent keeps this assignment so
+    /// unpinning returns it to the same place on desktop and phone.
+    public var section: String?
     public var hidden: Bool?
     public var chiefOfStaff: Bool?
     /// When true, this bot pauses for human approval before contacting peers.
@@ -617,6 +624,36 @@ public struct BotProfilePatch: Encodable, Sendable {
         try values.encodeIfPresent(spiritPalette, forKey: .spiritPalette)
         try values.encodeIfPresent(spiritGeometry, forKey: .spiritGeometry)
         try values.encodeIfPresent(spiritTemperament, forKey: .spiritTemperament)
+    }
+}
+
+/// The paired phone may organize the roster without gaining access to the
+/// desktop bot endpoint's execution and permission fields.
+public struct BotOrganizationPatch: Encodable, Sendable {
+    public enum Folder: Sendable {
+        case set(String)
+        case clear
+    }
+
+    public var pinned: Bool?
+    public var folder: Folder?
+
+    public init(pinned: Bool? = nil, folder: Folder? = nil) {
+        self.pinned = pinned
+        self.folder = folder
+    }
+
+    private enum CodingKeys: String, CodingKey { case pinned, section }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encodeIfPresent(pinned, forKey: .pinned)
+        if let folder {
+            switch folder {
+            case let .set(name): try values.encode(name, forKey: .section)
+            case .clear: try values.encodeNil(forKey: .section)
+            }
+        }
     }
 }
 

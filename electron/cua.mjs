@@ -14,7 +14,7 @@
 // The resulting connection descriptor is written to
 // <userData>/cua-connection.json for the harness server to hand to drivers.
 
-import { app, ipcMain } from "electron";
+import { app, ipcMain, systemPreferences } from "electron";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import fs from "node:fs";
@@ -24,6 +24,7 @@ import { pathToFileURL } from "node:url";
 
 const require = createRequire(import.meta.url);
 const { createCuaConnectionStore } = require("./cua-connection.cjs");
+const { readMacOSPermissionStatus } = require("./cua-macos-permissions.cjs");
 const {
   createLinuxCuaRuntime,
   createUnavailableLinuxRuntime,
@@ -43,9 +44,23 @@ let embeddedHost = null; // EmbeddedCuaDriverHost | null
 let linuxRuntime = null;
 let linuxBundleStage = null;
 let stateListener = () => {};
+let macAccessibilityRequest = null;
+let lastMacAccessibilityPromptAt = 0;
 const connectionStore = createCuaConnectionStore({
   getUserData: () => app.getPath("userData"),
 });
+
+class MacOSPermissionsRequiredError extends Error {
+  constructor(missingPermissions) {
+    const names = missingPermissions.map((permission) =>
+      permission === "screen" ? "Screen Recording" : "Accessibility",
+    );
+    super(`${names.join(" and ")} required; grant access in System Settings and restart WatcherBot Room`);
+    this.name = "MacOSPermissionsRequiredError";
+    this.reasonCode = "permissions-required";
+    this.missingPermissions = missingPermissions;
+  }
+}
 
 function ensureLinuxRuntime() {
   if (!linuxRuntime) {
@@ -157,16 +172,20 @@ async function startEmbedded(binary) {
   // Import from the staged Resources tree in production. The app intentionally
   // excludes general node_modules, so a bare package import only works in dev.
   const sdk = await loadEmbeddedSdk();
-  // CUA's embedding contract requires grants before the child daemon starts;
-  // these SDK calls execute in Electron main so macOS attributes them to
-  // WatcherBot Room rather than to a terminal or helper process.
-  const permissionStatus = sdk.requestMacOSPermissions();
+  // CUA's embedding contract requires grants before the child daemon starts.
+  // Check them in Electron main so macOS evaluates WatcherBot Room rather
+  // than a terminal or helper-process identity.
+  // Startup and Retry must be safe to repeat. CUA's request helper passes
+  // `prompt: true` to macOS, so repeated launches can queue several identical
+  // Accessibility dialogs. Preflight silently instead; the UI owns opening
+  // System Settings when a grant is missing.
+  const permissionStatus = readMacOSPermissionStatus(systemPreferences);
   if (!sdk.hasRequiredMacOSPermissions(permissionStatus)) {
-    const missing = [
-      !permissionStatus.accessibility && "Accessibility",
-      !permissionStatus.screenRecording && "Screen Recording",
-    ].filter(Boolean).join(" and ");
-    throw new Error(`${missing || "macOS permissions"} required; grant access in System Settings and restart WatcherBot Room`);
+    const missingPermissions = [
+      !permissionStatus.accessibility && "accessibility",
+      !permissionStatus.screenRecording && "screen",
+    ].filter(Boolean);
+    throw new MacOSPermissionsRequiredError(missingPermissions);
   }
   const host = new sdk.EmbeddedCuaDriverHost(binary, HOST_BUNDLE_ID);
   try {
@@ -213,6 +232,9 @@ export async function startCua() {
         nextConnection = {
           mode: "unavailable",
           reason: `embedded host failed: ${err?.message ?? err}`,
+          reasonCode: err?.reasonCode,
+          message: err?.message,
+          missingPermissions: err?.missingPermissions,
         };
       }
     }
@@ -277,6 +299,31 @@ export async function stopCua() {
 export function registerCuaIpc() {
   ipcMain.handle("cua:connection", () => connectionStore.get());
   ipcMain.handle("cua:permissions", () => cuaPermissionsStatus());
+  ipcMain.handle("cua:mac-request-accessibility", async () => {
+    if (process.platform !== "darwin") return { granted: false, prompted: false };
+    if (systemPreferences.isTrustedAccessibilityClient(false)) {
+      return { granted: true, prompted: false };
+    }
+    if (macAccessibilityRequest) return macAccessibilityRequest;
+
+    // A renderer click is the only route to `prompt: true`. Keep a short
+    // process-local cooldown as a second line of defence against double-clicks
+    // or duplicate IPC delivery.
+    const now = Date.now();
+    if (now - lastMacAccessibilityPromptAt < 30_000) {
+      return { granted: false, prompted: false };
+    }
+    lastMacAccessibilityPromptAt = now;
+    macAccessibilityRequest = Promise.resolve().then(() => ({
+      granted: systemPreferences.isTrustedAccessibilityClient(true),
+      prompted: true,
+    }));
+    try {
+      return await macAccessibilityRequest;
+    } finally {
+      macAccessibilityRequest = null;
+    }
+  });
   ipcMain.handle("cua:linux-status", () =>
     process.platform === "linux"
       ? ensureLinuxRuntime().getStatus()
