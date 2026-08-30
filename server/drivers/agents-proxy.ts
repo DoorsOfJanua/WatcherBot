@@ -16,6 +16,7 @@
 //   list_routines()                       → inspect this bot's scheduled work
 //   propose_routine(...)                  → show a confirmation card for a new routine
 //   propose_routine_action(...)           → show a confirmation card for a routine change
+//   propose_email_draft(...)              → Mailman stages an exact frozen email
 //
 // Speaks raw JSON-RPC 2.0 over stdio (no MCP SDK — house style, matches
 // computer-proxy / permission-proxy). All state comes from env, injected by
@@ -33,6 +34,7 @@ const BOT_ID = process.env.OMB_BOT_ID ?? "";
 const THREAD_ID = process.env.OMB_THREAD_ID ?? "";
 const TOKEN = process.env.OMB_COMMS_TOKEN ?? "";
 const DEPTH = Number(process.env.OMB_TURN_DEPTH ?? "0") || 0;
+const CAN_STAGE_EMAIL = process.env.OMB_CAN_STAGE_EMAIL === "1";
 const MAX_CREATED_PER_TURN = 4;
 let createdThisTurn = 0;
 
@@ -322,6 +324,25 @@ const TOOLS = [
       required: ["routine_id", "action"],
     },
   },
+  ...(CAN_STAGE_EMAIL ? [{
+    name: "propose_email_draft",
+    description:
+      "Stage one exact email draft for Janua to review. This never sends. The harness freezes From, To, Cc, Bcc, Subject, and body, then sends only that exact copy after Janua approves it. Attachments must be an empty list.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        fromAccount: { type: "string" },
+        to: { type: "array", items: { type: "string" } },
+        cc: { type: "array", items: { type: "string" } },
+        bcc: { type: "array", items: { type: "string" } },
+        subject: { type: "string" },
+        body: { type: "string" },
+        attachments: { type: "array", maxItems: 0 },
+      },
+      required: ["fromAccount", "to", "cc", "bcc", "subject", "body", "attachments"],
+    },
+  }] : []),
 ];
 
 type Json = Record<string, unknown>;
@@ -561,6 +582,15 @@ async function callTool(name: string, args: Json): Promise<{ text: string; isErr
       body: JSON.stringify(body),
     });
     return confirmationResult(r, `${action.replace("_", " ")} on routine ${routineId}`);
+  }
+  if (name === "propose_email_draft" && CAN_STAGE_EMAIL) {
+    const r = await api("/api/internal/mail-drafts", {
+      method: "POST",
+      body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, draft: args }),
+    });
+    return {
+      text: `Exact draft staged for Janua's approval (receipt ${String(r.receiptId)}). Nothing was sent. Do not send through another tool or modify this receipt; create a new proposal for any edit.`,
+    };
   }
   return { text: `Unknown tool: ${name}`, isError: true };
 }

@@ -127,3 +127,28 @@ describe("ApprovalCard routine proposals", () => {
     expect(spoken.length).toBeLessThan(200);
   });
 });
+
+describe("ApprovalCard Mailman drafts", () => {
+  it("offers the focused draft editor without implying the email was sent", () => {
+    const message: Message = {
+      id: "mail-card",
+      role: "bot",
+      kind: "options",
+      at: 1,
+      card: {
+        title: "Review the exact email before sending",
+        subtitle: "From: sender@example.com\nTo: reader@example.com\nSubject: Hello\n\nDraft body",
+        options: ["Approve & send", "Deny"],
+        requestId: "ar-mail-1",
+        tool: "email.send",
+        held: "Nothing has been sent.",
+      },
+    };
+
+    const markup = renderToStaticMarkup(createElement(ApprovalCard, { message }));
+    expect(markup).toContain("send this exact email once");
+    expect(markup).toContain("Edit draft");
+    expect(markup).toContain("Nothing has been sent");
+    expect(markup).not.toContain("Approved and sent");
+  });
+});

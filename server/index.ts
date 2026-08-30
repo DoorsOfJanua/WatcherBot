@@ -31,6 +31,13 @@ import {
 import * as checkpoints from "./checkpoints.ts";
 import { ActionReceiptError, ActionReceiptStore } from "./action-receipts.ts";
 import { appendDecision, readDecisions } from "./decision-log.ts";
+import {
+  januaMailGatewayConfig,
+  MailActionCoordinator,
+  MailActionStore,
+  mailDraftPreview,
+  PythonMailGateway,
+} from "./mail-actions.ts";
 import { studioBotMatches, studioConfigured, studioFetch, studioIntegration, studioRender } from "./studio.ts";
 import { validateBotCwd } from "./bot-cwd.ts";
 import { attachmentExists, extensionForMime, IMAGE_MAX_BYTES, readAttachment, saveAvatar, saveImage, type SavedAttachment } from "./attachments.ts";
@@ -200,6 +207,7 @@ import {
 } from "./turn-dispatch-guard.ts";
 import { createGracefulShutdown } from "./graceful-shutdown.ts";
 import { recordSharedMemoryTurn, sharedMemoryForTurn } from "./shared-agent-memory.ts";
+import { recordWritingStyleEdit, writingStyleSystemPrompt } from "./writing-style.ts";
 
 const PORT = Number(process.env.OMB_PORT || process.env.OGB_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.OMB_WEBHOOK_PORT || PORT + 1);
@@ -292,7 +300,7 @@ const phoneProxyPath = SPAWNED_PROXIES.phone;
 // in the packaged app process.execPath is Electron — run the proxy as node
 const AGENTS_NODE_FLAG = { ELECTRON_RUN_AS_NODE: "1" };
 
-function agentsIntegration(botId: string, threadId: string, depth: number) {
+function agentsIntegration(botId: string, threadId: string, depth: number, canStageEmail = false) {
   return {
     command: process.execPath,
     args: [agentsProxyPath],
@@ -303,6 +311,7 @@ function agentsIntegration(botId: string, threadId: string, depth: number) {
       OMB_THREAD_ID: threadId,
       OMB_COMMS_TOKEN: COMMS_TOKEN,
       OMB_TURN_DEPTH: String(depth),
+      OMB_CAN_STAGE_EMAIL: canStageEmail ? "1" : "0",
     },
   };
 }
@@ -760,6 +769,19 @@ if (browserCleanupReferencesReconciled) browserCleanup.startPending();
 // not execute providers; future email/WhatsApp/phone adapters must claim and
 // consume these records before invoking their own provider.
 const actionReceipts = new ActionReceiptStore(DATA_DIR);
+const mailActionStore = new MailActionStore(DATA_DIR);
+const mailGatewayConfig = januaMailGatewayConfig();
+const mailActions = new MailActionCoordinator(
+  actionReceipts,
+  mailActionStore,
+  new PythonMailGateway(mailGatewayConfig),
+);
+const mailSendAccounts = new Set(
+  (process.env.OMB_MAIL_SEND_ACCOUNTS || mailGatewayConfig.protonAccounts.join(","))
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean),
+);
 
 /** A bot as a client may see it: no provider session bookkeeping.
  *
@@ -1113,6 +1135,102 @@ async function answerRequest(
   return outcome;
 }
 
+/** Harness-owned mail cards outlive the model turn that proposed them. */
+async function answerMailAction(
+  threadId: string,
+  requestId: string,
+  behavior: "allow" | "deny" | "answer",
+): Promise<{ handled: boolean; outcome?: string }> {
+  const action = mailActions.get(requestId);
+  if (!action) return { handled: false };
+  if (action.threadId !== threadId) return { handled: true, outcome: "wrong-thread" };
+  // Durable state makes a simultaneous phone/desktop second tap harmless.
+  if (action.state === "sent") return { handled: true, outcome: "sent" };
+  if (action.state === "sending") return { handled: true, outcome: "sending" };
+  if (action.state === "failed") return { handled: true, outcome: "failed" };
+  if (action.state === "dismissed") return { handled: true, outcome: "rejected" };
+  const cardMessage = store.messagesFor(threadId).find((message) => message.card?.requestId === requestId);
+  const bot = store.bot(action.botId);
+  const from = cardMessage?.from;
+  const patchCard = (answered: string, dismissed = false) => {
+    if (!cardMessage?.card) return;
+    store.patchMessage(threadId, cardMessage.id, {
+      card: { ...cardMessage.card, answered, dismissed },
+    });
+  };
+  if (behavior !== "allow") {
+    try {
+      mailActions.deny(requestId);
+    } catch {
+      // Already expired or closed remains fail-closed.
+    }
+    patchCard("deny", true);
+    appendDecision(DATA_DIR, {
+      threadId,
+      requestId,
+      botId: bot?.id,
+      botName: bot?.name,
+      tool: "email.send",
+      summary: cardMessage?.card?.subtitle,
+      decision: "user-denied",
+      source: "user",
+    });
+    broadcast({ kind: "action-receipt", receipt: actionReceipts.get(requestId) });
+    return { handled: true, outcome: "rejected" };
+  }
+  const approvedBy = `identity:${(cfg.profile?.name?.trim() || "janua").toLowerCase().replace(/\s+/g, "-")}`;
+  const recordApproval = () => appendDecision(DATA_DIR, {
+    threadId,
+    requestId,
+    botId: bot?.id,
+    botName: bot?.name,
+    tool: "email.send",
+    summary: cardMessage?.card?.subtitle,
+    decision: "user-approved",
+    source: "user",
+  });
+  try {
+    const sent = await mailActions.approveAndSend(requestId, approvedBy);
+    recordApproval();
+    patchCard("allow");
+    const receipt = sent.providerReceipt!;
+    store.appendMessage(threadId, {
+      role: "bot",
+      kind: "text",
+      ...(from ? { from } : {}),
+      text: [
+        "📬 **Sent — exact approved draft**",
+        `From: ${sent.draft.fromAccount}`,
+        `To: ${sent.draft.to.join(", ")}`,
+        `Subject: ${sent.draft.subject}`,
+        `Receipt: ${receipt.provider} · ${receipt.messageId}`,
+        `Accepted: ${receipt.acceptedAt}`,
+      ].join("\n"),
+    });
+    broadcast({ kind: "action-receipt", receipt: actionReceipts.get(requestId) });
+    return { handled: true, outcome: "sent" };
+  } catch (error) {
+    // Record approval only if it reached the exact durable receipt.
+    try {
+      if (actionReceipts.get(requestId).approvedBy === approvedBy) recordApproval();
+    } catch {
+      // No readable receipt means no authorization audit row.
+    }
+    patchCard("failed", true);
+    store.appendMessage(threadId, {
+      role: "bot",
+      kind: "activity",
+      ...(from ? { from } : {}),
+      tool: {
+        name: `error: Email was not confirmed sent — ${error instanceof Error ? error.message : String(error)}. The one-shot approval is locked; check Sent before creating a fresh draft.`,
+        ok: false,
+      },
+    });
+    broadcast({ kind: "action-receipt", receipt: actionReceipts.get(requestId) });
+    return { handled: true, outcome: "failed" };
+  }
+}
+
 /** Close every provider-owned approval still open on a thread. Interrupting a
  * turn kills the process that raised its questions, so those cards can never
  * be answered. Routine proposals are harness-owned and durable, so they stay
@@ -1125,6 +1243,13 @@ function closeOpenApprovals(threadId: string): void {
     const card = message.card;
     if (!card?.requestId || card.answered || card.dismissed) continue;
     if (card.routineRequest) continue;
+    if (card.tool === "email.send") {
+      try {
+        mailActions.deny(card.requestId);
+      } catch {
+        // Already closed stays fail-closed.
+      }
+    }
     store.patchMessage(threadId, message.id, { card: { ...card, answered: "unavailable", dismissed: true } });
     askMessageByRequest.delete(`${threadId}:${card.requestId}`);
   }
@@ -2553,7 +2678,12 @@ async function startTurn(
         commsDepth < MAX_COMMS_DEPTH &&
         instance.adapter.capabilities.agentsMcp === true
       ) {
-        integrations.agents = agentsIntegration(bot.id, threadId, commsDepth);
+        integrations.agents = agentsIntegration(
+          bot.id,
+          threadId,
+          commsDepth,
+          bot.sharedMemoryId === "mailroom",
+        );
       }
       // @mentions in the user's message (the composer's tagging UI) become
       // an explicit delegation nudge — the agent still does the ask_bot call
@@ -2660,6 +2790,7 @@ async function startTurn(
           routinePrompt +
           sectionContextSystemPrompt(bot.section) +
           (privateWorkspace ? memorySystemPrompt(bot.id) + skillsSystemPrompt(bot.id) : "") +
+          writingStyleSystemPrompt(bot.id) +
           sharedMemory +
           skillInstructions +
           packagePlaybooks +
@@ -3156,7 +3287,7 @@ async function runGroupMemberTurn(
   }
   const integrations: NonNullable<Parameters<typeof instance.adapter.sendTurn>[0]["integrations"]> = {};
   if (hop < MAX_COMMS_DEPTH && instance.adapter.capabilities.agentsMcp === true) {
-    integrations.agents = agentsIntegration(bot.id, threadId, hop);
+    integrations.agents = agentsIntegration(bot.id, threadId, hop, bot.sharedMemoryId === "mailroom");
   }
   const selectedSkills = selectBundledSkills(
     serializeRoomContext(threadId, userName),
@@ -3298,6 +3429,7 @@ async function runGroupMemberTurn(
     (integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "") +
     sectionContextSystemPrompt(bot.section) +
     (workspace ? `\n${memorySystemPrompt(bot.id).trim()}${skillsSystemPrompt(bot.id)}` : "") +
+    writingStyleSystemPrompt(bot.id) +
     sharedMemory +
     renderSkillInstructions(selectedSkills, { includeRoot: Boolean(workspace) }) +
     installedPlaybookInstructions(text, bot.playbooks);
@@ -4234,6 +4366,52 @@ const server = createServer(async (req, res) => {
           source: "routine",
         });
         return json(res, 201, proposed);
+      }
+      if (method === "POST" && path === "/api/internal/mail-drafts") {
+        const body = await readBody(req);
+        const fromBotId = String(body.fromBotId ?? "");
+        const threadId = String(body.fromThreadId ?? "");
+        const bot = store.bot(fromBotId);
+        if (!bot || bot.sharedMemoryId !== "mailroom") {
+          return json(res, 403, { error: "only the Mailman mailroom agent may stage email" });
+        }
+        const owner = connectorThread(bot.id, threadId);
+        if (!owner) return json(res, 403, { error: "source conversation does not belong to Mailman" });
+        try {
+          const draft = body.draft as Record<string, unknown> | undefined;
+          const requestedSender = typeof draft?.fromAccount === "string"
+            ? draft.fromAccount.trim().toLowerCase()
+            : "";
+          if (!mailSendAccounts.has(requestedSender)) {
+            return json(res, 409, {
+              error: `That sender is not send-enabled here. Use one of: ${[...mailSendAccounts].join(", ") || "none configured"}`,
+            });
+          }
+          const staged = mailActions.stage({ botId: bot.id, threadId, draft });
+          const from = owner.group ? { botId: bot.id, name: bot.name, color: bot.color } : undefined;
+          store.appendMessage(threadId, {
+            role: "bot",
+            kind: "options",
+            ...(from ? { from } : {}),
+            card: {
+              title: "Review the exact email before sending",
+              subtitle: mailDraftPreview(staged.action.draft, staged.action.draftHash),
+              options: ["Approve & send", "Deny"],
+              requestId: staged.receipt.id,
+              tool: "email.send",
+              held: "Nothing has been sent. Approval expires in 30 minutes, applies only to this frozen copy, and can be used once.",
+            },
+          });
+          broadcast({ kind: "action-receipt", receipt: staged.receipt });
+          return json(res, 201, {
+            staged: true,
+            receiptId: staged.receipt.id,
+            contentHash: staged.receipt.contentHash,
+            expiresAt: staged.receipt.expiresAt,
+          });
+        } catch (error) {
+          return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        }
       }
       if (method === "POST" && path === "/api/internal/ask-bot") {
         const body = await readBody(req);
@@ -6501,6 +6679,13 @@ const server = createServer(async (req, res) => {
       if (resolvePeerComms(approvalBus, String(body.requestId), behavior)) {
         return json(res, 200, { ok: true, outcome: behavior === "allow" ? "allowed-once" : "rejected" });
       }
+      const mail = await answerMailAction(bot.threadId, String(body.requestId), behavior);
+      if (mail.handled) {
+        return json(res, mail.outcome === "wrong-thread" ? 403 : 200, {
+          ok: mail.outcome !== "wrong-thread",
+          outcome: mail.outcome,
+        });
+      }
       const outcome = await answerRequest(bot.threadId, bot.modelSelection.instanceId, String(body.requestId), behavior, body.message, { id: bot.id, name: bot.name });
       return json(res, 200, { ok: true, outcome });
     }
@@ -6537,6 +6722,13 @@ const server = createServer(async (req, res) => {
       // looking for one — a room between turns has no speaker to find.
       if (resolvePeerComms(approvalBus, requestId, behavior)) {
         return json(res, 200, { ok: true, outcome: behavior === "allow" ? "allowed-once" : "rejected" });
+      }
+      const mail = await answerMailAction(threadId, requestId, behavior);
+      if (mail.handled) {
+        return json(res, mail.outcome === "wrong-thread" ? 403 : 200, {
+          ok: mail.outcome !== "wrong-thread",
+          outcome: mail.outcome,
+        });
       }
       const group = store.groupByThread(threadId);
       // busyBotId is in-memory only, so an approval that outlives its turn — or
@@ -6924,6 +7116,69 @@ const server = createServer(async (req, res) => {
         return json(res, 200, { receipt });
       } catch (error) {
         return actionReceiptError(res, error);
+      }
+    }
+
+    // ── editable exact-email drafts ────────────────────────────────────
+    // A save creates a new receipt, then invalidates the previous frozen
+    // payload. It never changes the bytes an existing approval authorizes.
+    m = path.match(/^\/api\/mail-actions\/([\w-]+)\/draft$/);
+    if (m && method === "GET") {
+      const action = mailActions.get(m[1]);
+      if (!action) return json(res, 404, { error: "No email draft exists for this approval." });
+      return json(res, 200, { action });
+    }
+    if (m && method === "PUT") {
+      const current = mailActions.get(m[1]);
+      if (!current) return json(res, 404, { error: "No email draft exists for this approval." });
+      const bot = store.bot(current.botId);
+      if (!bot || bot.sharedMemoryId !== "mailroom") {
+        return json(res, 403, { error: "Only the Mailman mailroom agent may revise this email." });
+      }
+      const cardMessage = store.activePath(current.threadId)
+        .find((message) => message.card?.requestId === current.receiptId);
+      if (!cardMessage?.card || cardMessage.card.tool !== "email.send") {
+        return json(res, 409, { error: "The review card for this email is no longer active." });
+      }
+      try {
+        const body = await readBody(req);
+        if (body.learnStyle !== undefined && typeof body.learnStyle !== "boolean") {
+          return json(res, 400, { error: "Learn from this edit must be on or off." });
+        }
+        const revised = mailActions.revise(current.receiptId, body.draft);
+        const style = revised.changed && body.learnStyle !== false
+          ? recordWritingStyleEdit({
+              botId: current.botId,
+              sourceMessageId: cardMessage.id,
+              before: {
+                subject: revised.previous.draft.subject,
+                body: revised.previous.draft.body,
+              },
+              after: {
+                subject: revised.action.draft.subject,
+                body: revised.action.draft.body,
+              },
+            })
+          : { learned: false, sampleCount: 0 };
+        let message = cardMessage;
+        if (revised.changed) {
+          message = store.patchMessage(current.threadId, cardMessage.id, {
+            card: {
+              ...cardMessage.card,
+              title: "Review your edited email before sending",
+              subtitle: mailDraftPreview(revised.action.draft, revised.action.draftHash),
+              requestId: revised.receipt.id,
+              answered: undefined,
+              dismissed: undefined,
+              held: "Your previous approval was invalidated. Nothing has been sent. This new frozen copy expires in 30 minutes and can be used once.",
+            },
+          }) ?? cardMessage;
+          broadcast({ kind: "action-receipt", receipt: actionReceipts.get(revised.previous.receiptId) });
+          broadcast({ kind: "action-receipt", receipt: revised.receipt });
+        }
+        return json(res, 200, { action: revised.action, receipt: revised.receipt, message, style });
+      } catch (error) {
+        return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
       }
     }
 

@@ -39,6 +39,17 @@ describe("external action receipts", () => {
     expect(() => value.claim(receipt.id, receipt.contentHash)).toThrow(ActionReceiptError);
   });
 
+  it("explicitly invalidates a pending receipt after a denial", () => {
+    const { value } = store();
+    const receipt = value.create({
+      actionType: "email.send", channel: "email", account: "a", destination: "b",
+      content: "body", preview: "body", expiresAt: now + 60_000,
+    });
+    expect(value.invalidate(receipt.id, receipt.contentHash).execution.state).toBe("invalidated");
+    expect(value.invalidate(receipt.id, receipt.contentHash).execution.state).toBe("invalidated");
+    expect(() => value.approve(receipt.id, receipt.contentHash, "janua")).toThrow(/invalidated/);
+  });
+
   it("claims once and makes consumption idempotent while preserving the first provider receipt", () => {
     const { value } = store();
     const receipt = value.create({

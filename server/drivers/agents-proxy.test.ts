@@ -41,6 +41,7 @@ let routinesResponse: unknown = {
   ],
 };
 let lastRoutineRequestBody: any = null;
+let lastMailDraftBody: any = null;
 
 let child: ChildProcess;
 const pending = new Map<number, (msg: any) => void>();
@@ -134,6 +135,16 @@ beforeAll(async () => {
       });
       return;
     }
+    if (req.method === "POST" && req.url === "/api/internal/mail-drafts") {
+      let data = "";
+      req.on("data", (c) => (data += c));
+      req.on("end", () => {
+        lastMailDraftBody = JSON.parse(data);
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(JSON.stringify({ receiptId: "ar-mail-1" }));
+      });
+      return;
+    }
     res.writeHead(404, { "content-type": "application/json" });
     res.end(JSON.stringify({ error: "unknown" }));
   });
@@ -148,6 +159,7 @@ beforeAll(async () => {
       OMB_THREAD_ID: "thread-asker-routine",
       OMB_COMMS_TOKEN: TOKEN,
       OMB_TURN_DEPTH: "0",
+      OMB_CAN_STAGE_EMAIL: "1",
     },
     stdio: ["pipe", "pipe", "inherit"],
   });
@@ -172,7 +184,7 @@ afterAll(async () => {
 });
 
 describe("agents-proxy MCP surface", () => {
-  it("answers the MCP handshake and lists all eight tools", async () => {
+  it("answers the MCP handshake and lists the enabled tools", async () => {
     const init = await rpc("initialize", { protocolVersion: "2024-11-05" });
     expect(init.result.serverInfo.name).toContain("agents");
     const list = await rpc("tools/list");
@@ -187,7 +199,29 @@ describe("agents-proxy MCP surface", () => {
       "list_routines",
       "propose_routine",
       "propose_routine_action",
+      "propose_email_draft",
     ]);
+  });
+
+  it("lets an explicitly enabled Mailman stage an exact draft", async () => {
+    lastMailDraftBody = null;
+    const draft = {
+      fromAccount: "nils.palmen@protonmail.com",
+      to: ["reader@example.com"],
+      cc: [],
+      bcc: [],
+      subject: "Hello",
+      body: "Exact draft",
+      attachments: [],
+    };
+    const result = await callTool("propose_email_draft", draft);
+    expect(result.result.isError).toBe(false);
+    expect(result.result.content[0].text).toContain("Nothing was sent");
+    expect(lastMailDraftBody).toEqual({
+      fromBotId: "bot-asker",
+      fromThreadId: "thread-asker-routine",
+      draft,
+    });
   });
 
   it("publishes a flat routine schedule schema that survives provider conversion", async () => {

@@ -97,6 +97,8 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "POST", path: /^\/api\/threads\/[\w-]+\/messages\/[\w-]+\/reactions$/ },
   { method: "GET", path: /^\/api\/threads\/[\w-]+\/export$/ },
   { method: "POST", path: /^\/api\/threads\/[\w-]+\/respond$/ },
+  { method: "GET", path: /^\/api\/mail-actions\/[\w-]+\/draft$/ },
+  { method: "PUT", path: /^\/api\/mail-actions\/[\w-]+\/draft$/ },
   { method: "GET", path: /^\/api\/search$/ },
 
   // Ganga Studio review and approval. Studio's arm, schedule, and publish
