@@ -959,6 +959,22 @@ describe("harness HTTP API", () => {
     expect(blocked.body.error).toMatch(/waiting on you/i);
   });
 
+  it("serves the inert role library without creating or changing bots", async () => {
+    const before = await api("GET", "/api/bots");
+    const { status, body } = await api("GET", "/api/agent-role-templates");
+    const after = await api("GET", "/api/bots");
+
+    expect(status).toBe(200);
+    expect(body.templates).toHaveLength(21);
+    expect(body.templates.find((template: { id: string }) => template.id === "project-steward")).toMatchObject({
+      name: "Project Steward",
+      origin: "janua",
+    });
+    expect(after.body.bots.map((bot: { id: string }) => bot.id)).toEqual(
+      before.body.bots.map((bot: { id: string }) => bot.id),
+    );
+  });
+
   it("keeps direct-message channels folderless at the API boundary", async () => {
     const attempted = await api("PATCH", "/api/groups/test-dm", { cwd: home });
     expect(attempted.status).toBe(400);

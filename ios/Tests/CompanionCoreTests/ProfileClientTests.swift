@@ -111,6 +111,24 @@ final class ProfileClientTests: XCTestCase {
         XCTAssertEqual(body["avatarCrop"] as? String, "rounded")
     }
 
+    func testRoleLibraryComesFromThePairedHarness() async throws {
+        ProfileRequestStub.responseBody = Data("""
+        {"templates":[{
+          "id":"project-steward","name":"Project Steward","title":"Project State Steward",
+          "summary":"Keeps project truth current.","category":"coordination","origin":"janua",
+          "description":"OWNS\\nProject state"
+        }]}
+        """.utf8)
+
+        let templates = try await client.agentRoleTemplates()
+
+        let request = try XCTUnwrap(ProfileRequestStub.capturedRequest)
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertEqual(request.url?.path, "/api/agent-role-templates")
+        XCTAssertEqual(templates.map(\.id), ["project-steward"])
+        XCTAssertEqual(templates.first?.origin, "janua")
+    }
+
     func testProfileClientEncodesAnExplicitAvatarClearAsNull() async throws {
         ProfileRequestStub.responseBody = Self.botResponse
 

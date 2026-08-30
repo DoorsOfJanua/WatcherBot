@@ -59,6 +59,7 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   // Sidecar-owned, authenticated endpoint metadata. The proxy terminates it
   // locally; it never becomes a newly exposed harness route.
   { method: "GET", path: /^\/api\/companion\/endpoints$/ },
+  { method: "GET", path: /^\/api\/agent-role-templates$/ },
 
   // the fleet, and making a bot
   { method: "GET", path: /^\/api\/bots$/ },
