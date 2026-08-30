@@ -67,7 +67,10 @@ until the final gate passes and Janua approves the swap.
     already decoupled via injected execute()). Route its execute() through upstream's routine
     run-record + onRunChanged path so missions inherit source-conversation reporting and
     confirmation cards. Do NOT model the work-item DAG as routines.
-  - **Gate**: routine created via chat card round-trips; a monitor-style precheck routine skips
+  - **Gate**: AgentPacks creative-pro provision.mjs re-run against a scratch server converges
+    FULLY (P5's gate stopped at the interval routine, which is patch (a) here — verified
+    2026-08-31, error "Choose a supported schedule" at provision.mjs:123);
+    routine created via chat card round-trips; a monitor-style precheck routine skips
     without a model turn on unchanged content; a 2-item mission DAG runs with lease recovery;
     grep proves redactSecretsInText is applied to run output/error (this and turn.retrying were
     silent regressions in our fork that the upstream base fixes; assert they stay fixed).
