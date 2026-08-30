@@ -502,7 +502,7 @@ describe("comms e2e (fake ACP fleet)", () => {
       const helperInbound = helperBot.messages.find(
         (m: any) => m.role === "user" && m.kind === "text",
       );
-      expect(helperInbound.text).toContain("[Delegated by @Asker");
+      expect(helperInbound.text).toContain("Asker here. I’m passing this your way.");
       expect(helperInbound.text).toContain("delegated task");
       expect(helperInbound.text).toContain("[Reason: followup]");
       const helperReply = helperBot.messages.findLast(
@@ -602,7 +602,7 @@ describe("comms e2e (fake ACP fleet)", () => {
       const inbound = helperBot.messages.find(
         (m: any) => m.role === "user" && m.kind === "text" && m.text?.includes("ping from fake"),
       );
-      expect(inbound.text).toContain("[Delegated by @GateAsker");
+      expect(inbound.text).toContain("GateAsker here. I’m passing this your way.");
       await waitUntil(async () => {
         askerBot = (await api("GET", "/api/bots")).body.bots.find((b: any) => b.id === asker.id);
         return askerBot.messages.some(
