@@ -3892,6 +3892,7 @@ function configStatus() {
     imageGen: { configured: Boolean(cfg.imageGen?.key) },
     // not a secret — the sidebar shows it
     profile: { name: cfg.profile?.name ?? "", email: cfg.profile?.email ?? "" },
+    appearance: { avatarStyle: cfg.appearance?.avatarStyle ?? "spirits" },
     rooms: { turnTimeoutMinutes: roomTurnTimeoutMinutes(cfg) },
     localVm: {
       mode: localVmMode(cfg),
@@ -5572,7 +5573,15 @@ const server = createServer(async (req, res) => {
         return json(res, 400, { error: "requireAvailableModel requires modelSelection" });
       }
       const profileInput = Object.fromEntries(
-        ["name", "title", "description"]
+        [
+          "name",
+          "title",
+          "description",
+          "spirit",
+          "spiritPalette",
+          "spiritGeometry",
+          "spiritTemperament",
+        ]
           .filter((key) => body[key] !== undefined)
           .map((key) => [key, body[key]]),
       );
@@ -6966,12 +6975,13 @@ const server = createServer(async (req, res) => {
           browserReferenceCleanupError = error;
         }
       }
-      // Provider keys change the fleet. Profile, voice, VPS, and room timeout
-      // changes do not rebuild it: no driver reads them, and they should not
-      // interrupt in-flight turns.
+      // Provider keys change the fleet. Profile, appearance, voice, VPS, and
+      // room timeout changes do not rebuild it: no driver reads them, and
+      // they should not interrupt in-flight turns.
       const reloadKeys = Object.keys(patch).filter(
         (key) =>
           key !== "profile" &&
+          key !== "appearance" &&
           key !== "tts" &&
           key !== "imageGen" &&
           key !== "vps" &&

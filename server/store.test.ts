@@ -69,6 +69,17 @@ describe("Store", () => {
     expect(store.messagesFor(bot.threadId)).toHaveLength(0);
   });
 
+  it("gives every new agent a living spirit and preserves an authored choice", () => {
+    const store = new Store(selection);
+    const first = store.createBot();
+    const second = store.createBot();
+    const authored = store.createBot({ spirit: "forge" });
+
+    expect(first.spirit).toBe("wormhole");
+    expect(second.spirit).toBe("sensei");
+    expect(authored.spirit).toBe("forge");
+  });
+
   it("addTaskUsage accumulates settled-turn totals per task and survives a restart", () => {
     const store = new Store(selection);
     const bot = store.createBot();

@@ -576,7 +576,14 @@
 .hood__rim { fill: none; stroke-width: 1.4; stroke-linecap: round; opacity: 0.35; }
 .hood__hem { fill: none; stroke-width: 3; stroke-linecap: round; opacity: 0.9; }
 .hood__underglow { opacity: 0.22; }
-.hood__eyes--line path { fill: none; stroke: #fff; stroke-width: 4.2; stroke-linecap: round; }
+.hood--oilchrome .hood__cowl { stroke: rgb(230 252 255 / 0.64); stroke-width: 0.72; }
+.hood--oilchrome .hood__facet { opacity: 0.78; }
+.hood--oilchrome .hood__edge { opacity: 0.84; stroke-width: 2.5; }
+.hood--oilchrome .hood__rim { opacity: 0.58; }
+.hood--oilchrome .hood__ring-line { opacity: 0.96; }
+.hood--oilchrome .hood__halo-wrap { opacity: 0.52; }
+.hood__eyes--line path,
+.hood__eyes--line circle { fill: none; stroke: #fff; stroke-width: 4.2; stroke-linecap: round; }
 .hood__eyes--fill path,
 .hood__eyes--fill circle { fill: #fff; stroke: none; }
 .hood__eyes--fill .hood__eyes-linebit { fill: none; stroke: #fff; stroke-width: 4.2; stroke-linecap: round; }
@@ -605,6 +612,17 @@
 .hood--look-up .hood__eyepose { transform: translateY(-3.2px); }
 .hood--look-down .hood__head { transform: translateY(2.6px) scaleY(0.97); }
 .hood--look-down .hood__eyepose { transform: translateY(3.2px); }
+
+/* The Watcher: its shared hood stays expressive, but the resting center
+ * gaze sinks deeper into the face. Motion is sparse and deliberate: one
+ * slow narrowing of the same solid eye marks used by the whole family. */
+.hood-wormhole .hood__void { fill: #030108; }
+.hood-wormhole .hood__brow { opacity: 0.98; stroke-width: 5.8; }
+.hood-wormhole .hood__rim { opacity: 0.24; }
+.hood-wormhole.spirit--idle .hood__expression--active .hood__eyes--watcher {
+  animation: hd-watcher-squint 8.6s ease-in-out infinite;
+  transform-origin: 60px 51px;
+}
 .hood__badge--think { stroke-width: 2; stroke-linecap: round; opacity: 0; }
 .hood__spark { opacity: 0; }
 .hood__alert { opacity: 0; }
@@ -705,13 +723,17 @@
 @keyframes hd-gaze-attend { to { transform: translate(-1.8px, -1.2px); } }
 @keyframes hd-fade-dim { from { opacity: 0; } to { opacity: 0.55; } }
 @keyframes hd-sink { from { transform: translateY(2.5px); } to { transform: translateY(4px); } }
-
+@keyframes hd-watcher-squint {
+  0%, 34%, 100% { transform: scaleY(1); }
+  43%, 58% { transform: scaleY(0.78) translateY(0.8px); }
+  68% { transform: scaleY(0.94); }
+}
 /* ============================================== stillness & reduced motion */
 
 /* With animation disabled, keep each state legible by revealing the
  * signature one-shot elements that animation would otherwise deliver. */
 .spirit--still *,
-.spirit--still { animation: none !important; }
+.spirit--still { animation: none !important; transition: none !important; }
 
 .spirit--still.spirit--success .wormhole__branches,
 .spirit--still.spirit--success .wormhole__branches path,

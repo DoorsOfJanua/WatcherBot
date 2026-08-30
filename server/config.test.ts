@@ -35,11 +35,13 @@ describe("configuration boundaries", () => {
     expect(
       parseStoredConfig({
         profile: { name: "Ada", email: "ada@example.com" },
+        appearance: { avatarStyle: "spirits" },
         instances: { claude: { driver: "claudeAgent", config: { cli: "/opt/claude" } } },
         unrelated: { secret: "not part of the config contract" },
       }),
     ).toEqual({
       profile: { name: "Ada", email: "ada@example.com" },
+      appearance: { avatarStyle: "spirits" },
       instances: { claude: { driver: "claudeAgent", config: { cli: "/opt/claude" } } },
     });
   });
@@ -51,6 +53,16 @@ describe("configuration boundaries", () => {
     );
     expect(() => parseConfigPatch({ opencodeGo: { apiKey: 42 } })).toThrow("opencodeGo.apiKey");
     expect(() => parseConfigPatch({ profile: [] })).toThrow("profile");
+    expect(() => parseConfigPatch({ appearance: { avatarStyle: "cartoon" } })).toThrow("appearance.avatarStyle");
+  });
+
+  it("accepts only the two workspace avatar families", () => {
+    expect(parseConfigPatch({ appearance: { avatarStyle: "classic" } })).toEqual({
+      appearance: { avatarStyle: "classic" },
+    });
+    expect(parseConfigPatch({ appearance: { avatarStyle: "spirits" } })).toEqual({
+      appearance: { avatarStyle: "spirits" },
+    });
   });
 
   it("canonicalizes legacy browser profile ids without dropping other stored settings", () => {

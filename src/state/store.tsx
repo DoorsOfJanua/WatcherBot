@@ -15,7 +15,13 @@ import {
 } from "react";
 import type { CloudBackend, EffortLevel } from "../../server/contracts.ts";
 import type { MausColor, MausMotion } from "@/lib/mascot";
-import type { BotAvatarCrop } from "../../shared/bot-avatar";
+import type {
+  BotAvatarCrop,
+  BotSpirit,
+  BotSpiritGeometry,
+  BotSpiritPalette,
+  BotSpiritTemperament,
+} from "../../shared/bot-avatar";
 import type { RoutineRequestCardData } from "../../shared/routine-request";
 import type { RoutineRunCardData } from "../../shared/routine-run";
 import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
@@ -208,6 +214,11 @@ export interface Bot {
   avatarUrl?: string | null;
   /** Mascot, or the crop applied to avatarUrl. */
   avatarCrop?: BotAvatarCrop;
+  /** Optional original code-drawn spirit; custom image assets still win. */
+  spirit?: BotSpirit | null;
+  spiritPalette?: BotSpiritPalette;
+  spiritGeometry?: BotSpiritGeometry;
+  spiritTemperament?: BotSpiritTemperament;
   unread: boolean;
   busy?: boolean;
   /** what the bot is doing, as the harness sees it; busy is derived from it */
@@ -299,6 +310,8 @@ export interface ConfigStatus {
   imageGen?: { configured: boolean };
   /** who's using the app — collected in onboarding, shown in the sidebar */
   profile?: { name: string; email: string };
+  /** Workspace-wide avatar family, shared by desktop and phone clients. */
+  appearance?: { avatarStyle: "classic" | "spirits" };
   /** Opt-in flags. Absent means off. */
   features?: { skillRecorder: boolean; showToolCalls?: boolean; browser?: boolean };
   /** Named browser sessions any bot can be pointed at. */
@@ -315,7 +328,19 @@ export interface BrowserProfile {
 
 export type ConfigStatusFrame = Pick<
   ConfigStatus,
-  "xai" | "composio" | "box" | "vps" | "rooms" | "localVm" | "opencodeGo" | "tts" | "imageGen" | "profile" | "features" | "browserProfiles"
+  | "xai"
+  | "composio"
+  | "box"
+  | "vps"
+  | "rooms"
+  | "localVm"
+  | "opencodeGo"
+  | "tts"
+  | "imageGen"
+  | "profile"
+  | "appearance"
+  | "features"
+  | "browserProfiles"
 >;
 
 export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
@@ -330,6 +355,7 @@ export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
     tts: frame.tts,
     imageGen: frame.imageGen,
     profile: frame.profile,
+    appearance: frame.appearance,
     features: frame.features,
     browserProfiles: frame.browserProfiles,
   };
@@ -1110,12 +1136,10 @@ export function reducer(state: AppState, action: Action): AppState {
       // erased the chosen character from the live client after edits such as
       // title, description, model, or notification changes. Only an explicit
       // spirit patch may change (or clear) the bot's saved identity.
-      const safeBotPatch = {
-        ...botPatch,
-        ...(Object.prototype.hasOwnProperty.call(action.patch, "spirit")
-          ? { spirit: spirit === null ? undefined : spirit }
-          : {}),
-      };
+      const safeBotPatch: Omit<BotUpdatePatch, "spirit"> & { spirit?: BotSpirit } = botPatch;
+      if (Object.prototype.hasOwnProperty.call(action.patch, "spirit")) {
+        safeBotPatch.spirit = spirit === null ? undefined : spirit;
+      }
       return updateBot(next, action.botId, (b) => ({ ...b, ...safeBotPatch }));
     }
     case "threadActive": {
@@ -1627,6 +1651,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             autoStartVps: source.autoStartVps,
             avatarUrl: source.avatarUrl,
             avatarCrop: source.avatarCrop,
+            spirit: source.spirit,
+            spiritPalette: source.spiritPalette,
+            spiritGeometry: source.spiritGeometry,
+            spiritTemperament: source.spiritTemperament,
           };
           api("/api/bots", { method: "POST" })
             .then(({ bot }) =>

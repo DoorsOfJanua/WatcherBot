@@ -14,13 +14,24 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { MAUS_COLORS, type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
+import { agentSpiritForBot } from "@/lib/agent-spirit-identity";
+import { useAvatarStyle } from "./AvatarAppearance";
+import { LivingHoodSpirit } from "./spirits/LivingHoodSpirit";
 import {
   CursorAvatar,
   DEFAULT_SILHOUETTE,
   type CursorAvatarHandle,
   type CursorSilhouette,
 } from "./CursorAvatar";
-import { botAvatarProfile, type BotAvatarCrop } from "../../shared/bot-avatar";
+import {
+  botAvatarProfile,
+  type BotAvatarCrop,
+  type BotAvatarState,
+  type BotSpirit,
+  type BotSpiritGeometry,
+  type BotSpiritPalette,
+  type BotSpiritTemperament,
+} from "../../shared/bot-avatar";
 
 /**
  * The pack's baked-in silhouette was exported with the body fill hardcoded
@@ -229,21 +240,74 @@ export type BotAvatarProps = Omit<MausAvatarProps, "color"> & {
     color: MausColor;
     avatarUrl?: string | null;
     avatarCrop?: BotAvatarCrop;
+    spirit?: BotSpirit | null;
+    spiritPalette?: BotSpiritPalette;
+    spiritGeometry?: BotSpiritGeometry;
+    spiritTemperament?: BotSpiritTemperament;
+    sharedMemoryId?: string;
+    activity?: "working" | "waiting-on-you" | "idle" | "no-signal" | "dead";
   };
+  spiritState?: BotAvatarState;
 };
+
+function spiritStateFor(
+  bot: BotAvatarProps["bot"],
+  state: MausState,
+  explicit?: BotAvatarState,
+): BotAvatarState {
+  if (explicit) return explicit;
+  switch (bot.activity) {
+    case "working":
+      return "working";
+    case "waiting-on-you":
+      return "waiting";
+    case "no-signal":
+    case "dead":
+      return "failure";
+    case "idle":
+      return "idle";
+  }
+  if (state === "listening") return "listening";
+  if (["thinking", "searching"].includes(state)) return "thinking";
+  if (["working", "writing", "progress", "loading", "humming"].includes(state)) return "working";
+  if (["happy", "excited", "celebrate", "proud"].includes(state)) return "success";
+  if (["sad", "scared", "angry", "alerting"].includes(state)) return "failure";
+  if (["sleeping", "drowsy", "bored"].includes(state)) return "sleeping";
+  return "idle";
+}
 
 /**
  * The one renderer for a bot's chosen profile image. Malformed persisted
  * values and images that fail to load both fall back to the animated mascot,
  * so an old/corrupt profile can never leave a broken-image icon in the app.
  */
-export function BotAvatar({ bot, size = 44, label, ...mascotProps }: BotAvatarProps) {
+export function BotAvatar({ bot, size = 44, label, spiritState, ...mascotProps }: BotAvatarProps) {
+  const avatarStyle = useAvatarStyle();
   const profile = botAvatarProfile(bot);
   const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => setImageFailed(false), [profile.avatarUrl]);
 
   if (profile.avatarCrop === "mascot" || !profile.avatarUrl || imageFailed) {
+    const agentSpirit = avatarStyle === "spirits"
+      ? (profile.spirit ?? agentSpiritForBot(bot))
+      : null;
+    if (agentSpirit) {
+      return (
+        <LivingHoodSpirit
+          spirit={agentSpirit}
+          state={spiritStateFor(bot, mascotProps.state ?? "idle", spiritState)}
+          size={size}
+          animated={mascotProps.animated ?? true}
+          label={label ?? bot.name}
+          motion={mascotProps.motion}
+          motionKey={mascotProps.motionKey}
+          palette={profile.spiritPalette}
+          geometry={profile.spiritGeometry}
+          temperament={profile.spiritTemperament}
+        />
+      );
+    }
     return (
       <MausAvatar
         {...mascotProps}

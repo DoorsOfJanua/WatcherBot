@@ -15,6 +15,7 @@ import { BotProfileAvatarCard } from "./BotProfileAvatarCard";
 import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 import { VoiceSettings } from "./VoiceSettings";
 import { BOT_PROFILE_LIMITS } from "../../shared/bot-profile";
+import type { BotSpirit } from "../../shared/bot-avatar";
 
 function Field({
   label,
@@ -324,7 +325,8 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
   const localDisabledReason = localComputerDisabledReason({ capabilities, providerSupportsLocal });
   const patch = (
     p: Partial<
-      Pick<
+      Omit<
+        Pick<
         Bot,
         | "name"
         | "title"
@@ -337,6 +339,10 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
         | "mascotExpression"
         | "avatarUrl"
         | "avatarCrop"
+        | "spirit"
+        | "spiritPalette"
+        | "spiritGeometry"
+        | "spiritTemperament"
         | "autoApprove"
         | "autoReview"
         | "speakReplies"
@@ -346,8 +352,10 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
         | "composio"
         | "browser"
         | "modelSelection"
+        >,
+        "spirit"
       >
-    > & { acknowledgeLocalAuto?: boolean },
+    > & { acknowledgeLocalAuto?: boolean; spirit?: BotSpirit | null },
   ) => dispatch({ type: "updateBot", botId: bot.id, patch: p });
   const activeState = stateForBot(bot);
   const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;

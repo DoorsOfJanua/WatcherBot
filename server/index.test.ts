@@ -1385,6 +1385,10 @@ describe("harness HTTP API", () => {
         notifications: false,
         avatarUrl,
         avatarCrop: "circle",
+        spirit: "signal",
+        spiritPalette: "lunar",
+        spiritGeometry: "constellation",
+        spiritTemperament: "focused",
         voice: "voice_fixture",
         speakReplies: true,
       });
@@ -1396,19 +1400,35 @@ describe("harness HTTP API", () => {
         notifications: false,
         avatarUrl,
         avatarCrop: "circle",
+        spirit: "signal",
+        spiritPalette: "lunar",
+        spiritGeometry: "constellation",
+        spiritTemperament: "focused",
         voice: "voice_fixture",
         speakReplies: true,
       });
       const frame = await stream.until(
         (candidate) => candidate.kind === "bot" && candidate.bot?.id === bot.id,
       );
-      expect(frame.bot).toMatchObject({ id: bot.id, avatarUrl, avatarCrop: "circle" });
+      expect(frame.bot).toMatchObject({
+        id: bot.id,
+        avatarUrl,
+        avatarCrop: "circle",
+        spirit: "signal",
+        spiritPalette: "lunar",
+        spiritGeometry: "constellation",
+        spiritTemperament: "focused",
+      });
 
       for (const invalid of [
         { color: "red" },
         { avatarUrl: "https://tracker.example/avatar.png" },
         { avatarUrl: "/api/attachments/123e4567-e89b-12d3-a456-426614174000.png" },
         { avatarCrop: "hexagon" },
+        { spirit: "cursor" },
+        { spiritPalette: "radioactive" },
+        { spiritGeometry: "triangle" },
+        { spiritTemperament: "random" },
         { name: 42 },
         { notifications: "yes" },
         { voice: null },

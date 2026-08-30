@@ -96,12 +96,11 @@ const stateOverlay = (patch: BotUpdatePatch): StateBotUpdatePatch => {
   // returning `spirit: undefined` for a palette/geometry/emotion-only edit
   // erases the chosen character from the renderer even though the server
   // still has it. Only an explicit spirit mutation may enter the overlay.
-  return {
-    ...fields,
-    ...(Object.prototype.hasOwnProperty.call(patch, "spirit")
-      ? { spirit: spirit === null ? undefined : spirit }
-      : {}),
-  };
+  const overlay: StateBotUpdatePatch = fields;
+  if (Object.prototype.hasOwnProperty.call(patch, "spirit")) {
+    overlay.spirit = spirit === null ? undefined : spirit;
+  }
+  return overlay;
 };
 
 /**

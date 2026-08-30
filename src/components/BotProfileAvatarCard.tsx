@@ -3,6 +3,7 @@ import { Check, ImagePlus, Loader2, Sparkles, Trash2 } from "lucide-react";
 
 import { api, useStore, type Bot, type ConfigStatus } from "@/state/store";
 import { imageAttachmentFromFile } from "@/lib/composer-attachments";
+import { agentSpiritForBot } from "@/lib/agent-spirit-identity";
 import { cn } from "@/lib/cn";
 import {
   PICKABLE_STATES,
@@ -13,14 +14,37 @@ import {
 } from "@/lib/mascot";
 import {
   BOT_AVATAR_CROPS,
+  BOT_SPIRIT_GEOMETRIES,
+  BOT_SPIRIT_GEOMETRY_LABELS,
+  BOT_SPIRIT_PALETTES,
+  BOT_SPIRIT_PALETTE_LABELS,
+  BOT_SPIRITS,
+  BOT_SPIRIT_TEMPERAMENTS,
+  BOT_SPIRIT_TEMPERAMENT_META,
   botAvatarUrlFromStoredPath,
   type BotAvatarCrop,
+  type BotSpirit,
 } from "../../shared/bot-avatar";
 import { BotAvatar, MausAvatar } from "./Avatar";
+import { AGENT_SPIRIT_META } from "./spirits/AgentSpirit";
+import { LivingHoodSpirit } from "./spirits/LivingHoodSpirit";
 
 type AvatarPatch = Partial<
-  Pick<Bot, "avatarCrop" | "avatarUrl" | "color" | "mascotExpression">
->;
+  Omit<
+    Pick<
+      Bot,
+      | "avatarCrop"
+      | "avatarUrl"
+      | "color"
+      | "mascotExpression"
+      | "spirit"
+      | "spiritPalette"
+      | "spiritGeometry"
+      | "spiritTemperament"
+    >,
+    "spirit"
+  >
+> & { spirit?: BotSpirit | null };
 
 const CROP_LABEL = {
   mascot: "Mascot",
@@ -52,6 +76,30 @@ export function BotProfileAvatarCard({
   const cropRef = useRef(crop);
   cropRef.current = crop;
   const imageConfigured = state.config?.imageGen?.configured === true;
+  const avatarStyle = state.config?.appearance?.avatarStyle ?? "spirits";
+  const selectedSpirit = bot.spirit ?? agentSpiritForBot(bot);
+  const spiritPalette = bot.spiritPalette ?? "native";
+  const spiritGeometry = bot.spiritGeometry ?? "native";
+  const spiritTemperament = bot.spiritTemperament ?? "native";
+
+  const switchAvatarStyle = async (next: "classic" | "spirits") => {
+    if (next === avatarStyle || !state.config) return;
+    const previous = state.config;
+    dispatch({
+      type: "configStatus",
+      config: { ...previous, appearance: { avatarStyle: next } },
+    });
+    try {
+      const config: ConfigStatus = await api("/api/config", {
+        method: "PATCH",
+        body: JSON.stringify({ appearance: { avatarStyle: next } }),
+      });
+      dispatch({ type: "configStatus", config });
+    } catch (switchError) {
+      dispatch({ type: "configStatus", config: previous });
+      setError(switchError instanceof Error ? switchError.message : String(switchError));
+    }
+  };
 
   const upload = async (file: File | undefined) => {
     if (!file) return;
@@ -131,7 +179,15 @@ export function BotProfileAvatarCard({
       <div className="flex items-center justify-between border-b border-hairline/40 px-3 py-2.5">
         <span className="rounded-lg bg-control px-3 py-1.5 text-[14px] font-medium text-ink">Avatar</span>
         <button
-          onClick={() => onPatch({ avatarCrop: "mascot", color: "green", mascotExpression: null })}
+          onClick={() => onPatch({
+            spirit: null,
+            avatarCrop: "mascot",
+            color: "green",
+            mascotExpression: null,
+            spiritPalette: "native",
+            spiritGeometry: "native",
+            spiritTemperament: "native",
+          })}
           className="rounded-md px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink"
         >
           Reset mascot
@@ -148,6 +204,98 @@ export function BotProfileAvatarCard({
             motionKey={mascotMotion?.nonce ?? 0}
           />
         </div>
+
+        <div className="mb-2 mt-1 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
+          Character identity
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <button
+            type="button"
+            aria-pressed={avatarStyle === "classic"}
+            onClick={() => void switchAvatarStyle("classic")}
+            className={cn(
+              "flex items-center gap-2 rounded-xl bg-inset px-2.5 py-2 text-left transition-colors hover:bg-raised",
+              avatarStyle === "classic" && "ring-2 ring-accent-border",
+            )}
+          >
+            <MausAvatar color={bot.color} state={activeState} size={40} animated={false} />
+            <span className="min-w-0">
+              <span className="block text-[12px] font-medium text-ink">Classic</span>
+              <span className="block text-[10px] text-ink-secondary">Room family</span>
+            </span>
+          </button>
+          {BOT_SPIRITS.map((candidate) => (
+            <button
+              key={candidate}
+              type="button"
+              aria-pressed={avatarStyle === "spirits" && selectedSpirit === candidate}
+              onClick={() => {
+                onPatch({ spirit: candidate, avatarUrl: null, avatarCrop: "mascot", mascotExpression: null });
+                void switchAvatarStyle("spirits");
+              }}
+              className={cn(
+                "flex items-center gap-2 rounded-xl bg-inset px-2.5 py-2 text-left transition-colors hover:bg-raised",
+                avatarStyle === "spirits" && selectedSpirit === candidate && "ring-2 ring-accent-border",
+              )}
+            >
+              <LivingHoodSpirit spirit={candidate} state="idle" size={42} animated={false} />
+              <span className="min-w-0">
+                <span className="block text-[12px] font-medium text-ink">{AGENT_SPIRIT_META[candidate].title}</span>
+                <span className="block truncate text-[10px] text-ink-secondary">{AGENT_SPIRIT_META[candidate].role}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {avatarStyle === "spirits" && selectedSpirit && (
+          <div className="mt-4 grid gap-3 rounded-xl border border-hairline/40 bg-inset/40 p-3 sm:grid-cols-3">
+            <label className="text-[11px] font-medium text-ink-secondary">
+              Color
+              <select
+                value={spiritPalette}
+                onChange={(event) => {
+                  const next = BOT_SPIRIT_PALETTES.find((candidate) => candidate === event.target.value);
+                  if (next) onPatch({ spiritPalette: next });
+                }}
+                className="mt-1 w-full rounded-lg border border-hairline/50 bg-panel px-2 py-1.5 text-[12px] text-ink"
+              >
+                {BOT_SPIRIT_PALETTES.map((candidate) => (
+                  <option key={candidate} value={candidate}>{BOT_SPIRIT_PALETTE_LABELS[candidate]}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-[11px] font-medium text-ink-secondary">
+              Geometry
+              <select
+                value={spiritGeometry}
+                onChange={(event) => {
+                  const next = BOT_SPIRIT_GEOMETRIES.find((candidate) => candidate === event.target.value);
+                  if (next) onPatch({ spiritGeometry: next });
+                }}
+                className="mt-1 w-full rounded-lg border border-hairline/50 bg-panel px-2 py-1.5 text-[12px] text-ink"
+              >
+                {BOT_SPIRIT_GEOMETRIES.map((candidate) => (
+                  <option key={candidate} value={candidate}>{BOT_SPIRIT_GEOMETRY_LABELS[candidate]}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-[11px] font-medium text-ink-secondary">
+              Temperament
+              <select
+                value={spiritTemperament}
+                onChange={(event) => {
+                  const next = BOT_SPIRIT_TEMPERAMENTS.find((candidate) => candidate === event.target.value);
+                  if (next) onPatch({ spiritTemperament: next });
+                }}
+                className="mt-1 w-full rounded-lg border border-hairline/50 bg-panel px-2 py-1.5 text-[12px] text-ink"
+              >
+                {BOT_SPIRIT_TEMPERAMENTS.map((candidate) => (
+                  <option key={candidate} value={candidate}>{BOT_SPIRIT_TEMPERAMENT_META[candidate].label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
 
         <div className="mt-2 flex gap-2">
           <input

@@ -30,6 +30,32 @@ describe("parseBotProfilePatch (strict — the paired boundary)", () => {
       patch: { name: "Mira", title: "Lead", description: "plans", notifications: true, voice: "vx", speakReplies: false },
     });
   });
+
+  it("accepts only bounded spirit identity and art direction", () => {
+    expect(parseBotProfilePatch({
+      spirit: "ganga",
+      spiritPalette: "rose",
+      spiritGeometry: "constellation",
+      spiritTemperament: "playful",
+    }, true)).toEqual({
+      ok: true,
+      patch: {
+        spirit: "ganga",
+        spiritPalette: "rose",
+        spiritGeometry: "constellation",
+        spiritTemperament: "playful",
+      },
+    });
+    // SAFETY: These deliberately invalid literals exercise runtime schema rejection.
+    expect(parseBotProfilePatch({ spirit: "cursor" } as never, true).ok).toBe(false);
+    // SAFETY: These deliberately invalid literals exercise runtime schema rejection.
+    expect(parseBotProfilePatch({ spiritPalette: "radioactive" } as never, true).ok).toBe(false);
+    // SAFETY: These deliberately invalid literals exercise runtime schema rejection.
+    expect(parseBotProfilePatch({ spiritGeometry: "triangle" } as never, true).ok).toBe(false);
+    // SAFETY: These deliberately invalid literals exercise runtime schema rejection.
+    expect(parseBotProfilePatch({ spiritTemperament: "random" } as never, true).ok).toBe(false);
+    expect(parseBotProfilePatch({ spirit: null }, true)).toEqual({ ok: true, patch: { spirit: undefined } });
+  });
 });
 
 describe("parseBotProfilePatch (both modes)", () => {

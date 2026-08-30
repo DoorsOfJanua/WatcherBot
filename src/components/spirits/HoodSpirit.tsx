@@ -1,5 +1,9 @@
 import { useId } from "react";
-import type { BotAvatarState } from "../../../shared/bot-avatar";
+import type {
+  BotAvatarState,
+  BotSpiritGeometry,
+  BotSpiritPalette,
+} from "../../../shared/bot-avatar";
 import type { AgentSpiritName } from "./AgentSpirit";
 import "./agent-spirits.css";
 import "./hood-ring.css";
@@ -33,6 +37,37 @@ const HOOD_LOOKS = {
 
 export type HoodLook = (typeof HOOD_LOOKS)[HoodSpiritName];
 
+export const SPIRIT_PALETTE_LOOKS = {
+  violet: { hi: "#c4b5fd", mid: "#8b5cf6", lo: "#6d28d9", deep: "#35146c", ring: "#a78bfa" },
+  jade: { hi: "#86efac", mid: "#22c55e", lo: "#059669", deep: "#064e3b", ring: "#34d399" },
+  rose: { hi: "#fda4af", mid: "#f43f5e", lo: "#be123c", deep: "#74142e", ring: "#fb7185" },
+  aqua: { hi: "#99f6e4", mid: "#2dd4bf", lo: "#0f766e", deep: "#134e4a", ring: "#5eead4" },
+  azure: { hi: "#bfdbfe", mid: "#3b82f6", lo: "#1d4ed8", deep: "#172f75", ring: "#60a5fa" },
+  ember: { hi: "#fde68a", mid: "#f59e0b", lo: "#c2410c", deep: "#70250d", ring: "#fbbf24" },
+  ivory: { hi: "#fffaf0", mid: "#d8c8b5", lo: "#8d7d70", deep: "#28211e", ring: "#eadcca" },
+  ultraviolet: { hi: "#f5d0fe", mid: "#d946ef", lo: "#7e22ce", deep: "#2e1065", ring: "#e879f9" },
+  solar: { hi: "#fff7ae", mid: "#facc15", lo: "#ea580c", deep: "#7c2d12", ring: "#fbbf24" },
+  acid: { hi: "#ecfccb", mid: "#a3e635", lo: "#16a34a", deep: "#14532d", ring: "#bef264" },
+  lunar: { hi: "#f8fafc", mid: "#94a3b8", lo: "#475569", deep: "#0f172a", ring: "#cbd5e1" },
+  oilchrome: { hi: "#e9fbff", mid: "#51d7ff", lo: "#8b32ff", deep: "#170d34", ring: "#ff55bf" },
+} satisfies Record<Exclude<BotSpiritPalette, "native">, HoodLook>;
+
+export const SPIRIT_PALETTE_SWATCHES = {
+  native: "linear-gradient(135deg,#8b5cf6,#10b981,#f43f5e,#f59e0b)",
+  violet: SPIRIT_PALETTE_LOOKS.violet.mid,
+  jade: SPIRIT_PALETTE_LOOKS.jade.mid,
+  rose: SPIRIT_PALETTE_LOOKS.rose.mid,
+  aqua: SPIRIT_PALETTE_LOOKS.aqua.mid,
+  azure: SPIRIT_PALETTE_LOOKS.azure.mid,
+  ember: SPIRIT_PALETTE_LOOKS.ember.mid,
+  ivory: SPIRIT_PALETTE_LOOKS.ivory.mid,
+  ultraviolet: SPIRIT_PALETTE_LOOKS.ultraviolet.mid,
+  solar: "linear-gradient(135deg,#fff7ae,#facc15 45%,#ea580c)",
+  acid: "linear-gradient(135deg,#ecfccb,#a3e635 48%,#16a34a)",
+  lunar: "linear-gradient(135deg,#f8fafc,#94a3b8 52%,#0f172a)",
+  oilchrome: "conic-gradient(from 32deg,#55e9ff,#713cff,#ff45ba,#ff9b32,#d8ff4f,#2ee6a6,#55e9ff)",
+} satisfies Record<BotSpiritPalette, string>;
+
 /* ---------------------------------------------------------------- moods */
 
 /** The expression library: every eye emotion the hood can wear. */
@@ -50,6 +85,13 @@ export const HOOD_MOODS = [
   "focused",
   "surprised",
   "closed",
+  "curious",
+  "amused",
+  "skeptical",
+  "sad",
+  "awe",
+  "ecstatic",
+  "proud",
 ] as const;
 export type HoodMood = (typeof HOOD_MOODS)[number];
 
@@ -65,7 +107,18 @@ const STATE_MOOD = {
   sleeping: "closed",
 } satisfies Record<BotAvatarState, HoodMood>;
 
-function Eyes({ mood }: { mood: HoodMood }) {
+function Eyes({ mood, spirit }: { mood: HoodMood; spirit: HoodSpiritName }) {
+  // The Watcher's resting face stays inside the family's graphic language:
+  // two solid white marks, sharpened into an inward-sloping hostile stare.
+  // Its other moods use the same family grammar below, so it remains alive.
+  if (spirit === "wormhole" && mood === "open") {
+    return (
+      <g className="hood__eyes hood__eyes--fill hood__eyes--watcher">
+        <path d="M43.5 48.1 57 52.1 57 54.6 43.5 51.5Z" />
+        <path d="M76.5 48.1 63 52.1 63 54.6 76.5 51.5Z" />
+      </g>
+    );
+  }
   switch (mood) {
     case "open":
       // soft almonds, awake and present
@@ -156,6 +209,57 @@ function Eyes({ mood }: { mood: HoodMood }) {
           <circle cx="70" cy="50.5" r="5.8" />
         </g>
       );
+    case "curious":
+      return (
+        <g className="hood__eyes hood__eyes--fill">
+          <path d="M43.5 51q7-7.5 14 0q-7 7.5-14 0Z" />
+          <circle cx="70" cy="50" r="4.2" />
+        </g>
+      );
+    case "amused":
+      return (
+        <g className="hood__eyes hood__eyes--line">
+          <path d="M44 53q6.5-8 13 0" />
+          <path d="M63 51.5q6.5-5 13 0" />
+        </g>
+      );
+    case "skeptical":
+      return (
+        <g className="hood__eyes hood__eyes--line">
+          <path d="M44 52h13" />
+          <path d="M63 53q6.5-7 13 0" />
+        </g>
+      );
+    case "sad":
+      return (
+        <g className="hood__eyes hood__eyes--line">
+          <path d="M44 49q6.5 7 13 0" />
+          <path d="M63 49q6.5 7 13 0" />
+        </g>
+      );
+    case "awe":
+      return (
+        <g className="hood__eyes hood__eyes--line hood__eyes--awe">
+          <circle cx="50" cy="51" r="5.6" />
+          <circle cx="70" cy="51" r="5.6" />
+          <circle cx="50" cy="51" r="1.4" />
+          <circle cx="70" cy="51" r="1.4" />
+        </g>
+      );
+    case "ecstatic":
+      return (
+        <g className="hood__eyes hood__eyes--fill hood__eyes--ecstatic">
+          <path d="M50 43.5 52 49l5.5 2-5.5 2-2 5.5-2-5.5-5.5-2 5.5-2Z" />
+          <path d="M70 43.5 72 49l5.5 2-5.5 2-2 5.5-2-5.5-5.5-2 5.5-2Z" />
+        </g>
+      );
+    case "proud":
+      return (
+        <g className="hood__eyes hood__eyes--line">
+          <path d="M44 52.5 57 49" />
+          <path d="M63 49 76 52.5" />
+        </g>
+      );
     case "closed":
       return (
         <g className="hood__eyes hood__eyes--line hood__eyes--dim">
@@ -191,9 +295,21 @@ const METATRON_CENTERS: [number, number][] = [[60, 60], ...METATRON_INNER, ...ME
  * Famous forms, one per spirit: coordination, balance, exchange, flow,
  * resonance, and the builder's blueprint.
  */
-function Halo({ spirit }: { spirit: HoodSpiritName }) {
-  switch (spirit) {
-    case "wormhole":
+function nativeGeometry(spirit: HoodSpiritName): Exclude<BotSpiritGeometry, "native"> {
+  return ({
+    wormhole: "flower",
+    sensei: "merkaba",
+    mailman: "vesica",
+    ganga: "yantra",
+    signal: "seed",
+    forge: "metatron",
+    watcher: "lens",
+  } as const)[spirit];
+}
+
+function Halo({ spirit, geometry = "native" }: { spirit: HoodSpiritName; geometry?: BotSpiritGeometry }) {
+  switch (geometry === "native" ? nativeGeometry(spirit) : geometry) {
+    case "flower":
       // Flower of Life — everything connected through the coordinator
       return (
         <g className="hood__halo">
@@ -206,7 +322,7 @@ function Halo({ spirit }: { spirit: HoodSpiritName }) {
           ))}
         </g>
       );
-    case "sensei":
+    case "merkaba":
       // Merkaba — two forces held in balance
       return (
         <g className="hood__halo">
@@ -214,7 +330,7 @@ function Halo({ spirit }: { spirit: HoodSpiritName }) {
           <path d="M60 104 21.9 38h76.2Z" />
         </g>
       );
-    case "mailman":
+    case "vesica":
       // Vesica Piscis — the exchange between two realms
       return (
         <g className="hood__halo">
@@ -222,7 +338,7 @@ function Halo({ spirit }: { spirit: HoodSpiritName }) {
           <circle cx="74" cy="60" r="28" />
         </g>
       );
-    case "ganga":
+    case "yantra":
       // Sri Yantra (simplified) — interlocking triangles around the bindu
       return (
         <g className="hood__halo">
@@ -233,7 +349,7 @@ function Halo({ spirit }: { spirit: HoodSpiritName }) {
           <circle cx="60" cy="60" r="1.6" strokeWidth="3.2" />
         </g>
       );
-    case "signal":
+    case "seed":
       // Seed of Life — ripples radiating from one source
       return (
         <g className="hood__halo">
@@ -243,7 +359,7 @@ function Halo({ spirit }: { spirit: HoodSpiritName }) {
           ))}
         </g>
       );
-    case "forge":
+    case "metatron":
       // Metatron's Cube — the blueprint holding every solid
       return (
         <g className="hood__halo">
@@ -256,7 +372,7 @@ function Halo({ spirit }: { spirit: HoodSpiritName }) {
           <path d="M28 60H92M44 32.3 76 87.7M76 32.3 44 87.7" />
         </g>
       );
-    case "watcher":
+    case "lens":
       // The witnessing lens — an eye held inside two quiet, intersecting arcs.
       return (
         <g className="hood__halo">
@@ -264,6 +380,82 @@ function Halo({ spirit }: { spirit: HoodSpiritName }) {
           <circle cx="60" cy="60" r="17" />
           <circle cx="60" cy="60" r="5" />
           <path d="M60 18v25M60 77v25M18 60h25M77 60h25" opacity="0.55" />
+        </g>
+      );
+    case "orbit":
+      return (
+        <g className="hood__halo">
+          <circle cx="60" cy="60" r="39" />
+          <ellipse cx="60" cy="60" rx="46" ry="20" transform="rotate(-24 60 60)" />
+          <ellipse cx="60" cy="60" rx="46" ry="20" transform="rotate(36 60 60)" />
+          <circle cx="101" cy="41" r="3.2" />
+          <circle cx="24" cy="82" r="2.2" />
+        </g>
+      );
+    case "constellation":
+      return (
+        <g className="hood__halo">
+          <path d="M23 75 37 36 61 22 88 38 99 70 75 96 42 94 23 75Z" />
+          <path d="M37 36 60 60 88 38M23 75 60 60 99 70M42 94 60 60 75 96" opacity="0.7" />
+          {[[23,75],[37,36],[61,22],[88,38],[99,70],[75,96],[42,94],[60,60]].map(([x,y]) => (
+            <circle key={`${x}-${y}`} cx={x} cy={y} r={x === 60 ? 3 : 2.3} />
+          ))}
+        </g>
+      );
+    case "torus":
+      return (
+        <g className="hood__halo">
+          <circle cx="60" cy="60" r="42" />
+          {[-60, -30, 0, 30, 60].map((angle) => (
+            <ellipse key={angle} cx="60" cy="60" rx="42" ry="15" transform={`rotate(${angle} 60 60)`} />
+          ))}
+          <circle cx="60" cy="60" r="4" />
+        </g>
+      );
+    case "spiral":
+      return (
+        <g className="hood__halo">
+          <circle cx="60" cy="60" r="45" opacity="0.34" />
+          <path d="M60 60c0-8 10-12 17-7 9 6 7 21-3 27-15 9-33-1-35-18-3-23 20-39 41-29 27 12 33 49 11 69" />
+          <path d="M60 60c0 8-10 12-17 7-9-6-7-21 3-27 15-9 33 1 35 18" opacity="0.55" transform="rotate(180 60 60)" />
+        </g>
+      );
+    case "lotus":
+      return (
+        <g className="hood__halo">
+          {Array.from({ length: 8 }, (_, index) => (
+            <ellipse key={index} cx="60" cy="34" rx="10" ry="25" transform={`rotate(${index * 45} 60 60)`} />
+          ))}
+          <circle cx="60" cy="60" r="13" />
+          <circle cx="60" cy="60" r="4" />
+        </g>
+      );
+    case "enneagram":
+      return (
+        <g className="hood__halo">
+          <circle cx="60" cy="60" r="44" />
+          <path d="M60 16 74 101 33 27 97 81 18 52 102 52 23 82 87 27 46 101Z" />
+          <circle cx="60" cy="60" r="4" />
+        </g>
+      );
+    case "labyrinth":
+      return (
+        <g className="hood__halo">
+          <path d="M60 14a46 46 0 1 1-9 1M60 25a35 35 0 1 0 10 1M60 36a24 24 0 1 1-8 1M60 47a13 13 0 1 0 7 2" />
+          <path d="M51 15v20M70 25v18M52 37v17M67 49v17M60 59v47" opacity="0.72" />
+        </g>
+      );
+    case "portal":
+      return (
+        <g className="hood__halo">
+          {[17, 27, 38, 48].map((radius) => <circle key={radius} cx="60" cy="60" r={radius} />)}
+          {Array.from({ length: 12 }, (_, index) => {
+            const angle = (index * Math.PI) / 6;
+            const x = 60 + Math.cos(angle) * 48;
+            const y = 60 + Math.sin(angle) * 48;
+            return <circle key={index} cx={x} cy={y} r="2.4" />;
+          })}
+          <path d="M60 12v15M60 93v15M12 60h15M93 60h15" opacity="0.65" />
         </g>
       );
   }
@@ -281,6 +473,8 @@ export function HoodSpirit({
   size = 44,
   animated = true,
   label,
+  palette = "native",
+  geometry = "native",
 }: {
   spirit: HoodSpiritName;
   state?: BotAvatarState;
@@ -291,14 +485,17 @@ export function HoodSpirit({
   size?: number;
   animated?: boolean;
   label?: string;
+  palette?: BotSpiritPalette;
+  geometry?: BotSpiritGeometry;
 }) {
   const uid = useId().replaceAll(":", "");
-  const look = HOOD_LOOKS[spirit];
+  const look = palette === "native" ? HOOD_LOOKS[spirit] : SPIRIT_PALETTE_LOOKS[palette];
+  const oilChrome = palette === "oilchrome";
   const worn = mood ?? STATE_MOOD[state];
 
   return (
     <span
-      className={`spirit hood hood-${spirit} spirit--${state} hood--look-${heading}${animated ? "" : " spirit--still"}`}
+      className={`spirit hood hood-${spirit} spirit--${state} hood--look-${heading}${oilChrome ? " hood--oilchrome" : ""}${animated ? "" : " spirit--still"}`}
       style={{ width: size, height: size }}
       role="img"
       aria-label={label ?? (spirit === "watcher" ? "The Watcher" : `${spirit} spirit`)}
@@ -320,7 +517,7 @@ export function HoodSpirit({
         </defs>
 
         <g className="hood__halo-wrap" stroke={look.ring}>
-          <Halo spirit={spirit} />
+          <Halo spirit={spirit} geometry={geometry} />
         </g>
 
         <g className="hood__ring" stroke={look.ring}>
@@ -352,14 +549,42 @@ export function HoodSpirit({
         focusable="false"
       >
         <defs>
-          <linearGradient id={`${uid}-cowl`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor={look.hi} />
-            <stop offset="0.45" stopColor={look.mid} />
-            <stop offset="1" stopColor={look.lo} />
+          <linearGradient id={`${uid}-cowl`} x1="0" y1="0" x2="1" y2="1">
+            {oilChrome ? (
+              <>
+                <stop offset="0" stopColor="#effcff" />
+                <stop offset="0.13" stopColor="#55e9ff" />
+                <stop offset="0.3" stopColor="#713cff" />
+                <stop offset="0.47" stopColor="#ff45ba" />
+                <stop offset="0.63" stopColor="#ff9b32" />
+                <stop offset="0.79" stopColor="#d8ff4f" />
+                <stop offset="1" stopColor="#2ee6a6" />
+                {animated && <animate attributeName="x1" values="-0.35;0.35;-0.35" dur="8.4s" repeatCount="indefinite" />}
+                {animated && <animate attributeName="y2" values="1.1;0.35;1.1" dur="8.4s" repeatCount="indefinite" />}
+              </>
+            ) : (
+              <>
+                <stop offset="0" stopColor={look.hi} />
+                <stop offset="0.45" stopColor={look.mid} />
+                <stop offset="1" stopColor={look.lo} />
+              </>
+            )}
           </linearGradient>
-          <linearGradient id={`${uid}-facet`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor={look.mid} />
-            <stop offset="1" stopColor={look.deep} />
+          <linearGradient id={`${uid}-facet`} x1="1" y1="0" x2="0" y2="1">
+            {oilChrome ? (
+              <>
+                <stop offset="0" stopColor="#f6fbff" />
+                <stop offset="0.2" stopColor="#86f7ff" />
+                <stop offset="0.48" stopColor="#8d4cff" />
+                <stop offset="0.72" stopColor="#ff5b98" />
+                <stop offset="1" stopColor="#241040" />
+              </>
+            ) : (
+              <>
+                <stop offset="0" stopColor={look.mid} />
+                <stop offset="1" stopColor={look.deep} />
+              </>
+            )}
           </linearGradient>
           <linearGradient id={`${uid}-chest`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor={look.deep} />
@@ -458,7 +683,7 @@ export function HoodSpirit({
                         key={expression}
                         className={`hood__expression${expression === worn ? " hood__expression--active" : ""}`}
                       >
-                        <Eyes mood={expression} />
+                        <Eyes mood={expression} spirit={spirit} />
                       </g>
                     ))}
                   </g>

@@ -177,6 +177,11 @@ public struct Bot: Codable, Hashable, Identifiable, Sendable {
     public var avatarUrl: String?
     /// `mascot` ignores `avatarUrl`; the other values describe the image mask.
     public var avatarCrop: AvatarCrop?
+    /// Original code-drawn living-spirit identity and bounded art direction.
+    public var spirit: String?
+    public var spiritPalette: String?
+    public var spiritGeometry: String?
+    public var spiritTemperament: String?
     public var unread: Bool
     public var modelSelection: ModelSelection
     public var createdAt: Double

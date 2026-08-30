@@ -1,6 +1,13 @@
 import { z } from "zod";
 
-import { botAvatarCropSchema, botAvatarUrlSchema } from "../shared/bot-avatar.ts";
+import {
+  botAvatarCropSchema,
+  botAvatarUrlSchema,
+  botSpiritGeometrySchema,
+  botSpiritPaletteSchema,
+  botSpiritSchema,
+  botSpiritTemperamentSchema,
+} from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
 
 import type { BotRecord } from "./store.ts";
@@ -12,6 +19,10 @@ export const BOT_PROFILE_PATCH_FIELDS = [
   "notifications",
   "avatarUrl",
   "avatarCrop",
+  "spirit",
+  "spiritPalette",
+  "spiritGeometry",
+  "spiritTemperament",
   "voice",
   "speakReplies",
 ] as const;
@@ -37,6 +48,10 @@ const profilePatchSchema = z.object({
     })
     .optional(),
   avatarCrop: botAvatarCropSchema.optional(),
+  spirit: z.union([botSpiritSchema, z.null()]).optional(),
+  spiritPalette: botSpiritPaletteSchema.optional(),
+  spiritGeometry: botSpiritGeometrySchema.optional(),
+  spiritTemperament: botSpiritTemperamentSchema.optional(),
   voice: z
     .string({ error: "voice must be a string" })
     .max(BOT_PROFILE_LIMITS.voice, { error: "voice must be at most 200 characters" })
@@ -49,7 +64,18 @@ export type BotProfilePatchInput = z.input<typeof profilePatchSchema>;
 export type BotProfilePatch = Partial<
   Pick<
     BotRecord,
-    "name" | "title" | "description" | "notifications" | "avatarUrl" | "avatarCrop" | "voice" | "speakReplies"
+    | "name"
+    | "title"
+    | "description"
+    | "notifications"
+    | "avatarUrl"
+    | "avatarCrop"
+    | "spirit"
+    | "spiritPalette"
+    | "spiritGeometry"
+    | "spiritTemperament"
+    | "voice"
+    | "speakReplies"
   >
 >;
 
@@ -80,8 +106,9 @@ export function parseBotProfilePatch(input: BotProfilePatchInput, strict = false
     return { ok: false, error: issue?.message ?? "invalid profile patch" };
   }
 
-  const { avatarUrl, ...fields } = parsed.data;
+  const { avatarUrl, spirit, ...fields } = parsed.data;
   const patch: BotProfilePatch = fields;
   if (avatarUrl !== undefined) patch.avatarUrl = avatarUrl || undefined;
+  if (spirit !== undefined) patch.spirit = spirit || undefined;
   return { ok: true, patch };
 }

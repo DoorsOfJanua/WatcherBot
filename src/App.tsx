@@ -22,6 +22,7 @@ import { BrowserWorkspace } from "@/components/BrowserWorkspace";
 import { SkillRecorderPage } from "@/components/SkillRecorderPage";
 import { TeamMapPage } from "@/components/TeamMapPage";
 import { heldComputerControlBotIds } from "@/lib/computer-control";
+import { AvatarAppearanceProvider } from "@/components/AvatarAppearance";
 
 function Shell() {
   const { state, dispatch } = useStore();
@@ -180,6 +181,7 @@ function Shell() {
   }, [dispatch]);
 
   return (
+    <AvatarAppearanceProvider style={state.config?.appearance?.avatarStyle ?? "spirits"}>
     <div className="flex h-full flex-col">
       {/* fixed-position popup, bottom-left — outside the layout flow */}
       <UpdateBanner />
@@ -254,6 +256,7 @@ function Shell() {
       <CommandPalette onOpenChange={setPaletteOpen} />
       </div>
     </div>
+    </AvatarAppearanceProvider>
   );
 }
 
