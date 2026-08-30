@@ -1,0 +1,80 @@
+---
+title: Set up your Limen vault
+description: Create one private source of truth for memory, projects, and connected accounts.
+icon: Brain
+---
+
+WatcherBotRoom works best when every user has **one canonical Limen vault**. The
+vault is the user's local knowledge store and connector registry. It is not a
+second inbox and it does not replace Gmail, Proton Mail, or Obsidian.
+
+## The five-minute setup
+
+### 1. Choose the vault
+
+Use an existing knowledge folder (including an Obsidian vault) or create a new
+Limen vault. Point the app at one absolute path and keep that path as the only
+canonical path for this user.
+
+<Callout type="warn" title="One user, one canonical vault">
+  Do not create a second “temporary” vault during setup. If the app detects two
+  vaults for the same profile, stop and ask the user to choose one.
+</Callout>
+
+### 2. Run the health check
+
+Before creating agents, the setup check verifies:
+
+- the vault schema and required migration;
+- readable and writable paths;
+- the vault lock and state database;
+- the Keychain/secure-store connection;
+- the active vault path shown in Settings.
+
+The check must finish with one clear status: **Ready**, **Needs migration**, or
+**Needs attention**. It must never silently fall back to another vault.
+
+### 3. Connect one account at a time
+
+For every connector, show the exact account and separate capabilities:
+
+| Account | Read | Change | Send |
+|---|---:|---:|---:|
+| Gmail / Proton account | yes/no | yes/no | yes/no |
+
+The user completes OAuth and 2FA in the provider window. Passwords and one-time
+codes never go into chat. A Gmail account with read access is not automatically
+allowed to archive, label, or send.
+
+### 4. Create the first specialist
+
+Start with one useful role, such as Inbox Manager or Researcher. Give it a
+scope, a stop line, and an output format. Run one reversible task and inspect
+the result before adding schedules or more agents.
+
+### 5. Verify the first result
+
+The first run should show:
+
+- which account and vault were used;
+- what was read or changed;
+- what was skipped;
+- what requires approval.
+
+If an account, path, or capability conflicts with the live check, the agent
+reports a routing problem. It must not say that a known mailbox disappeared or
+substitute another account.
+
+## What the vault stores
+
+The vault stores project notes, durable memory, tasks, source references, and
+non-secret connector metadata. Provider tokens remain in the operating system's
+secure store. This separation lets the vault be backed up and inspected without
+putting credentials into markdown or agent prompts.
+
+## For operators who install WatcherBotRoom for others
+
+Each customer gets a separate profile, vault, secure-store namespace, and
+connector set. Never share one vault between customers. The operator can help
+with setup and maintenance, but the customer owns the vault and approves every
+external action.
