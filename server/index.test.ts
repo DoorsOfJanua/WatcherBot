@@ -1479,6 +1479,7 @@ describe("harness HTTP API", () => {
         { email: "not-an-email" },
         { phone: "call me" },
         { whatsapp: "https://example.com" },
+        { sharedMemoryId: "coach" },
       ]) {
         expect((await api("PATCH", `/api/bots/${bot.id}/profile`, invalid)).status).toBe(400);
       }
@@ -4246,7 +4247,12 @@ describe("bot memory API", () => {
     try {
       const fresh = await api("GET", `/api/bots/${bot.id}/memory`);
       expect(fresh.status).toBe(200);
-      expect(fresh.body).toEqual({ text: "", truncated: false, topics: [] });
+      expect(fresh.body).toEqual({
+        text: "",
+        truncated: false,
+        topics: [],
+        shared: { configured: false, connected: false },
+      });
       expect((await api("GET", "/api/bots/does-not-exist/memory")).status).toBe(404);
     } finally {
       await api("DELETE", `/api/bots/${bot.id}`);

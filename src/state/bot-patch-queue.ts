@@ -12,6 +12,7 @@ export type BotUpdatePatch = Partial<
     | "email"
     | "phone"
     | "whatsapp"
+    | "sharedMemoryId"
     | "notifications"
     | "computer"
     | "cloudBackend"

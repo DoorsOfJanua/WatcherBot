@@ -363,6 +363,8 @@ export interface BotRecord {
   email?: string;
   phone?: string;
   whatsapp?: string;
+  /** Canonical nonsecret identity shared with local channel bridges. */
+  sharedMemoryId?: string;
   notifications: boolean;
   color: MausColor;
   mascotExpression?: MausExpression | null;

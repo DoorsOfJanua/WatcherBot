@@ -8,6 +8,8 @@ export const BOT_PROFILE_LIMITS = {
   email: 254,
   phone: 32,
   whatsapp: 64,
+  /** Nonsecret canonical identity used by a local cross-surface memory bridge. */
+  sharedMemoryId: 64,
 } as const;
 
 export type BotContactField = "email" | "phone" | "whatsapp";

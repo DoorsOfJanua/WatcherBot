@@ -197,6 +197,7 @@ import {
   isTurnEventQuarantined,
 } from "./turn-dispatch-guard.ts";
 import { createGracefulShutdown } from "./graceful-shutdown.ts";
+import { recordSharedMemoryTurn, sharedMemoryForTurn } from "./shared-agent-memory.ts";
 
 const PORT = Number(process.env.OMB_PORT || process.env.OGB_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.OMB_WEBHOOK_PORT || PORT + 1);
@@ -1437,7 +1438,17 @@ bus.subscribe((event: RuntimeEvent) => {
       break;
     case "item.completed":
       if (event.itemType === "assistant_text") {
-        pushMessage({ role: "bot", kind: "text", text: event.text });
+        const message = pushMessage({ role: "bot", kind: "text", text: event.text });
+        const memoryBot = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
+        if (memoryBot) {
+          void recordSharedMemoryTurn({
+            sharedMemoryId: memoryBot.sharedMemoryId,
+            threadId: event.threadId,
+            role: "assistant",
+            content: event.text,
+            sourceRef: `${memoryBot.id}:${event.threadId}:${message.id}`,
+          });
+        }
         // kept so "finished" can say what it finished with, rather than
         // just that something ended
         lastReply.set(event.threadId, event.text);
@@ -2232,6 +2243,19 @@ async function startTurn(
           sendId: opts?.sendId,
         });
   }
+  if (
+    !opts?.connectorContinuation &&
+    opts?.automationSource === undefined &&
+    !opts?.commsDepth
+  ) {
+    void recordSharedMemoryTurn({
+      sharedMemoryId: bot.sharedMemoryId,
+      threadId,
+      role: "user",
+      content: text,
+      sourceRef: `${bot.id}:${threadId}:${userMessage.id}`,
+    });
+  }
 
   // transcript for API-backed drivers: settled text turns on the ACTIVE
   // branch only — abandoned forks never reach the model
@@ -2292,6 +2316,10 @@ async function startTurn(
 
   void (async () => {
     try {
+      // Start the local AgentHQ read in parallel with capability setup. This
+      // is a read-only relationship-memory bridge, never a second turn or an
+      // external action.
+      const sharedMemoryPromise = sharedMemoryForTurn(bot.sharedMemoryId, text);
       const integrations: NonNullable<Parameters<typeof instance.adapter.sendTurn>[0]["integrations"]> = {};
       let browser: Awaited<ReturnType<typeof browserIntegration>> = null;
       const selectedSkills = selectBundledSkills(
@@ -2544,6 +2572,7 @@ async function startTurn(
       const routinePrompt = integrations.agents
         ? " If the user explicitly asks to list or review, schedule, run, or change routines, use list_routines and propose_routine or propose_routine_action. A proposal is not applied until the user confirms its in-app card, so never claim the action completed before that confirmation."
         : "";
+      const sharedMemory = (await sharedMemoryPromise).prompt;
 
       // (activeVpsThreads was already claimed above, before the provision or
       // reuse await, so the backend guards saw this turn the whole time.)
@@ -2623,6 +2652,7 @@ async function startTurn(
           routinePrompt +
           sectionContextSystemPrompt(bot.section) +
           (privateWorkspace ? memorySystemPrompt(bot.id) + skillsSystemPrompt(bot.id) : "") +
+          sharedMemory +
           skillInstructions +
           packagePlaybooks +
           (opts?.automationSource === "webhook"
@@ -3229,6 +3259,10 @@ async function runGroupMemberTurn(
   ]
     .filter(Boolean)
     .join("\n");
+  const latestUserText = [...store.messagesFor(group.threadId)]
+    .reverse()
+    .find((message) => message.role === "user" && message.kind === "text" && message.text?.trim())?.text ?? "";
+  const sharedMemory = (await sharedMemoryForTurn(bot.sharedMemoryId, latestUserText)).prompt;
 
   const text = `${serializeRoomContext(threadId, userName)}\n\n(Reply to the conversation above as ${bot.name}.)${
     cardContinuation ? `\n\n${cardContinuation}` : ""
@@ -3250,6 +3284,7 @@ async function runGroupMemberTurn(
     (integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "") +
     sectionContextSystemPrompt(bot.section) +
     (workspace ? `\n${memorySystemPrompt(bot.id).trim()}${skillsSystemPrompt(bot.id)}` : "") +
+    sharedMemory +
     renderSkillInstructions(selectedSkills, { includeRoot: Boolean(workspace) }) +
     installedPlaybookInstructions(text, bot.playbooks);
 
@@ -3464,6 +3499,15 @@ function startGroupTurn(groupId: string, text: string, replyTo?: Message, sendId
       });
     }
     return message;
+  }
+  for (const responder of responders) {
+    void recordSharedMemoryTurn({
+      sharedMemoryId: responder.sharedMemoryId,
+      threadId,
+      role: "user",
+      content: text,
+      sourceRef: `${responder.id}:${threadId}:${message.id}`,
+    });
   }
 
   const operation = beginGroupTurnOperation(groupId, threadId, responders.map((responder) => responder.id));
@@ -6138,8 +6182,10 @@ const server = createServer(async (req, res) => {
     // not run yet simply has nothing to show.
     m = path.match(/^\/api\/bots\/([\w-]+)\/memory$/);
     if (m && method === "GET") {
-      if (!store.bot(m[1])) return json(res, 404, { error: "no such bot" });
-      return json(res, 200, { ...readMemoryFile(m[1]), topics: listMemoryTopics(m[1]) });
+      const bot = store.bot(m[1]);
+      if (!bot) return json(res, 404, { error: "no such bot" });
+      const shared = (await sharedMemoryForTurn(bot.sharedMemoryId, "")).status;
+      return json(res, 200, { ...readMemoryFile(m[1]), topics: listMemoryTopics(m[1]), shared });
     }
     if (m && method === "PUT") {
       if (!store.bot(m[1])) return json(res, 404, { error: "no such bot" });
