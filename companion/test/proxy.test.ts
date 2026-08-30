@@ -290,7 +290,7 @@ describe("the sidecar in front of an unmodified harness", () => {
   it("serves a minimal, non-cacheable companion health identity", async () => {
     const health = await device("GET", "/api/health", { token: null });
     expect(health.status).toBe(200);
-    expect(health.body).toEqual({ app: "openmausbot" });
+    expect(health.body).toEqual({ app: "watcherbotroom" });
     expect(health.headers.get("cache-control")).toBe("private, no-store");
     expect(health.headers.get("cdn-cache-control")).toBe("no-store");
     expect(JSON.stringify(health.body)).not.toContain("pid");
@@ -716,7 +716,7 @@ describe("pairing, end to end", () => {
     const control = createControlServer({
       devices: registry,
       companionPort: port,
-      discovery: () => ({ advertising: false, name: "OpenMausBot" }),
+      discovery: () => ({ advertising: false, name: "WatcherBotRoom" }),
       connectedDeviceIds: connections.ids,
       disconnectDevice: connections.disconnect,
     });
@@ -839,7 +839,7 @@ describe("pairing, end to end", () => {
     const control = createControlServer({
       devices: new DeviceRegistry(),
       companionPort: 8800,
-      discovery: () => ({ advertising: false, name: "OpenMausBot" }),
+      discovery: () => ({ advertising: false, name: "WatcherBotRoom" }),
     });
     await new Promise<void>((r) => control.listen(0, "127.0.0.1", r));
     // SAFETY: address() is AddressInfo — an object with a port — for any
@@ -870,7 +870,7 @@ describe("pairing, end to end", () => {
     const control = createControlServer({
       devices: new DeviceRegistry(),
       companionPort: 8800,
-      discovery: () => ({ advertising: false, name: "OpenMausBot" }),
+      discovery: () => ({ advertising: false, name: "WatcherBotRoom" }),
     });
     await new Promise<void>((r) => control.listen(0, "127.0.0.1", r));
     // SAFETY: address() is AddressInfo — an object with a port — for any
@@ -904,7 +904,7 @@ describe("pairing, end to end", () => {
     const control = createControlServer({
       devices: registry,
       companionPort: 8800,
-      discovery: () => ({ advertising: false, name: "OpenMausBot" }),
+      discovery: () => ({ advertising: false, name: "WatcherBotRoom" }),
     });
     await new Promise<void>((r) => control.listen(0, "127.0.0.1", r));
     // SAFETY: address() is AddressInfo — an object with a port — for any
@@ -953,7 +953,7 @@ describe("pairing, end to end", () => {
     const control = createControlServer({
       devices: registry,
       companionPort: 8800,
-      discovery: () => ({ advertising: false, name: "OpenMausBot" }),
+      discovery: () => ({ advertising: false, name: "WatcherBotRoom" }),
     });
     await new Promise<void>((r) => control.listen(0, "127.0.0.1", r));
     // SAFETY: address() is AddressInfo — an object with a port — for any

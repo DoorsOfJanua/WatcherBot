@@ -527,8 +527,10 @@ async function processOne(
   }
   const channel = getOrCreateChannel(bus.store, sender, target);
   mirrorExchange(bus, sender, target, item.message, channel, sourceThreadId);
-  const reasonLine = item.reason ? `\n\n[Reason: ${item.reason}]` : "";
-  const prefixed = `[Delegated by @${sender.name}, another bot in this OpenMausBot workspace. Do the work and reply directly.]\n\n${item.message}${reasonLine}`;
+  // Keep the handoff compact: the target already has its own persona and
+  // response contract, and the reply is mirrored back to the sender.
+  const reasonLine = item.reason ? `\n[Reason: ${item.reason}]` : "";
+  const prefixed = `Hey ${target.name} — ${sender.name} here. I’m passing this your way.\n\n${item.message}${reasonLine}`;
   await runTarget(item.toBotId, prefixed, item.depth + 1, sourceThreadId, channel, item.id);
   return "settled";
 }

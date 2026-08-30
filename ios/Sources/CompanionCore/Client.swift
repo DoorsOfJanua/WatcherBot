@@ -314,7 +314,7 @@ public struct PairingRouteError: Error, LocalizedError, Equatable, Sendable {
 
     public var errorDescription: String? {
         let routes = attemptedHosts.joined(separator: ", ")
-        return "Couldn’t reach this computer through any available route (\(routes)). Keep Phone access turned on in OpenMausBot, then try again."
+        return "Couldn’t reach this computer through any available route (\(routes)). Keep Phone access turned on in WatcherBotRoom, then try again."
     }
 }
 
@@ -568,7 +568,7 @@ public struct CompanionClient: Sendable {
             guard !Task.isCancelled,
                   let http = response as? HTTPURLResponse,
                   (200...299).contains(http.statusCode),
-                  try JSONDecoder().decode(HealthIdentity.self, from: data).app == "openmausbot"
+                  try JSONDecoder().decode(HealthIdentity.self, from: data).app == "watcherbotroom"
             else { return false }
             return true
         } catch {

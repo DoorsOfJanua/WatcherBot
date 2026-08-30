@@ -568,7 +568,7 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
                 {!desktopBrowser
                   ? browserBlockedOnWindows
                     ? "The built-in browser is temporarily unavailable on Windows while Electron's production sandbox support is being verified."
-                    : "The built-in browser needs the OpenMausBot desktop app."
+                    : "The built-in browser needs the WatcherBotRoom desktop app."
                   : !browserFeature
                     ? "The built-in browser is switched off under App Settings → Experimental."
                     : !canUseBrowser
