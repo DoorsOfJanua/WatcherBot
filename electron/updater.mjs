@@ -61,6 +61,15 @@ export function startUpdater(mainWindow) {
     setState({ status: "idle" });
     return;
   }
+  // Privacy cut (Janua fork): this build has no owned, signed release feed
+  // yet (see electron-builder.yml's publish block). Auto-update stays fully
+  // opt-in — deliberate, explicit, never silent — behind an env var until
+  // one exists.
+  if (process.env.MYAGENT_ENABLE_UPDATES !== "1") {
+    updaterCoordinator = null;
+    setState({ status: "idle" });
+    return;
+  }
   try {
     ({ autoUpdater } = require("./vendor/electron-updater.cjs"));
   } catch {
