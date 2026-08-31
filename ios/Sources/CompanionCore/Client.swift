@@ -588,13 +588,6 @@ public struct CompanionClient: Sendable {
         )
     }
 
-    public func agentRoleTemplates() async throws -> [AgentRoleTemplate] {
-        try await send(
-            try makeRequest("GET", "/api/agent-role-templates"),
-            as: AgentRoleTemplateList.self
-        ).templates
-    }
-
     /// Hydrate. `messages` opts into the paged shape — the newest n per
     /// thread, with screen captures reduced to a flag.
     public func fleet(messages: Int? = 50) async throws -> Fleet {

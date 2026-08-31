@@ -841,16 +841,6 @@ final class Session: ObservableObject {
         }
     }
 
-    func agentRoleTemplates() async -> [AgentRoleTemplate] {
-        guard let client else { return [] }
-        do {
-            return try await client.agentRoleTemplates()
-        } catch {
-            actionError = "The role library could not be loaded. You can still create a custom agent. \(error.localizedDescription)"
-            return []
-        }
-    }
-
     /// Make a room from the phone. Same shape as `createBot`: fold it in
     /// rather than wait for a broadcast, and hand it back so it can be opened.
     @discardableResult

@@ -525,22 +525,6 @@ public struct ConfigStatus: Codable, Sendable {
 
 // MARK: - Agent profiles, voices, routines, and notifications
 
-/// One inert operating charter offered by the harness. Choosing it copies
-/// title and description into a new profile; it carries no permissions.
-public struct AgentRoleTemplate: Codable, Equatable, Identifiable, Sendable {
-    public var id: String
-    public var name: String
-    public var title: String
-    public var summary: String
-    public var category: String
-    public var origin: String
-    public var description: String
-}
-
-public struct AgentRoleTemplateList: Codable, Sendable {
-    public var templates: [AgentRoleTemplate]
-}
-
 public struct BotProfilePatch: Encodable, Sendable {
     /// `nil` means "leave the field alone". Profile actions deliberately send
     /// only the fields they own so an avatar upload cannot overwrite identity
