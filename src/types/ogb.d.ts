@@ -86,6 +86,7 @@ type SkillRecordingPayload = {
       status: "disabled" | "checking" | "starting" | "ready" | "error" | "stopped" | "unavailable";
       reasonCode?: string;
       message?: string;
+      missingPermissions?: Array<"accessibility" | "screen">;
       driverPath?: string;
       driverVersion?: string;
       driverSource?: "bundled" | "environment" | "user-local" | "path";
@@ -141,6 +142,7 @@ type SkillRecordingPayload = {
         enable(): Promise<LinuxLocalControlStatus>;
         disable(): Promise<LinuxLocalControlStatus>;
         retry(): Promise<LinuxLocalControlStatus>;
+        requestAccessibility(): Promise<{ granted: boolean; prompted: boolean }>;
       };
       /** Arms one user-initiated display capture request from this frame. */
       beginScreenPreviewIntent(): boolean;

@@ -560,6 +560,42 @@ describe("containerComputerStatus", () => {
     expect(status.image).toBe(false);
     expect(status.problem).toContain("Prepare the Cua desktop image");
   });
+
+  it("reports a corrupt image store instead of pretending the image was never prepared", async () => {
+    const fake = runner({
+      "/usr/bin/which docker": "docker\n",
+      "/usr/bin/which podman": new Error("missing"),
+      "docker info --format {{.ServerVersion}}": "29\n",
+      [`docker image inspect ${IMAGE}`]: new Error(
+        "failed precondition: blob sha256:abc expected at /var/lib/containerd: open layer: input/output error",
+      ),
+      [`docker inspect ${CONTAINER}`]: new Error("missing container"),
+    });
+
+    const status = await containerComputerStatus(fake.run, "linux");
+
+    expect(status.image).toBe(false);
+    expect(status.image_error).toContain("storage is damaged or unreadable");
+    expect(status.problem).toContain("image store cannot be read");
+    expect(status.problem).not.toContain("Prepare the Cua desktop image");
+  });
+
+  it("distinguishes a full runtime disk from an absent container", async () => {
+    const fake = runner({
+      "/usr/bin/which docker": "docker\n",
+      "/usr/bin/which podman": new Error("missing"),
+      "docker info --format {{.ServerVersion}}": "29\n",
+      [`docker image inspect ${IMAGE}`]: preparedImageInspect(),
+      [`docker inspect ${CONTAINER}`]: new Error("open metadata.db: no space left on device"),
+    });
+
+    const status = await containerComputerStatus(fake.run, "linux");
+
+    expect(status.container).toBe("missing");
+    expect(status.container_error).toContain("host disk is full");
+    expect(status.problem).toContain("container cannot be read");
+    expect(status.problem).not.toContain("Create the Local VM");
+  });
 });
 
 describe("Cua integration", () => {
@@ -596,6 +632,8 @@ describe("Cua integration", () => {
     expect(dockerfile).toContain('test -r "$directory" && test -w "$directory" && test -x "$directory"');
     expect(dockerfile).toContain("migrate_profile google-chrome");
     expect(dockerfile).toContain("migrate_profile chromium");
+    expect(dockerfile).toContain('firefox_source="$HOME/.mozilla"');
+    expect(dockerfile).toContain('firefox_target="$profiles/firefox"');
     expect(dockerfile).toContain("SingletonLock");
     expect(dockerfile).toContain(`${IMAGE_LAYER_LABEL}="${IMAGE_LAYER_VERSION}"`);
     expect(dockerfile).toContain("did not become ready within 45 seconds");

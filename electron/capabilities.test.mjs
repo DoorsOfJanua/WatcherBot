@@ -41,6 +41,27 @@ describe("desktop capabilities", () => {
     });
   });
 
+  it("tells the macOS UI exactly which permission is missing", () => {
+    const capabilities = desktopCapabilities({
+      platform: "darwin",
+      packaged: true,
+      localConnection: {
+        mode: "unavailable",
+        status: "unavailable",
+        reasonCode: "permissions-required",
+        message: "Accessibility required",
+        missingPermissions: ["accessibility"],
+      },
+    });
+
+    expect(capabilities.localComputer).toMatchObject({
+      available: false,
+      reasonCode: "permissions-required",
+      message: "Accessibility required",
+      missingPermissions: ["accessibility"],
+    });
+  });
+
   it.each(["win32", "freebsd"])("fails closed on %s", (platform) => {
     const capabilities = desktopCapabilities({
       platform,
