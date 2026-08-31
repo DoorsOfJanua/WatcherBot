@@ -1590,6 +1590,12 @@ bus.subscribe((event: RuntimeEvent) => {
         // just that something ended
         lastReply.set(event.threadId, event.text);
       } else if (event.itemType === "tool" && event.itemId) {
+        // Pixels returned by an MCP tool use the same durable screen message
+        // as computer frames, so desktop and companion clients already know
+        // how to render and lazily fetch them.
+        for (const image of event.images ?? []) {
+          pushMessage({ role: "bot", kind: "screen", png: image.data, mime: image.mime });
+        }
         const itemKey = `${event.threadId}:${event.itemId}`;
         const messageId = toolMessageByItem.get(itemKey);
         let toolName = "tool";

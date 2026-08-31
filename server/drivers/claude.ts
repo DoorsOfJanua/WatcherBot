@@ -413,6 +413,28 @@ function decodeConfig(raw: unknown): ClaudeConfig {
   };
 }
 
+/** A useful batch may return several render previews, but base64 frames are
+ * expensive in the message store. Cap a single tool result before emitting. */
+const MAX_TOOL_IMAGES = 8;
+
+function toolResultImages(content: unknown): Array<{ data: string; mime: string }> | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const images: Array<{ data: string; mime: string }> = [];
+  for (const block of content) {
+    if (images.length >= MAX_TOOL_IMAGES) break;
+    if (block?.type !== "image") continue;
+    const source = block.source;
+    if (source?.type !== "base64" || typeof source.data !== "string" || !source.data) continue;
+    images.push({
+      data: source.data,
+      mime: typeof source.media_type === "string" ? source.media_type : "image/png",
+    });
+  }
+  return images.length ? images : undefined;
+}
+
+export const __testing = { toolResultImages, MAX_TOOL_IMAGES };
+
 function firstText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -863,7 +885,14 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           case "user":
             for (const b of Array.isArray(o.message?.content) ? o.message.content : []) {
               if (b.type === "tool_result") {
-                emit({ ...base(threadId, currentTurnId()), type: "item.completed", itemType: "tool", itemId: b.tool_use_id, ok: !b.is_error });
+                emit({
+                  ...base(threadId, currentTurnId()),
+                  type: "item.completed",
+                  itemType: "tool",
+                  itemId: b.tool_use_id,
+                  ok: !b.is_error,
+                  images: toolResultImages(b.content),
+                });
               }
             }
             break;

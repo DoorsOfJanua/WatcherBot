@@ -108,7 +108,13 @@ export type RuntimeEvent = RuntimeEventBase &
       }
     | { type: "item.started"; itemType: "tool" | "reasoning"; title?: string }
     | { type: "item.updated"; itemType: "tool" | "reasoning"; tokens?: number | null }
-    | { type: "item.completed"; itemType: "tool"; ok: boolean }
+    | {
+        type: "item.completed";
+        itemType: "tool";
+        ok: boolean;
+        /** Base64 pixels returned by the tool, in provider order. Usually absent. */
+        images?: Array<{ data: string; mime: string }>;
+      }
     | { type: "item.completed"; itemType: "assistant_text"; text: string }
     | { type: "content.delta"; streamKind: "assistant_text" | "reasoning_text"; delta: string }
     | {
