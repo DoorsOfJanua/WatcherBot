@@ -105,7 +105,10 @@ until the final gate passes and Janua approves the swap.
   - **Gate**: a disposition table in docs/ listing EVERY commit 89d25dd..ab098c0 and EVERY
     file of the checkpoint diff with its fate (ported <commit> / superseded by <upstream ref> /
     dropped with reason). No item may be silently absent; P10 cannot start without this table.
-- **P9 Data compatibility gate**: run the rebuilt app against CLONED data:
+- **P9 Data compatibility gate** (TRAP found at P8 gate 2026-08-31: AgentPacks provision.mjs
+  expands ~/ paths itself and wrote skills into the LIVE ~/.myagent-room even with the server
+  isolated — content was identical so no harm, but every provision run during P9/P10 testing
+  must use a HOME override, not just MYAGENT_ROOM_DATA_DIR): run the rebuilt app against CLONED data:
   `MYAGENT_ROOM_DATA_DIR=~/.myagent-room-backup-2026-08-30` + isolated userData.
   Verify: rooms, bots, threads, workspaces, memory files all load; no schema errors in logs.
   NEVER point the rebuild at the live data dir before this gate is green.
