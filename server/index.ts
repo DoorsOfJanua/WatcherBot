@@ -208,6 +208,7 @@ import {
 import { createGracefulShutdown } from "./graceful-shutdown.ts";
 import { recordSharedMemoryTurn, sharedMemoryForTurn } from "./shared-agent-memory.ts";
 import { recordWritingStyleEdit, writingStyleSystemPrompt } from "./writing-style.ts";
+import { addDelightEmoticon } from "./reply-delight.ts";
 
 const PORT = Number(process.env.OMB_PORT || process.env.OGB_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.OMB_WEBHOOK_PORT || PORT + 1);
@@ -1553,7 +1554,16 @@ bus.subscribe((event: RuntimeEvent) => {
   const speaker = group ? groupSpeakers.get(event.threadId) : undefined;
 
   const pushMessage = (m: Omit<Message, "id" | "at">) => {
-    const message = store.appendMessage(event.threadId, group && m.role === "bot" ? { ...m, from: speaker } : m);
+    const latestUser = [...store.messagesFor(event.threadId)]
+      .reverse()
+      .find((message) => message.role === "user" && message.kind === "text")?.text ?? "";
+    const prepared = m.role === "bot" && m.kind === "text" && m.text
+      ? { ...m, text: addDelightEmoticon(m.text, latestUser) }
+      : m;
+    const message = store.appendMessage(
+      event.threadId,
+      group && prepared.role === "bot" ? { ...prepared, from: speaker } : prepared,
+    );
     return message;
   };
 
@@ -2427,6 +2437,7 @@ async function startTurn(
     `You are ${bot.name}, a personal bot in WatcherBot Room, Janua's private agent workspace.`,
     bot.title && `Role: ${bot.title}.`,
     bot.description && `About: ${bot.description}`,
+    "Before substantial work, begin with one brief acknowledgement (no more than 12 words) that shows you understood the request or noticed something useful. Then continue with the work in the same turn. Skip this for simple conversational replies or very short answers. Never claim an action is complete before doing it.",
   ]
     .filter(Boolean)
     .join(" ");
@@ -3397,6 +3408,7 @@ async function runGroupMemberTurn(
     `Room members: ${roster}, and ${userName} (the human).`,
     group.bulletin.trim() && `Room bulletin (shared instructions for everyone):\n${group.bulletin.trim()}`,
     `Reply as yourself, briefly and conversationally. To bring a teammate in, mention them like @Name — they'll see the conversation and respond.`,
+    "Before substantial work, begin with one brief acknowledgement (no more than 12 words) that shows you understood the request or noticed something useful. Then continue with the work in the same turn. Skip this for simple conversational replies or very short answers. Never claim an action is complete before doing it.",
     integrations.agents &&
       "If a supported API key is missing, use request_credential to show the secure in-app card. Never ask the user to paste credentials into chat.",
     integrations.agents &&
