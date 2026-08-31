@@ -42,6 +42,8 @@ let routinesResponse: unknown = {
 };
 let lastRoutineRequestBody: any = null;
 let lastMailDraftBody: any = null;
+let lastAutonomyPath = "";
+let lastAutonomyBody: any = null;
 
 let child: ChildProcess;
 const pending = new Map<number, (msg: any) => void>();
@@ -135,6 +137,30 @@ beforeAll(async () => {
       });
       return;
     }
+    if (req.method === "GET" && req.url?.startsWith("/api/internal/monitors")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ monitors: [{ id: "monitor-1", name: "Front page", status: "active" }] }));
+    }
+    if (req.method === "GET" && req.url?.startsWith("/api/internal/missions")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ missions: [{ id: "mission-1", title: "Finish Volume 1", status: "draft" }] }));
+    }
+    if (req.method === "POST" && req.url && /^\/api\/internal\/(monitors|missions)(?:\/[^/]+\/[^/]+)?$/.test(req.url)) {
+      let data = "";
+      req.on("data", (c) => (data += c));
+      req.on("end", () => {
+        lastAutonomyPath = req.url ?? "";
+        lastAutonomyBody = data ? JSON.parse(data) : {};
+        const isMonitor = req.url?.includes("/monitors");
+        const id = isMonitor ? "monitor-new" : "mission-new";
+        const name = isMonitor ? lastAutonomyBody.name : lastAutonomyBody.title;
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(isMonitor
+          ? { name, monitor: { id, name } }
+          : { name, mission: { id, title: name } }));
+      });
+      return;
+    }
     if (req.method === "POST" && req.url === "/api/internal/mail-drafts") {
       let data = "";
       req.on("data", (c) => (data += c));
@@ -190,6 +216,17 @@ describe("agents-proxy MCP surface", () => {
     const list = await rpc("tools/list");
     expect(list.result.tools.map((t: { name: string }) => t.name)).toEqual([
       "list_bots",
+      "list_monitors",
+      "create_monitor",
+      "pause_monitor",
+      "resume_monitor",
+      "archive_monitor",
+      "list_missions",
+      "create_mission",
+      "start_mission",
+      "pause_mission",
+      "resume_mission",
+      "cancel_mission",
       "ask_bot",
       "delegate_bot",
       "check_delegation",
@@ -255,6 +292,43 @@ describe("agents-proxy MCP surface", () => {
     expect(text).toContain("Helper");
     expect(text).toContain("bot-helper");
     expect(lastAuth).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it("creates a webpage monitor with caller-owned provenance", async () => {
+    const created = await callTool("create_monitor", {
+      name: "Front page",
+      source_kind: "webpage",
+      target: "https://example.test/news",
+      interval_minutes: 30,
+      botId: "bot-evil",
+    });
+    expect(created.result.content[0].text).toContain("monitor created");
+    expect(lastAutonomyPath).toBe("/api/internal/monitors");
+    expect(lastAutonomyBody).toMatchObject({
+      botId: "bot-asker",
+      threadId: "thread-asker-routine",
+      name: "Front page",
+      target: "https://example.test/news",
+      intervalMinutes: 30,
+    });
+  });
+
+  it("creates and controls a mission only as the calling bot", async () => {
+    const created = await callTool("create_mission", {
+      name: "Finish Volume 1",
+      objective: "Inventory the sources, resolve blockers, and begin safe work.",
+      botId: "bot-evil",
+    });
+    expect(created.result.content[0].text).toContain("mission created");
+    expect(lastAutonomyBody).toMatchObject({
+      botId: "bot-asker",
+      threadId: "thread-asker-routine",
+      title: "Finish Volume 1",
+    });
+    const started = await callTool("start_mission", { mission_id: "mission-1" });
+    expect(started.result.content[0].text).toContain("started");
+    expect(lastAutonomyPath).toBe("/api/internal/missions/mission-1/start");
+    expect(lastAutonomyBody).toEqual({ botId: "bot-asker", threadId: "thread-asker-routine" });
   });
 
   it("ask_bot forwards sender + depth and returns the reply", async () => {

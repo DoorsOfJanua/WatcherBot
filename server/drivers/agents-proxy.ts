@@ -36,7 +36,18 @@ const TOKEN = process.env.OMB_COMMS_TOKEN ?? "";
 const DEPTH = Number(process.env.OMB_TURN_DEPTH ?? "0") || 0;
 const CAN_STAGE_EMAIL = process.env.OMB_CAN_STAGE_EMAIL === "1";
 const MAX_CREATED_PER_TURN = 4;
+const MAX_RESOURCE_NAME = 160;
+const MAX_RESOURCE_TEXT = 4_000;
+const MAX_RESOURCE_ID = 200;
 let createdThisTurn = 0;
+
+const bounded = (value: unknown, max: number) => typeof value === "string" ? value.trim().slice(0, max) : "";
+const ownBody = (args: Json = {}): Json => ({ ...args, botId: BOT_ID, threadId: THREAD_ID });
+const resourceTool = (name: string, description: string, properties: Json, required: string[] = []) => ({
+  name,
+  description,
+  inputSchema: { type: "object", properties, required },
+});
 
 const WEEKDAYS = [
   "monday",
@@ -190,6 +201,26 @@ const TOOLS = [
       "List the other bots (agents) in your WatcherBot Room section you can message, with their model and whether they're busy. Call this before ask_bot to discover who's available.",
     inputSchema: { type: "object", properties: {} },
   },
+  resourceTool("list_monitors", "List webpage monitors owned by this bot.", {}),
+  resourceTool("create_monitor", "Create a restart-safe webpage monitor owned by this bot. Its first check establishes a quiet baseline; later meaningful changes wake the bot.", {
+    name: { type: "string", maxLength: MAX_RESOURCE_NAME },
+    description: { type: "string", maxLength: MAX_RESOURCE_TEXT },
+    source_kind: { type: "string", enum: ["webpage"] },
+    target: { type: "string", maxLength: 2_048 },
+    interval_minutes: { type: "integer", minimum: 5, maximum: 43_200 },
+  }, ["name", "source_kind", "target"]),
+  resourceTool("pause_monitor", "Pause one of this bot's monitors.", { monitor_id: { type: "string", maxLength: MAX_RESOURCE_ID } }, ["monitor_id"]),
+  resourceTool("resume_monitor", "Resume one of this bot's monitors.", { monitor_id: { type: "string", maxLength: MAX_RESOURCE_ID } }, ["monitor_id"]),
+  resourceTool("archive_monitor", "Archive one of this bot's monitors.", { monitor_id: { type: "string", maxLength: MAX_RESOURCE_ID } }, ["monitor_id"]),
+  resourceTool("list_missions", "List missions led by this bot.", {}),
+  resourceTool("create_mission", "Create a bounded mission led by this bot.", {
+    name: { type: "string", maxLength: MAX_RESOURCE_NAME },
+    objective: { type: "string", maxLength: MAX_RESOURCE_TEXT },
+  }, ["name", "objective"]),
+  resourceTool("start_mission", "Start one of this bot's missions.", { mission_id: { type: "string", maxLength: MAX_RESOURCE_ID } }, ["mission_id"]),
+  resourceTool("pause_mission", "Pause one of this bot's missions.", { mission_id: { type: "string", maxLength: MAX_RESOURCE_ID } }, ["mission_id"]),
+  resourceTool("resume_mission", "Resume one of this bot's missions.", { mission_id: { type: "string", maxLength: MAX_RESOURCE_ID } }, ["mission_id"]),
+  resourceTool("cancel_mission", "Cancel one of this bot's missions.", { mission_id: { type: "string", maxLength: MAX_RESOURCE_ID } }, ["mission_id"]),
   {
     name: "ask_bot",
     description:
@@ -471,6 +502,62 @@ async function callTool(name: string, args: Json): Promise<{ text: string; isErr
       return { text: `Task ${taskId} is running with ${who}${waitMs ? ` (still going after ${timeout}s)` : ""}. Check again shortly.` };
     }
     return { text: `Task ${taskId} ended without a reply — ${String(r.status ?? "unknown")}${r.result ? `: ${String(r.result)}` : ""}.`, isError: true };
+  }
+  if (name === "list_monitors" || name === "list_missions") {
+    const kind = name.slice(5);
+    const query = new URLSearchParams({ botId: BOT_ID, threadId: THREAD_ID });
+    const r = await api(`/api/internal/${kind}?${query.toString()}`);
+    const items = Array.isArray(r[kind]) ? r[kind] as Json[] : [];
+    if (!items.length) return { text: `No ${kind} owned by this agent.` };
+    return {
+      text: `${kind[0].toUpperCase() + kind.slice(1)}:\n${items.map((item) =>
+        `- ${bounded(item.name ?? item.title ?? item.id, MAX_RESOURCE_NAME)} [id: ${bounded(item.id, MAX_RESOURCE_ID)}, ${bounded(item.status, 40) || (item.enabled === false ? "paused" : "active")}]`,
+      ).join("\n")}`,
+    };
+  }
+  const monitorAction: Record<string, string> = { pause_monitor: "pause", resume_monitor: "resume", archive_monitor: "archive" };
+  const missionAction: Record<string, string> = { start_mission: "start", pause_mission: "pause", resume_mission: "resume", cancel_mission: "cancel" };
+  const resourceAction = monitorAction[name] ?? missionAction[name];
+  if (resourceAction) {
+    const kind = monitorAction[name] ? "monitors" : "missions";
+    const key = kind === "monitors" ? "monitor_id" : "mission_id";
+    const id = bounded(args[key], MAX_RESOURCE_ID);
+    if (!id) return { text: `${name} needs ${key}.`, isError: true };
+    const r = await api(`/api/internal/${kind}/${encodeURIComponent(id)}/${resourceAction}`, {
+      method: "POST",
+      body: JSON.stringify(ownBody()),
+    });
+    const past = resourceAction === "start" ? "started" : resourceAction === "archive" ? "archived" : resourceAction === "pause" ? "paused" : resourceAction === "cancel" ? "cancelled" : "resumed";
+    return { text: `${kind.slice(0, -1)} ${bounded(r.name ?? id, MAX_RESOURCE_NAME)} ${past}.` };
+  }
+  if (name === "create_monitor") {
+    const monitorName = bounded(args.name, MAX_RESOURCE_NAME);
+    const target = bounded(args.target, 2_048);
+    if (!monitorName || bounded(args.source_kind, 40) !== "webpage" || !/^https?:\/\//i.test(target)) {
+      return { text: "create_monitor needs a name, source_kind webpage, and a full HTTP(S) target.", isError: true };
+    }
+    const r = await api("/api/internal/monitors", {
+      method: "POST",
+      body: JSON.stringify(ownBody({
+        name: monitorName,
+        description: bounded(args.description, MAX_RESOURCE_TEXT),
+        target,
+        intervalMinutes: args.interval_minutes == null ? 60 : Number(args.interval_minutes),
+      })),
+    });
+    const monitor = (r.monitor ?? r) as Json;
+    return { text: `monitor created: ${bounded(monitor.name ?? monitor.id, MAX_RESOURCE_NAME)} [id: ${bounded(monitor.id, MAX_RESOURCE_ID)}].` };
+  }
+  if (name === "create_mission") {
+    const title = bounded(args.name, MAX_RESOURCE_NAME);
+    const objective = bounded(args.objective, MAX_RESOURCE_TEXT);
+    if (!title || !objective) return { text: "create_mission needs name and objective.", isError: true };
+    const r = await api("/api/internal/missions", {
+      method: "POST",
+      body: JSON.stringify(ownBody({ title, objective })),
+    });
+    const mission = (r.mission ?? r) as Json;
+    return { text: `mission created: ${bounded(mission.title ?? mission.id, MAX_RESOURCE_NAME)} [id: ${bounded(mission.id, MAX_RESOURCE_ID)}].` };
   }
   if (name === "create_bot") {
     const botName = String(args.name ?? "").trim();

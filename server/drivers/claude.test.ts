@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ensureDirs } from "../config.ts";
 import type { ProviderInstance } from "../contracts.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
-import { ClaudeDriver, permissionSocketPath, type ClaudeConfig } from "./claude.ts";
+import { askPolicySummary, askSummary, ClaudeDriver, permissionSocketPath, type ClaudeConfig } from "./claude.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-claude-cli.ts");
@@ -24,6 +24,16 @@ const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", 
 /** Thread ids for the four ask-id-collision tests. Each must truncate to a
  * unique 8-char tag so no two tests share a broker socket/pipe name. */
 const COLLISION_THREAD_IDS = ["t-dup-1", "t-dup-2", "t-dup-3", "t-dup-4"];
+
+describe("permission summaries", () => {
+  it("keeps the full command for policy while the visible subtitle stays compact", () => {
+    const command = `ls -la ${"very-long-folder/".repeat(20)}; rm should-not-be-hidden`;
+    const ask = { id: "approval-policy", kind: "permission" as const, tool: "Bash", input: { command }, at: Date.now() };
+    expect(askSummary(ask).length).toBe(200);
+    expect(askPolicySummary(ask)).toBe(command);
+    expect(askPolicySummary(ask)).toContain("rm should-not-be-hidden");
+  });
+});
 
 /** Connect to a broker socket and resolve once the connection is live. */
 function connectSocket(path: string): Promise<Socket> {
@@ -352,6 +362,10 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(JSON.stringify(seen.argv)).not.toContain("tok");
     const allowed = seen.argv[seen.argv.indexOf("--allowedTools") + 1];
     expect(allowed).toContain("mcp__agents");
+    const disallowed = seen.argv[seen.argv.indexOf("--disallowedTools") + 1];
+    expect(disallowed).toContain("CronCreate");
+    expect(disallowed).toContain("CronList");
+    expect(disallowed).toContain("CronDelete");
   });
 
   it("passes normalized available and denied built-in tool sets to Claude", async () => {
@@ -367,7 +381,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
 
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.argv[seen.argv.indexOf("--tools") + 1]).toBe("Read,WebFetch");
-    expect(seen.argv[seen.argv.indexOf("--disallowedTools") + 1]).toBe("Bash(git *),Edit");
+    expect(seen.argv[seen.argv.indexOf("--disallowedTools") + 1]).toBe("Bash(git *),Edit,CronCreate,CronList,CronDelete");
   });
 
   it("passes an explicit empty available set to disable every Claude built-in", async () => {
@@ -380,7 +394,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
 
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.argv[seen.argv.indexOf("--tools") + 1]).toBe("");
-    expect(seen.argv).not.toContain("--disallowedTools");
+    expect(seen.argv[seen.argv.indexOf("--disallowedTools") + 1]).toBe("CronCreate,CronList,CronDelete");
   });
 
   it("mounts the dweb proxy from the drivers directory and pre-allows its tools", async () => {

@@ -220,13 +220,21 @@ function systemEndedReply(kind: Ask["kind"]): { behavior: AskBehavior; message: 
 }
 
 /** One human-readable line for an ask — what the card subtitle shows. */
-function askSummary(ask: Ask): string {
+export function askSummary(ask: Ask): string {
   const input = ask.input ?? {};
   if (typeof input.question === "string") return input.question.slice(0, 300);
   if (typeof input.command === "string") return input.command.slice(0, 200);
   if (typeof input.url === "string") return input.url.slice(0, 200);
   const text = JSON.stringify(input);
   return text === "{}" ? (ask.tool ?? "tool") : text.slice(0, 200);
+}
+
+/** Policy needs the complete command: truncating visible text can cut inside
+ * a quote or hide a later write. Keep this separate and bounded. */
+export function askPolicySummary(ask: Ask): string {
+  const input = ask.input ?? {};
+  if (typeof input.command === "string") return input.command.slice(0, 12_000);
+  return askSummary(ask);
 }
 
 export function permissionSocketPath(threadId: string) {
@@ -598,9 +606,17 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         "--permission-mode", config.permissionMode === "auto" ? "acceptEdits" : config.permissionMode,
       ];
       if (config.tools !== undefined) args.push("--tools", config.tools.join(","));
-      if (config.disallowedTools?.length) {
-        args.push("--disallowedTools", config.disallowedTools.join(","));
-      }
+      // Claude's native Cron jobs live only inside its provider session and
+      // flush late when another chat turn wakes it. Durable scheduling belongs
+      // to WatcherBot routines, so these remain unavailable regardless of an
+      // instance's additional disallowed-tool policy.
+      const disallowedTools = [...new Set([
+        ...(config.disallowedTools ?? []),
+        "CronCreate",
+        "CronList",
+        "CronDelete",
+      ])];
+      args.push("--disallowedTools", disallowedTools.join(","));
       const turnEnvironment: NodeJS.ProcessEnv = { ...process.env, ...input.environment };
       const turnModel = await resolveClaudeTurnModel(turn.model, turnEnvironment);
       const injected = applyClaudeInject({ ...turnEnvironment }, turnModel);
@@ -745,6 +761,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               requestType: ask.kind,
               tool: ask.tool,
               summary: askSummary(ask),
+              policySummary: askPolicySummary(ask),
               approvalScope:
                 typeof ask.tool === "string" && controlsHost && ask.tool.startsWith("mcp__computer")
                   ? "local-computer"

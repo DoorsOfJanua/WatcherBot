@@ -4472,6 +4472,96 @@ const server = createServer(async (req, res) => {
           }));
         return json(res, 200, { bots });
       }
+      if (method === "GET" && path === "/api/internal/monitors") {
+        const botId = String(url.searchParams.get("botId") ?? "");
+        const threadId = String(url.searchParams.get("threadId") ?? "");
+        if (!store.bot(botId) || !connectorThread(botId, threadId)) return json(res, 403, { error: "unknown monitor owner" });
+        const monitors = routines!.listRoutines()
+          .filter((routine) => routine.botId === botId && routine.precheck?.kind === "monitor")
+          .map((routine) => ({ ...routine, status: routine.enabled ? "active" : "paused" }));
+        return json(res, 200, { monitors });
+      }
+      if (method === "POST" && path === "/api/internal/monitors") {
+        const body = await readBody(req);
+        const botId = String(body.botId ?? "");
+        const threadId = String(body.threadId ?? "");
+        if (!store.bot(botId) || !connectorThread(botId, threadId)) return json(res, 403, { error: "unknown monitor owner" });
+        const target = String(body.target ?? "").trim();
+        if (!/^https?:\/\//i.test(target)) return json(res, 400, { error: "A webpage monitor needs an HTTP(S) target" });
+        try {
+          const intervalMinutes = Math.min(43_200, Math.max(5, Math.trunc(Number(body.intervalMinutes) || 60)));
+          const monitor = routines!.create({
+            name: String(body.name ?? ""),
+            prompt: String(body.description ?? "").trim() || `Review ${target} and report the meaningful change.`,
+            botId,
+            schedule: { type: "interval", everyMinutes: intervalMinutes, weekdays: [0, 1, 2, 3, 4, 5, 6] },
+            precheck: { kind: "monitor", source: { kind: "http", url: target } },
+          });
+          return json(res, 201, { monitor: { ...monitor, status: "active" } });
+        } catch (error) {
+          return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      const internalMonitorAction = path.match(/^\/api\/internal\/monitors\/([\w-]+)\/(pause|resume|archive)$/);
+      if (internalMonitorAction && method === "POST") {
+        const body = await readBody(req);
+        const botId = String(body.botId ?? "");
+        const threadId = String(body.threadId ?? "");
+        if (!store.bot(botId) || !connectorThread(botId, threadId)) return json(res, 403, { error: "unknown monitor owner" });
+        const current = routines!.listRoutines().find((routine) =>
+          routine.id === internalMonitorAction[1] && routine.botId === botId && routine.precheck?.kind === "monitor"
+        );
+        if (!current) return json(res, 404, { error: "monitor not found" });
+        if (internalMonitorAction[2] === "archive") {
+          routines!.remove(current.id);
+          return json(res, 200, { name: current.name });
+        }
+        const monitor = routines!.update(current.id, { enabled: internalMonitorAction[2] === "resume" });
+        return json(res, 200, { name: monitor?.name ?? current.name, monitor });
+      }
+      if (method === "GET" && path === "/api/internal/missions") {
+        const botId = String(url.searchParams.get("botId") ?? "");
+        const threadId = String(url.searchParams.get("threadId") ?? "");
+        if (!store.bot(botId) || !connectorThread(botId, threadId)) return json(res, 403, { error: "unknown mission owner" });
+        return json(res, 200, { missions: missions.list().filter((mission) => mission.leadAgentId === botId) });
+      }
+      if (method === "POST" && path === "/api/internal/missions") {
+        const body = await readBody(req);
+        const botId = String(body.botId ?? "");
+        const threadId = String(body.threadId ?? "");
+        if (!store.bot(botId) || !connectorThread(botId, threadId)) return json(res, 403, { error: "unknown mission owner" });
+        try {
+          const mission = missions.create({
+            title: String(body.title ?? ""),
+            objective: String(body.objective ?? ""),
+            leadAgentId: botId,
+            ownerThreadId: threadId,
+          });
+          return json(res, 201, { mission });
+        } catch (error) {
+          return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      const internalMissionAction = path.match(/^\/api\/internal\/missions\/([\w-]+)\/(start|pause|resume|cancel)$/);
+      if (internalMissionAction && method === "POST") {
+        const body = await readBody(req);
+        const botId = String(body.botId ?? "");
+        const threadId = String(body.threadId ?? "");
+        if (!store.bot(botId) || !connectorThread(botId, threadId)) return json(res, 403, { error: "unknown mission owner" });
+        const current = missions.get(internalMissionAction[1]);
+        if (!current || current.leadAgentId !== botId) return json(res, 404, { error: "mission not found" });
+        try {
+          const action = internalMissionAction[2];
+          const mission = action === "start" ? missions.start(current.id)
+            : action === "pause" ? missions.pause(current.id)
+              : action === "resume" ? missions.resume(current.id)
+                : missions.cancel(current.id);
+          if (action === "start" || action === "resume") queueMicrotask(kickMissionDispatcher);
+          return json(res, 200, { name: mission.title, mission });
+        } catch (error) {
+          return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        }
+      }
       if (method === "GET" && path === "/api/internal/routines") {
         const fromBotId = String(url.searchParams.get("fromBotId") ?? "");
         const from = store.bot(fromBotId);
