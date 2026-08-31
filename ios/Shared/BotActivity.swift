@@ -31,6 +31,11 @@ struct BotActivityAttributes: ActivityAttributes {
     var name: String
     /// MausPalette colour name.
     var color: String
+    /// Optional authored living-spirit identity and bounded art direction.
+    var spirit: String?
+    var spiritPalette: String?
+    var spiritGeometry: String?
+    var spiritTemperament: String?
 }
 
 /// Answer from the island or the lock screen. A `LiveActivityIntent` runs in

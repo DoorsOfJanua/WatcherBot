@@ -504,7 +504,7 @@ struct UpdatesPill: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 if !updates.isEmpty {
-                    MascotStack(colors: Array(updates.prefix(3).map(\.chat.color)))
+                    SpiritStack(chats: Array(updates.prefix(3).map(\.chat)))
                 }
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 4) {
@@ -556,16 +556,17 @@ struct UpdatesPill: View {
     }
 }
 
-/// Up to three mascots overlapping, the way a group of faces reads at a glance.
-struct MascotStack: View {
-    let colors: [String]
+/// Up to three agents overlapping, each with the living spirit selected in
+/// their profile.
+struct SpiritStack: View {
+    let chats: [Chat]
     var size: CGFloat = 28
     var overlap: CGFloat = 12
 
     var body: some View {
         HStack(spacing: -overlap) {
-            ForEach(Array(colors.enumerated()), id: \.offset) { _, color in
-                MausAvatar(color: color, size: size, state: .idle, animated: false)
+            ForEach(chats) { chat in
+                ChatAvatarView(chat: chat, size: size, state: .working, animated: true)
                     .padding(2)
                     .background(Circle().fill(Color(uiColor: .systemBackground)))
             }

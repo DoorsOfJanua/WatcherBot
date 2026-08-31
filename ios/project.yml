@@ -116,6 +116,10 @@ targets:
       - path: Shared
       - path: App/MausAvatar.swift
       - path: App/MausFaceData.swift
+      - path: App/SpiritAvatar.swift
+    dependencies:
+      - package: CompanionCore
+        product: CompanionCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.doorsofjanua.agentroom.widgets
