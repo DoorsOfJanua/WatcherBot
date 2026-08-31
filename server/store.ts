@@ -396,6 +396,10 @@ export interface BotRecord {
    * working instead of stopping to ask. Questions it asks YOU still come
    * through, and a short list of destructive commands still stops it. */
   autoApprove?: boolean;
+  /** Auto mode may be limited to clearly read-only requests. */
+  autoApproveReadsOnly?: boolean;
+  /** Clearly read-only non-shell requests approve themselves by policy unless false. */
+  silentReads?: boolean;
   /** Optional model review of otherwise undecided, attended approval cards.
    * Unknown persisted values are treated as off by the review boundary. */
   autoReview?: "off" | "shadow" | "enforce";

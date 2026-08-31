@@ -240,6 +240,10 @@ export interface Bot {
   cwd?: string;
   /** auto mode: the bot approves its own tool permissions */
   autoApprove?: boolean;
+  /** optional narrower auto mode that permits only classified reads */
+  autoApproveReadsOnly?: boolean;
+  /** clearly read-only non-shell requests self-approve unless false */
+  silentReads?: boolean;
   /** optional model review for otherwise undecided, attended approvals */
   autoReview?: "off" | "shadow" | "enforce";
   /** tools this bot may always use without asking */

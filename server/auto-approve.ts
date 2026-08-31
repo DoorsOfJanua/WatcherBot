@@ -20,6 +20,23 @@ const DESTRUCTIVE = [
   /\bsudo\s+rm\b|\bchmod\s+-R\s+777\s+\//i,
 ];
 
+// Actions that leave the machine toward other people or money, or destroy a
+// record someone would miss. Full Auto keeps ordinary work moving but cards
+// these social/financial/destructive edges unless the exact key was explicitly
+// always-allowed by the user.
+const OUTWARD = [
+  /\b(send(s|ing)?|sent|repl(y|ies|ied|ying)|forward(s|ed|ing)?|respond(s|ed|ing)?)\b/i,
+  /\b(post(s|ed|ing)?|publish(es|ed|ing)?|tweet(s|ed|ing)?|broadcast(s|ed|ing)?|shar(e|es|ed|ing))\b/i,
+  /\b(pay(s|ing)?|paid|payment|purchas(e|es|ed|ing)|buy(s|ing)?|bought|subscrib(e|es|ed|ing)|transfer(s|red|ring)?|withdraw(s|ing|n)?|withdrew|checkout|donat(e|es|ed|ing)|mail(s|ed|ing)?|email(s|ed|ing)?)\b/i,
+  /\b(delet(e|es|ed|ing)|trash(es|ed)?|destroy(s|ed|ing)?|eras(e|es|ed|ing)|wip(e|es|ed|ing)|drop(s|ped|ping)?)\b/i,
+  /(^|[\s;&|(])(rm|rmdir|unlink|shred)\s/,
+  /\bfind\b[^|;&]*\s-delete\b/,
+];
+
+function asWords(text: string): string {
+  return text.replace(/_/g, " ");
+}
+
 // Not destructive, but exactly what you don't hand over unattended: a
 // bot reading your keys is quiet, permanent, and unrecoverable.
 const SENSITIVE = [
@@ -47,6 +64,73 @@ export function looksDestructive(text: string): boolean {
   return matchFirst(DESTRUCTIVE, text) !== null;
 }
 
+export function looksOutward(text: string): boolean {
+  return matchFirst(OUTWARD, asWords(text)) !== null;
+}
+
+const READ_INTENT = /\b(read|list|get|fetch|find|search|query|inspect|check|view|retrieve|look\s*up|summari[sz]e|describe|status|show)\b/i;
+const WRITE_INTENT = /\b(send|create|add|update|edit|delete|remove|write|publish|post|move|rename|append|insert|clear|modify|change|schedule|cancel|invite|upload|commit|push|approve|pay|purchase)\b/i;
+
+const READ_PROGRAMS = new Set([
+  "ls", "cat", "head", "tail", "wc", "pwd", "date", "which", "file", "stat",
+  "du", "df", "ps", "lsof", "echo", "printf", "grep", "egrep", "fgrep", "rg",
+  "find", "sort", "uniq", "cut", "tr", "diff", "shasum", "md5", "basename",
+  "dirname", "uname", "whoami", "hostname", "uptime", "sw_vers", "true", "test",
+  "[", "cd", "type", "column", "jq", "strings", "readlink", "realpath", "sleep", "wait",
+]);
+const READ_PROGRAM_ESCAPES: Record<string, RegExp> = {
+  find: /\s-(delete|exec|execdir|ok|okdir|fprint\S*)\b/,
+  sort: /\s(-o|--output)\b/,
+};
+const READ_GIT = new Set([
+  "status", "log", "diff", "show", "shortlog", "blame", "ls-files", "rev-parse", "rev-list", "describe", "grep",
+]);
+const WRAPPER_WORDS = new Set(["do", "then", "time", "!", "{", "}", "while", "until", "if", "elif"]);
+const CONTROL_SEGMENTS = new Set(["for", "case", "done", "fi", "esac", "else", "in"]);
+
+/** Fail-closed program-level classifier for shell reads. English verb matching
+ * cannot tell `ps` from `npm install`, nor a grep for the word "send" from a
+ * send operation, so every executable segment has to be a known read shape. */
+export function isReadOnlyShellCommand(command: string): boolean {
+  if (!command.trim() || /\bsudo\b/.test(command) || /\s-delete\b/.test(command)) return false;
+  const withoutSafeRedirects = command
+    .replace(/\d?>&\d/g, " ")
+    .replace(/\d?>>?\s*\/dev\/null/g, " ");
+  if (/>/.test(withoutSafeRedirects)) return false;
+  if (/curl[^\n;|&]*(\$\(|`)/.test(command)) return false;
+  const flattened = command.replace(/\$\(/g, "; ").replace(/<\(/g, "; ").replace(/`/g, "; ");
+  for (const segment of flattened.split(/\|\||&&|;|\||\n/)) {
+    let words = segment.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) continue;
+    while (
+      words.length &&
+      (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0]) || WRAPPER_WORDS.has(words[0].replace(/^\(+/, "")))
+    ) {
+      words = words.slice(1);
+    }
+    if (!words.length) continue;
+    const first = words[0].replace(/^\(+/, "");
+    if (CONTROL_SEGMENTS.has(first)) continue;
+    const program = first.split("/").pop() ?? "";
+    if (program === "git") {
+      if (!words[1] || !READ_GIT.has(words[1])) return false;
+      continue;
+    }
+    if (program === "curl") {
+      if (/\s(-X|--request|-d|--data\S*|-F|--form|-T|--upload-file|-o|-O|--output|--remote-name)\b/.test(` ${words.join(" ")}`)) return false;
+      continue;
+    }
+    if (program === "sed") {
+      if (words.some((word) => /^-i/.test(word))) return false;
+      continue;
+    }
+    if (!READ_PROGRAMS.has(program)) return false;
+    const escape = READ_PROGRAM_ESCAPES[program];
+    if (escape?.test(` ${words.join(" ")}`)) return false;
+  }
+  return true;
+}
+
 /** The key an "Always allow" remembers.
  *
  * A bare tool name is far too coarse for a command runner: remembering
@@ -57,6 +141,19 @@ export function looksDestructive(text: string): boolean {
  * actually looked at. Computed once, server-side, and echoed back by the
  * client so the two sides can never disagree about what was granted. */
 const COMMAND_TOOLS = new Set(["bash", "shell", "execute", "run_command", "computer_exec", "terminal"]);
+
+function isCommandTool(tool: string): boolean {
+  return COMMAND_TOOLS.has(tool.replace(/^mcp__[^_]+__/, "").toLowerCase());
+}
+
+/** Conservative read classification for policy reads and optional read-only
+ * Auto mode. Command tools use the program classifier above. */
+export function isReadOnlyRequest(tool: string, summary: string): boolean {
+  if (isCommandTool(tool)) return isReadOnlyShellCommand(summary);
+  const text = asWords(`${tool} ${summary}`);
+  if (WRITE_INTENT.test(text)) return false;
+  return READ_INTENT.test(text);
+}
 
 export function approvalKey(tool: string, summary: string, scope?: "local-computer"): string {
   const bare = tool.replace(/^mcp__[^_]+__/, "").toLowerCase();
@@ -72,7 +169,11 @@ export function approvalKey(tool: string, summary: string, scope?: "local-comput
 
 export interface AutoApprover {
   autoApprove?: boolean;
+  autoApproveReadsOnly?: boolean;
   alwaysAllow?: string[];
+  /** Clearly read-only non-shell requests approve themselves unless this is
+   * explicitly false. Never inherited by unattended turns. */
+  silentReads?: boolean;
 }
 
 /** Why a verdict landed the way it did. `unattended-block` exists only in
@@ -81,10 +182,13 @@ export interface AutoApprover {
 export type AutoVerdictSource =
   | "always-allow"
   | "auto-mode"
+  | "policy-read"
   | "unattended-block"
   | "local-computer-block"
   | "destructive-guard"
   | "sensitive-guard"
+  | "outward-guard"
+  | "read-only-guard"
   | "no-grant";
 
 export interface AutoVerdict {
@@ -114,14 +218,13 @@ export function autoVerdict(
     scope?: "local-computer";
   },
 ): AutoVerdict {
-  // the guards outrank the grants, so an "always allow" can never widen
-  // into them
   const destructive = matchFirst(DESTRUCTIVE, summary) ?? matchFirst(DESTRUCTIVE, tool);
   const sensitive = destructive ? null : matchFirst(SENSITIVE, summary);
-  // The grant is computed even when a hard block will refuse it: the row
-  // worth auditing is "this WOULD have auto-approved, and only the block
-  // stood in the way", which cannot be told apart from an ordinary
-  // "nobody granted this" card without knowing both halves.
+  const readOnly = isReadOnlyRequest(tool, summary);
+  const outward = destructive || sensitive || readOnly
+    ? null
+    : (matchFirst(OUTWARD, asWords(summary)) ?? matchFirst(OUTWARD, asWords(tool)));
+  const readOnlyBlocked = Boolean(bot.autoApprove && bot.autoApproveReadsOnly && !readOnly);
   const key = approvalKey(tool, summary, context?.scope);
   const grant =
     destructive || sensitive
@@ -129,33 +232,42 @@ export function autoVerdict(
       : bot.alwaysAllow?.includes(key)
         ? { approve: `auto-approved ${key} (always allowed)`, source: "always-allow" as const, rule: key }
         : bot.autoApprove
-          ? { approve: `auto-approved ${tool}`, source: "auto-mode" as const, rule: undefined }
+          ? readOnlyBlocked || outward
+            ? null
+            : { approve: `auto-approved ${tool}`, source: "auto-mode" as const, rule: undefined }
           : null;
+  const policyRead =
+    !destructive &&
+    !sensitive &&
+    !outward &&
+    !grant &&
+    bot.silentReads !== false &&
+    !isCommandTool(tool) &&
+    readOnly
+      ? { approve: `auto-approved ${tool} (read-only)`, source: "policy-read" as const, rule: "read-only request" }
+      : null;
   if (context?.unattended) {
-    // Auto mode is something a person switched on for turns they are present
-    // for. A webhook turn begins with nobody watching, on a payload someone
-    // else wrote, so it does not inherit that decision — the guard above is a
-    // pattern list its own comment calls "not a security boundary", and it
-    // must not stand in for a human at 3am. A guard that would have carded
-    // anyway keeps its own name; the block is only the story when it is the
-    // thing that changed the outcome.
     if (grant) return { approve: null, source: "unattended-block", rule: grant.rule };
+    if (policyRead) return { approve: null, source: "unattended-block", rule: policyRead.rule };
     if (destructive) return { approve: null, source: "destructive-guard", rule: destructive };
     if (sensitive) return { approve: null, source: "sensitive-guard", rule: sensitive };
+    if (outward) return { approve: null, source: "outward-guard", rule: outward };
     return { approve: null, source: "no-grant" };
   }
   if (context?.scope === "local-computer" && !bot.autoApprove) {
-    // Host control is not covered by a remembered always-allow grant.
-    // After the Auto-on-this-computer warning, unclassified GUI actions
-    // (click/type) may auto-approve; destructive/sensitive still card.
     if (grant) return { approve: null, source: "local-computer-block", rule: grant.rule };
+    if (policyRead) return { approve: null, source: "local-computer-block", rule: policyRead.rule };
     if (destructive) return { approve: null, source: "destructive-guard", rule: destructive };
     if (sensitive) return { approve: null, source: "sensitive-guard", rule: sensitive };
+    if (outward) return { approve: null, source: "outward-guard", rule: outward };
     return { approve: null, source: "no-grant" };
   }
   if (destructive) return { approve: null, source: "destructive-guard", rule: destructive };
   if (sensitive) return { approve: null, source: "sensitive-guard", rule: sensitive };
   if (grant) return { approve: grant.approve, source: grant.source, rule: grant.rule };
+  if (policyRead) return { approve: policyRead.approve, source: policyRead.source, rule: policyRead.rule };
+  if (readOnlyBlocked) return { approve: null, source: "read-only-guard", rule: "read-only mode" };
+  if (outward) return { approve: null, source: "outward-guard", rule: outward };
   return { approve: null, source: "no-grant" };
 }
 

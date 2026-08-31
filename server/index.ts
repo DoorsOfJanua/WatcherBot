@@ -6140,6 +6140,11 @@ const server = createServer(async (req, res) => {
         if (typeof body.autoApprove !== "boolean") return json(res, 400, { error: "autoApprove must be true or false" });
         patch.autoApprove = body.autoApprove;
       }
+      for (const key of ["autoApproveReadsOnly", "silentReads"] as const) {
+        if (body[key] === undefined) continue;
+        if (typeof body[key] !== "boolean") return json(res, 400, { error: `${key} must be true or false` });
+        patch[key] = body[key];
+      }
       if (body.autoReview !== undefined) {
         if (body.autoReview !== "off" && body.autoReview !== "shadow" && body.autoReview !== "enforce") {
           return json(res, 400, { error: "autoReview must be off, shadow, or enforce" });

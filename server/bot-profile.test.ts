@@ -9,7 +9,7 @@ import { normalizeBotContact } from "../shared/bot-profile.ts";
 
 describe("parseBotProfilePatch (strict — the paired boundary)", () => {
   it("refuses every privilege-bearing bot field by name", () => {
-    for (const field of ["autoApprove", "autoReview", "alwaysAllow", "computer", "cwd", "composio", "chiefOfStaff", "acknowledgeLocalAuto", "sharedMemoryId"]) {
+    for (const field of ["autoApprove", "autoApproveReadsOnly", "silentReads", "autoReview", "alwaysAllow", "computer", "cwd", "composio", "chiefOfStaff", "acknowledgeLocalAuto", "sharedMemoryId"]) {
       const result = parseBotProfilePatch({ name: "Mira", [field]: true } as never, true);
       expect(result.ok, field).toBe(false);
       if (!result.ok) expect(result.error).toContain(field);
