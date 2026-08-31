@@ -62,6 +62,7 @@ import { CallButton, CallOverlay } from "./CallView";
 import { AttentionTray } from "./AttentionTray";
 import { cn } from "@/lib/cn";
 import { COMPACT_BUBBLE, COMPACT_SQUARE } from "@/lib/compact-chip";
+import { publicBotDescription } from "../../shared/bot-profile";
 import { useFocusMessage } from "@/lib/focus-message";
 import { groupActivityRuns } from "@/lib/activity-runs";
 import { ActivityRun } from "./ActivityRun";
@@ -664,7 +665,7 @@ const MessagesList = memo(function MessagesList({
             inputClassName="rounded bg-inset px-1.5 py-0.5 text-center text-[17px] font-semibold"
           />
           <div className="max-w-[360px] text-[14px] text-ink-secondary">
-            {bot.description || "Send a message to start the conversation."}
+            {publicBotDescription(bot.name, bot.title, bot.description)}
           </div>
         </div>
       )}

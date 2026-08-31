@@ -1,0 +1,17 @@
+{
+  "id": "inbox-cleanup",
+  "name": "Inbox Cleanup",
+  "version": "0.2.0",
+  "description": "Inspect connected Gmail or Proton mail, freeze an exact cleanup plan, then execute only the approved safe changes.",
+  "defaultEnabled": true,
+  "triggerTerms": [
+    "clean my inbox",
+    "inbox cleanup",
+    "clean up email",
+    "organize my inbox",
+    "newsletter cleanup",
+    "unsubscribe",
+    "bulk email"
+  ],
+  "requiredCapabilities": []
+}
