@@ -595,6 +595,37 @@ function createWindow() {
     });
   }
 
+  // A dead renderer or failed load must never strand a solid-black window:
+  // the window's #070707 background is all that renders once webContents die,
+  // and nothing short of a full app quit brings the UI back. Reload with
+  // backoff; after repeated failures land on ERROR_PAGE instead of black.
+  let reloadAttempts = 0;
+  const recoverContent = () => {
+    if (win.isDestroyed()) return;
+    reloadAttempts += 1;
+    const target = app.isPackaged ? `http://127.0.0.1:${SERVER_PORT}` : DEV_URL;
+    const url = reloadAttempts > 5 || !serverReady ? ERROR_PAGE : target;
+    setTimeout(
+      () => {
+        if (!win.isDestroyed()) void win.loadURL(url);
+      },
+      Math.min(500 * reloadAttempts, 3000),
+    );
+  };
+  win.webContents.on("render-process-gone", (_event, details) => {
+    if (details.reason === "clean-exit") return;
+    console.error(`[desktop] renderer gone (${details.reason}) — reloading`);
+    recoverContent();
+  });
+  win.webContents.on("did-fail-load", (_event, code, description, _url, isMainFrame) => {
+    if (!isMainFrame || code === -3 /* ERR_ABORTED: in-page navigation races */) return;
+    console.error(`[desktop] main window load failed (${code} ${description}) — retrying`);
+    recoverContent();
+  });
+  win.webContents.on("did-finish-load", () => {
+    reloadAttempts = 0;
+  });
+
   if (app.isPackaged) {
     win.loadURL(serverReady ? `http://127.0.0.1:${SERVER_PORT}` : ERROR_PAGE);
   } else {
@@ -922,7 +953,11 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  // Closing the room means leaving the room, on every platform. The harness
+  // server lives in launchd, not in this shell, so keeping a windowless
+  // process behind the closed window only creates the "I quit it but it's
+  // still running / I have to quit twice" trap. (Ruled by Janua 2026-08-31.)
+  app.quit();
 });
 
 // EMBEDDING.md lifecycle rule: defer the first quit until the embedded
@@ -931,6 +966,13 @@ app.on("window-all-closed", () => {
 const CUA_STOP_TIMEOUT_MS = 2500;
 let cuaCleanedUp = false;
 app.on("before-quit", (e) => {
+  // Release the single-instance lock the moment quit begins: the deferred
+  // cleanup below keeps this process alive for up to ~2.5s, and a relaunch
+  // inside that window would see the lock held and silently exit
+  // (upstream OpenMausBot issue #618).
+  try {
+    app.releaseSingleInstanceLock();
+  } catch {}
   if (cuaCleanedUp) return;
   e.preventDefault();
   try {
