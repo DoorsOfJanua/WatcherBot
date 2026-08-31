@@ -213,6 +213,7 @@ import { createGracefulShutdown } from "./graceful-shutdown.ts";
 import { recordSharedMemoryTurn, sharedMemoryForTurn } from "./shared-agent-memory.ts";
 import { recordWritingStyleEdit, writingStyleSystemPrompt } from "./writing-style.ts";
 import { addDelightEmoticon } from "./reply-delight.ts";
+import { approveAndPostReplyDrafts, getReplyGuyApprovalPolicy, replyGuyReceiptMessage, setReplyGuyApprovalPolicy } from "./replyguy.ts";
 
 const PORT = Number(process.env.OMB_PORT || process.env.OGB_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.OMB_WEBHOOK_PORT || PORT + 1);
@@ -7341,6 +7342,60 @@ const server = createServer(async (req, res) => {
         return json(res, 200, { result: { approved: approved.length, approvedIds: approved, skipped } });
       } catch (error) {
         return json(res, 503, { error: error instanceof Error ? error.message : "Studio is unavailable" });
+      }
+    }
+
+    // ── ReplyGuy approval policy and exact review batches ─────────────
+    if (method === "GET" && path === "/api/replyguy/approval-policy") {
+      try {
+        return json(res, 200, await getReplyGuyApprovalPolicy(
+          url.searchParams.get("profileId") || "",
+          url.searchParams.get("agentId") || "",
+        ));
+      } catch (error) {
+        return json(res, 503, { error: error instanceof Error ? error.message : "ReplyGuy is unavailable" });
+      }
+    }
+    if (method === "PUT" && path === "/api/replyguy/approval-policy") {
+      try {
+        const body = await readBody(req);
+        return json(res, 200, await setReplyGuyApprovalPolicy({
+          profileId: typeof body?.profileId === "string" ? body.profileId : "",
+          agentId: typeof body?.agentId === "string" ? body.agentId : "",
+          approvalRequired: body?.approvalRequired,
+        }));
+      } catch (error) {
+        return json(res, 400, { error: error instanceof Error ? error.message : "Could not change reply approval" });
+      }
+    }
+
+    // Browsing and drafting do not interrupt Janua. This route is called only
+    // by the visible Card Deck's final button; it re-reads every draft from the
+    // loopback ReplyGuy service before editing, approving, and posting it.
+    if (method === "POST" && path === "/api/replyguy/drafts/batch") {
+      try {
+        const body = await readBody(req);
+        const requestedThreadId = typeof body?.threadId === "string" ? body.threadId.trim() : "";
+        const fallbackBot = store.bots.find((candidate) => candidate.name.toLowerCase().includes("gemini"));
+        const receiptThreadId = requestedThreadId || fallbackBot?.threadId || "";
+        const directBot = receiptThreadId ? store.botByThread(receiptThreadId) : null;
+        const group = receiptThreadId ? store.groupByThread(receiptThreadId) : undefined;
+        if (!receiptThreadId || (!directBot && !group)) return json(res, 400, { error: "The Gemini conversation for this review could not be found" });
+
+        const result = await approveAndPostReplyDrafts({ ...body, threadId: receiptThreadId });
+        const groupBot = group
+          ? store.bots.find((candidate) => group.memberIds.includes(candidate.id) && candidate.name.toLowerCase().includes("gemini"))
+          : null;
+        const speaker = groupBot || directBot || fallbackBot;
+        store.appendMessage(receiptThreadId, {
+          role: "bot",
+          kind: "text",
+          ...(group && speaker ? { from: { botId: speaker.id, name: speaker.name, color: speaker.color } } : {}),
+          text: replyGuyReceiptMessage(result),
+        });
+        return json(res, result.errors.length ? 207 : 200, result);
+      } catch (error) {
+        return json(res, 400, { error: error instanceof Error ? error.message : "Invalid ReplyGuy draft batch" });
       }
     }
 

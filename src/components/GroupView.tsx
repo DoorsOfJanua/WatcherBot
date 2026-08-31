@@ -260,7 +260,7 @@ const Transcript = memo(function Transcript({
                       )}
                       {attachedImages?.display ?? m.text}
                     </>
-                  ) : <ChatMarkdown text={m.text} />}
+                  ) : <ChatMarkdown text={m.text} threadId={group.threadId} />}
                 </div>
                 {!user && (
                   <>

@@ -449,7 +449,7 @@ function Bubble({
             </>
           ) : (
             <MessageBoundary fallbackText={text}>
-              <ChatMarkdown text={text} />
+              <ChatMarkdown text={text} threadId={bot.threadId} />
             </MessageBoundary>
           )}
         </div>
