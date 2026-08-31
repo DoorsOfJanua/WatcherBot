@@ -1475,6 +1475,9 @@ function isUnattended(botId?: string | null): boolean {
 let routines: RoutineManager | null = null;
 const missions = new MissionManager();
 missions.recoverOrphanedClaims();
+// Keep the server-authored automation provenance through provider events so
+// the approval policy can distinguish scheduled/mission reads from webhooks.
+const automationThreads = new Map<string, RoutineRunTrigger>();
 const localVmOwnerBusy = (botId: string) => store.bot(botId)?.busy === true;
 const localVmLeases = new LocalVmLeasePool(30 * 60_000);
 const localVmLifecycleBusy = new Set<string>();
@@ -1555,6 +1558,8 @@ bus.subscribe((event: RuntimeEvent) => {
   }
   broadcast({ kind: "runtime", event });
   const routineRun = routines?.handleRuntimeEvent(event) ?? null;
+  const automationSource = automationThreads.get(event.threadId);
+  if (event.type === "turn.completed") automationThreads.delete(event.threadId);
   const bot = store.botByThread(event.threadId);
   const group = bot ? undefined : store.groupByThread(event.threadId);
   if (!bot && !group) return;
@@ -1650,8 +1655,13 @@ bus.subscribe((event: RuntimeEvent) => {
       // looks destructive stops even in auto mode.
       const asker = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
       const unattended = permission && asker && event.requestId ? isUnattended(asker.id) : false;
+      const policySummary = event.policySummary ?? event.summary;
       const verdict = permission && asker && event.requestId
-        ? autoVerdict(asker, event.tool, event.summary, { unattended, scope: event.approvalScope })
+        ? autoVerdict(asker, event.tool, policySummary, {
+            unattended,
+            scope: event.approvalScope,
+            trustedAutomationRead: automationSource === "mission" || automationSource === "schedule",
+          })
         : null;
       if (verdict?.approve && asker && event.requestId) {
         const settled = verdict.approve;
@@ -2345,8 +2355,10 @@ async function startTurn(
   }
   if (bot.busy) throw Object.assign(new Error("the bot is already working — interrupt it first"), { status: 409 });
   const threadId = opts?.threadId ?? bot.threadId;
-  // a webhook turn, or one inherited from a bot already running unattended
-  if (opts?.automationSource === "webhook" || opts?.unattended) markUnattended(bot.id);
+  if (opts?.automationSource) automationThreads.set(threadId, opts.automationSource);
+  // Scheduled jobs start with nobody at the keyboard. Missions and schedules
+  // may auto-run only classified reads; webhook payloads remain untrusted.
+  if (opts?.automationSource === "webhook" || opts?.automationSource === "schedule" || opts?.automationSource === "mission" || opts?.unattended) markUnattended(bot.id);
   // a person typing into this bot ends the unattended window immediately
   else if (opts?.automationSource === undefined && !opts?.commsDepth && !opts?.cardContinuation) clearUnattended(bot.id);
   const task = store.taskByThread(bot.id, threadId);
