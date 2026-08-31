@@ -1,16 +1,28 @@
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import { z } from "zod";
 
 import { DATA_DIR } from "./config.ts";
-import type { RuntimeEvent } from "./contracts.ts";
+import {
+  formatAutonomyOutcome,
+  parseAutonomyOutcomeEnvelope,
+  stripAutonomyOutcomeEnvelope,
+} from "./autonomy-outcome.ts";
+import type { ModelSelection, RuntimeEvent } from "./contracts.ts";
 import { redactSecretsInText } from "./redact.ts";
 import type { RoutineRequestOperation } from "../shared/routine-request.ts";
 
 export type RoutineSchedule =
   | { type: "once"; at: number }
-  | { type: "daily"; time: string; weekdays: number[] };
+  | { type: "daily"; time: string; weekdays: number[] }
+  /** Recurring watch: every N minutes, optionally boxed into a daily
+   * HH:MM window, on the chosen weekdays. Occurrences are anchored to the
+   * window start (midnight when unset) so runs land on predictable marks
+   * (09:00, 09:30, …) instead of drifting from the creation moment. */
+  | { type: "interval"; everyMinutes: number; start?: string; end?: string; weekdays: number[] };
 
 /** `cloud` runs the agent itself inside the bot's Box VM. `maus` keeps
  * using the provider selected on the MAUS and only borrows its configured
@@ -26,6 +38,7 @@ export type RoutineRunStatus =
   | "running"
   | "waiting"
   | "completed"
+  | "skipped"
   | "failed"
   | "cancelled"
   | "missed";
@@ -39,6 +52,9 @@ export interface Routine {
   enabled: boolean;
   schedule: RoutineSchedule;
   durationMinutes: number;
+  precheck?: RoutinePrecheck;
+  precheckState?: string;
+  modelSelection?: ModelSelection;
   /** Conversation that created this routine in chat. Calendar/import-created
    * routines intentionally have no source, and older files migrate in place. */
   sourceThreadId?: string;
@@ -73,6 +89,8 @@ export interface RoutineRun {
   /** Human-readable reason the detached execution is waiting. */
   attention?: string;
   error?: string;
+  precheckNote?: string;
+  modelSelection?: ModelSelection;
   cost?: number | null;
   denials?: string[];
   createdAt: number;
@@ -113,7 +131,13 @@ export interface RoutineInput {
   enabled?: boolean;
   schedule: RoutineSchedule;
   durationMinutes?: number;
+  precheck?: RoutinePrecheck;
+  modelSelection?: ModelSelection;
 }
+
+export type RoutinePrecheck =
+  | { kind: "http"; url: string; jsonPath?: string }
+  | { kind: "command"; command: string };
 
 interface RoutineFile {
   version: 1;
@@ -137,6 +161,9 @@ export interface RoutineManagerOptions {
   emit?: (payload: Record<string, unknown>) => void;
   botState: (botId: string) => "ready" | "busy" | "missing";
   createTask: (botId: string, title: string, activate?: boolean) => { threadId: string } | null;
+  /** Persistent task for event feeds. Webhook deliveries reuse it so a burst
+   * stays ordered in one durable conversation without stealing live chat. */
+  taskForRun?: (botId: string, routineId: string, title: string) => { threadId: string } | null;
   startTurn: (
     botId: string,
     threadId: string,
@@ -144,11 +171,13 @@ export interface RoutineManagerOptions {
     runOn: RoutineRunOn,
     triggerSource: RoutineRunTrigger,
     onDispatchError: (message: string) => void,
+    modelSelection?: ModelSelection,
   ) => Promise<void>;
   interruptTurn?: (botId: string, threadId: string, runOn: RoutineRunOn) => Promise<void>;
   /** Projects every durable transition into the source conversation. */
   onRunChanged?: (run: RoutineRun) => void;
   onRunFailed?: (run: RoutineRun) => void;
+  validateModelSelection?: (selection: ModelSelection) => void;
 }
 
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
@@ -173,6 +202,13 @@ function cleanDays(days: unknown): number[] {
   return out.length ? out : ALL_DAYS;
 }
 
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function minutesOf(time: string): number {
+  const [hour, minute] = time.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
 function cleanSchedule(schedule: RoutineSchedule): RoutineSchedule {
   if (schedule?.type === "once") {
     const at = Number(schedule.at);
@@ -181,17 +217,83 @@ function cleanSchedule(schedule: RoutineSchedule): RoutineSchedule {
   }
   if (schedule?.type === "daily") {
     const time = String(schedule.time ?? "");
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new Error("Time must use HH:MM");
+    if (!TIME_RE.test(time)) throw new Error("Time must use HH:MM");
     return { type: "daily", time, weekdays: cleanDays(schedule.weekdays) };
   }
+  if (schedule?.type === "interval") {
+    const everyMinutes = Math.round(Number(schedule.everyMinutes));
+    if (!Number.isFinite(everyMinutes) || everyMinutes < 5 || everyMinutes > 1440) {
+      throw new Error("Repeat every 5 minutes to 24 hours");
+    }
+    const start = schedule.start == null || schedule.start === "" ? undefined : String(schedule.start);
+    const end = schedule.end == null || schedule.end === "" ? undefined : String(schedule.end);
+    if (start !== undefined && !TIME_RE.test(start)) throw new Error("Start time must use HH:MM");
+    if (end !== undefined && !TIME_RE.test(end)) throw new Error("End time must use HH:MM");
+    if (start !== undefined && end !== undefined && minutesOf(end) <= minutesOf(start)) {
+      throw new Error("The end time must be after the start time");
+    }
+    return {
+      type: "interval",
+      everyMinutes,
+      ...(start ? { start } : {}),
+      ...(end ? { end } : {}),
+      weekdays: cleanDays(schedule.weekdays),
+    };
+  }
   throw new Error("Choose a supported schedule");
+}
+
+function cleanPrecheck(value: unknown): RoutinePrecheck | undefined {
+  if (value == null || value === false) return undefined;
+  if (!value || typeof value !== "object") throw new Error("Pre-check must be a local HTTP URL or command");
+  const candidate = value as Record<string, unknown>;
+  if (candidate.kind === "command") {
+    const command = String(candidate.command ?? "").trim().slice(0, 2_000);
+    if (!command) throw new Error("Pre-check command cannot be empty");
+    return { kind: "command", command };
+  }
+  if (candidate.kind === "http") {
+    const raw = String(candidate.url ?? "").trim();
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      throw new Error("Pre-check URL must be local");
+    }
+    if (parsed.protocol !== "http:" || !["127.0.0.1", "localhost", "::1"].includes(parsed.hostname)) {
+      throw new Error("Pre-check URL must point to localhost");
+    }
+    const jsonPath = candidate.jsonPath == null ? undefined : String(candidate.jsonPath).trim().slice(0, 200);
+    return { kind: "http", url: parsed.toString(), ...(jsonPath ? { jsonPath } : {}) };
+  }
+  throw new Error("Pre-check must be a local HTTP URL or command");
 }
 
 /** Next wall-clock occurrence in this computer's timezone, strictly after `after`. */
 export function nextOccurrence(schedule: RoutineSchedule, after: number): number | null {
   if (schedule.type === "once") return schedule.at > after ? schedule.at : null;
-  const [hour, minute] = schedule.time.split(":").map(Number);
   const weekdays = new Set(cleanDays(schedule.weekdays));
+  if (schedule.type === "interval") {
+    const every = schedule.everyMinutes * 60_000;
+    for (let offset = 0; offset <= 8; offset++) {
+      const day = new Date(after);
+      day.setDate(day.getDate() + offset);
+      const [startHour, startMinute] = (schedule.start ?? "00:00").split(":").map(Number);
+      const [endHour, endMinute] = (schedule.end ?? "23:59").split(":").map(Number);
+      const windowStart = new Date(day);
+      windowStart.setHours(startHour, startMinute, 0, 0);
+      const windowEnd = new Date(day);
+      windowEnd.setHours(endHour, endMinute, 0, 0);
+      if (!weekdays.has(windowStart.getDay())) continue;
+      let candidate = windowStart.getTime();
+      if (candidate <= after) {
+        candidate += (Math.floor((after - candidate) / every) + 1) * every;
+      }
+      if (candidate > after && candidate <= windowEnd.getTime()) return candidate;
+    }
+    return null;
+  }
+  const [hour, minute] = schedule.time.split(":").map(Number);
   for (let offset = 0; offset <= 8; offset++) {
     const d = new Date(after);
     d.setDate(d.getDate() + offset);
@@ -210,6 +312,15 @@ function sanitizeInput(input: RoutineInput): Omit<Routine, "id" | "createdAt" | 
   if (!botId) throw new Error("Choose a bot");
   const runOn = input.runOn ?? "maus";
   if (runOn !== "maus" && runOn !== "cloud") throw new Error("Choose where this routine runs");
+  const precheck = cleanPrecheck(input.precheck);
+  const modelSelection = input.modelSelection == null ? undefined : {
+    instanceId: String(input.modelSelection.instanceId ?? "").trim(),
+    model: String(input.modelSelection.model ?? "").trim(),
+    ...(input.modelSelection.effort ? { effort: input.modelSelection.effort } : {}),
+  };
+  if (modelSelection && (!modelSelection.instanceId || !modelSelection.model)) {
+    throw new Error("Routine model selection is incomplete");
+  }
   return {
     name,
     prompt,
@@ -218,7 +329,46 @@ function sanitizeInput(input: RoutineInput): Omit<Routine, "id" | "createdAt" | 
     enabled: input.enabled !== false,
     schedule: cleanSchedule(input.schedule),
     durationMinutes: Math.min(240, Math.max(15, Math.round(Number(input.durationMinutes) || 30))),
+    ...(precheck ? { precheck } : {}),
+    ...(modelSelection ? { modelSelection } : {}),
   };
+}
+
+const execFileAsync = promisify(execFile);
+
+function jsonPathValue(value: unknown, jsonPath?: string): unknown {
+  if (!jsonPath) return value;
+  return jsonPath.split(".").filter(Boolean).reduce<unknown>((current, key) => {
+    if (current == null || typeof current !== "object") return undefined;
+    return (current as Record<string, unknown>)[key];
+  }, value);
+}
+
+async function readPrecheck(precheck: RoutinePrecheck): Promise<{ value?: string; error?: string }> {
+  try {
+    let raw: unknown;
+    if (precheck.kind === "command") {
+      const result = await execFileAsync("/bin/zsh", ["-lc", precheck.command], {
+        timeout: 10_000,
+        maxBuffer: 64 * 1024,
+      });
+      raw = result.stdout.trim();
+    } else {
+      const response = await fetch(precheck.url, { signal: AbortSignal.timeout(10_000) });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const text = await response.text();
+      try {
+        raw = JSON.parse(text);
+      } catch {
+        raw = text.trim();
+      }
+      raw = jsonPathValue(raw, precheck.jsonPath);
+    }
+    if (raw == null) return { value: "<missing>" };
+    return { value: typeof raw === "string" ? raw : JSON.stringify(raw) };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 export class RoutineManager {
@@ -378,6 +528,7 @@ export class RoutineManager {
     }
     const clean = sanitizeInput(input);
     if (this.options.botState(clean.botId) === "missing") throw new Error("That bot no longer exists");
+    if (clean.modelSelection) this.options.validateModelSelection?.(clean.modelSelection);
     const at = this.now();
     const routine: Routine = {
       id: randomUUID(),
@@ -420,8 +571,11 @@ export class RoutineManager {
       enabled: patch.enabled ?? routine.enabled,
       schedule: patch.schedule ?? routine.schedule,
       durationMinutes: patch.durationMinutes ?? routine.durationMinutes,
+      precheck: patch.precheck ?? routine.precheck,
+      modelSelection: patch.modelSelection ?? routine.modelSelection,
     });
     if (this.options.botState(clean.botId) === "missing") throw new Error("That bot no longer exists");
+    if (clean.modelSelection) this.options.validateModelSelection?.(clean.modelSelection);
     const cancelledRuns: RoutineRun[] = [];
     this.commitMutation(() => {
       Object.assign(routine, clean, {
@@ -494,6 +648,55 @@ export class RoutineManager {
       changed = true;
     }
     if (changed) this.save();
+  }
+
+  /** Latching half of the fleet emergency stop. Definitions stay paused
+   * until explicitly re-enabled; active receipts remain as honest cancelled
+   * history instead of disappearing. */
+  async pauseAll(reason = "Emergency stop pressed"): Promise<{
+    pausedRoutines: number;
+    cancelledRuns: number;
+    interruptedRuns: number;
+  }> {
+    const changedRoutines: Routine[] = [];
+    const changedRuns: RoutineRun[] = [];
+    const interruptTargets: Array<Pick<RoutineRun, "botId" | "threadId" | "runOn">> = [];
+    const at = this.now();
+    const safeReason = redactSecretsInText(reason).slice(0, 500);
+
+    this.commitMutation(() => {
+      for (const routine of this.routines) {
+        if (!routine.enabled) continue;
+        routine.enabled = false;
+        routine.nextRunAt = null;
+        routine.updatedAt = Math.max(at, routine.updatedAt + 1);
+        changedRoutines.push(routine);
+      }
+      for (const run of this.runs) {
+        if (!["queued", "running", "waiting"].includes(run.status)) continue;
+        const wasActive = run.status === "running" || run.status === "waiting";
+        run.status = "cancelled";
+        run.attention = undefined;
+        run.finishedAt = at;
+        run.error = safeReason;
+        changedRuns.push(run);
+        if (wasActive && run.threadId && this.options.interruptTurn) {
+          interruptTargets.push({ botId: run.botId, threadId: run.threadId, runOn: run.runOn });
+        }
+      }
+    });
+
+    for (const routine of changedRoutines) this.emitRoutine(routine);
+    for (const run of changedRuns) this.emitRun(run);
+    const interrupts = interruptTargets.map((run) =>
+      this.options.interruptTurn!(run.botId, run.threadId!, run.runOn ?? "maus").catch(() => {}),
+    );
+    await Promise.allSettled(interrupts);
+    return {
+      pausedRoutines: changedRoutines.length,
+      cancelledRuns: changedRuns.length,
+      interruptedRuns: interrupts.length,
+    };
   }
 
   runNow(id: string, request?: RoutineRequestCommitFor<"run_now">): RoutineRun | null {
@@ -632,6 +835,34 @@ export class RoutineManager {
           missed.error = "This computer was offline for more than 12 hours after the scheduled time";
           this.emitRun(missed);
           missedRuns.push({ ...missed });
+        } else if (
+          routine.schedule.type === "interval" &&
+          this.runs.some((run) =>
+            run.routineId === routine.id && ["queued", "running", "waiting"].includes(run.status),
+          )
+        ) {
+          // A tight interval must not stack work behind a slow or stuck run;
+          // that would drain as a burst of stale back-to-back turns. The
+          // skipped occurrence still receives an honest terminal receipt.
+          const missed = this.newRun(routine, scheduledFor, false);
+          missed.status = "missed";
+          missed.finishedAt = now;
+          missed.error = "Skipped: the previous run of this routine was still going";
+          this.emitRun(missed);
+        } else if (routine.precheck) {
+          const check = await readPrecheck(routine.precheck);
+          if (check.value !== undefined && routine.precheckState === check.value) {
+            const skipped = this.newRun(routine, scheduledFor, false);
+            skipped.status = "skipped";
+            skipped.finishedAt = now;
+            skipped.precheckNote = "Pre-check: no change";
+            this.emitRun(skipped);
+          } else {
+            if (check.value !== undefined) routine.precheckState = check.value;
+            const run = this.newRun(routine, scheduledFor, false);
+            if (check.error) run.precheckNote = `Pre-check failed; ran anyway: ${check.error}`;
+            this.emitRun(run);
+          }
         } else {
           const run = this.newRun(routine, scheduledFor, false);
           this.emitRun(run);
@@ -646,7 +877,9 @@ export class RoutineManager {
       if (changed) this.save();
       for (const missed of missedRuns) this.options.onRunFailed?.(missed);
 
-      for (const run of [...this.runs].reverse()) {
+      // Insertion order is delivery order. Reversing this queue made a burst
+      // of webhook deliveries drain newest-first once its bot became ready.
+      for (const run of [...this.runs]) {
         if (run.status !== "queued") continue;
         const state = this.options.botState(run.botId);
         if (state === "busy") continue;
@@ -654,9 +887,9 @@ export class RoutineManager {
           this.failRun(run, "The assigned bot no longer exists");
           continue;
         }
-        // A webhook is an incoming message, so make its task the bot's live
-        // chat immediately. Scheduled work remains detached and unobtrusive.
-        const task = this.options.createTask(run.botId, run.routineName, run.triggerSource === "webhook");
+        const task = run.triggerSource === "webhook" && this.options.taskForRun
+          ? this.options.taskForRun(run.botId, run.routineId, run.routineName)
+          : this.options.createTask(run.botId, run.routineName, false);
         if (!task) {
           this.failRun(run, "Could not create a task for this run");
           continue;
@@ -680,6 +913,7 @@ export class RoutineManager {
             run.runOn ?? "maus",
             triggerSource,
             (message) => this.failThread(task.threadId, message),
+            run.modelSelection,
           );
         } catch (error) {
           this.failThread(task.threadId, error instanceof Error ? error.message : String(error));
@@ -700,7 +934,10 @@ export class RoutineManager {
       run.status = "running";
       run.attention = undefined;
     } else if (event.type === "item.completed" && event.itemType === "assistant_text") {
-      run.output = redactSecretsInText(event.text).trim().slice(0, 2_000);
+      const redacted = redactSecretsInText(event.text);
+      const prose = stripAutonomyOutcomeEnvelope(redacted);
+      const outcome = parseAutonomyOutcomeEnvelope(redacted);
+      run.output = (prose || (outcome ? formatAutonomyOutcome(outcome) : "")).slice(0, 2_000);
     } else if (event.type === "runtime.error") {
       run.error = redactSecretsInText(event.message).slice(0, 500);
     } else if (event.type === "turn.retrying") {
@@ -712,6 +949,15 @@ export class RoutineManager {
       run.denials = event.denials;
       if (!event.ok) {
         this.failRun(run, event.stopReason ?? run.error ?? "The bot did not complete this run");
+        queueMicrotask(() => void this.tick());
+        return { ...run };
+      }
+      // A scheduled/manual routine exists to come back to the user. Provider
+      // success without a human-visible answer is failed delivery, not a
+      // completed reminder. Webhooks may deliberately stay quiet.
+      const triggerSource = run.triggerSource ?? (run.manual ? "manual" : "schedule");
+      if (triggerSource !== "webhook" && !run.output?.trim()) {
+        this.failRun(run, "The bot finished without producing a message for you");
         queueMicrotask(() => void this.tick());
         return { ...run };
       }
@@ -765,6 +1011,7 @@ export class RoutineManager {
       durationMinutes: routine.durationMinutes,
       botId: routine.botId,
       runOn: routine.runOn ?? "maus",
+      ...(routine.modelSelection ? { modelSelection: { ...routine.modelSelection } } : {}),
       scheduledFor,
       status: "queued",
       manual,

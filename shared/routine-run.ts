@@ -9,7 +9,7 @@ export interface RoutineRunCardData {
   runId: string;
   routineId: string;
   routineName: string;
-  status: "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled" | "missed";
+  status: "queued" | "running" | "waiting" | "completed" | "skipped" | "failed" | "cancelled" | "missed";
   executionThreadId?: string;
   summary?: string;
   error?: string;

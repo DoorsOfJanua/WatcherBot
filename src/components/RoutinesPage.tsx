@@ -79,22 +79,37 @@ function niceTime(at: number) {
   return new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+function dayLabelFor(days: number[]) {
+  return days.length === 7
+    ? "Every day"
+    : days.join(",") === "1,2,3,4,5"
+      ? "Weekdays"
+      : days.map((day) => DAY_NAMES[day]).join(", ");
+}
+
+function intervalLabel(everyMinutes: number) {
+  if (everyMinutes % 60 === 0) {
+    const hours = everyMinutes / 60;
+    return hours === 1 ? "Every hour" : `Every ${hours} hours`;
+  }
+  return `Every ${everyMinutes} min`;
+}
+
 function scheduleLabel(routine: Routine) {
   if (routine.schedule.type === "once") {
     return `${niceDate(routine.schedule.at)}, ${niceTime(routine.schedule.at)}`;
   }
-  const days = routine.schedule.weekdays;
-  const dayLabel =
-    days.length === 7
-      ? "Every day"
-      : days.join(",") === "1,2,3,4,5"
-        ? "Weekdays"
-        : days.map((day) => DAY_NAMES[day]).join(", ");
-  return `${dayLabel} at ${niceTime(atLocalTime(Date.now(), routine.schedule.time))}`;
+  if (routine.schedule.type === "interval") {
+    const window = routine.schedule.start || routine.schedule.end
+      ? `, ${routine.schedule.start ?? "00:00"}–${routine.schedule.end ?? "23:59"}`
+      : "";
+    return `${intervalLabel(routine.schedule.everyMinutes)}${window} · ${dayLabelFor(routine.schedule.weekdays)}`;
+  }
+  return `${dayLabelFor(routine.schedule.weekdays)} at ${niceTime(atLocalTime(Date.now(), routine.schedule.time))}`;
 }
 
 function canToggleRoutine(routine: Routine) {
-  return routine.schedule.type === "daily" || routine.schedule.at > Date.now();
+  return routine.schedule.type !== "once" || routine.schedule.at > Date.now();
 }
 
 function statusState(status: RoutineRunStatus): MausState {
@@ -107,6 +122,8 @@ function statusState(status: RoutineRunStatus): MausState {
       return "curious";
     case "completed":
       return "proud";
+    case "skipped":
+      return "drowsy";
     case "failed":
     case "missed":
       return "sad";
@@ -123,6 +140,8 @@ function statusTone(status: RoutineRunStatus) {
       return "text-warning";
     case "completed":
       return "text-success";
+    case "skipped":
+      return "text-ink-secondary/60";
     case "failed":
     case "missed":
       return "text-danger";
@@ -169,7 +188,10 @@ function projectedItems(routines: Routine[], runs: RoutineRun[], from: number, t
     for (let day = startOfDay(from); day < to; day = addDays(day, 1)) {
       const date = new Date(day);
       if (!routine.schedule.weekdays.includes(date.getDay())) continue;
-      const at = atLocalTime(day, routine.schedule.time);
+      // Project one chip for interval routines; receipts carry every firing.
+      const at = routine.schedule.type === "interval"
+        ? atLocalTime(day, routine.schedule.start ?? "00:00")
+        : atLocalTime(day, routine.schedule.time);
       if (at >= from && at < to && at >= routine.createdAt && !hasReceipt(routine.id, at)) {
         items.push({ id: `next-${routine.id}-${at}`, at, routine, run: null });
       }
@@ -319,13 +341,24 @@ export function RoutineEditor({
   const [prompt, setPrompt] = useState(routine?.prompt ?? "");
   const [botId, setBotId] = useState(lockedBotId ?? routine?.botId ?? bots[0]?.id ?? "");
   const [runOn, setRunOn] = useState<RoutineRunOn>(routine?.runOn ?? defaultRunOn ?? "maus");
-  const [kind, setKind] = useState<"once" | "daily">(routine?.schedule.type ?? "daily");
+  const [kind, setKind] = useState<"once" | "daily" | "interval">(routine?.schedule.type ?? "daily");
   const [at, setAt] = useState(
     toInputDateTime(routine?.schedule.type === "once" ? routine.schedule.at : nextHour()),
   );
   const [time, setTime] = useState(routine?.schedule.type === "daily" ? routine.schedule.time : "09:00");
   const [weekdays, setWeekdays] = useState(
-    routine?.schedule.type === "daily" ? routine.schedule.weekdays : [1, 2, 3, 4, 5],
+    routine?.schedule.type === "daily" || routine?.schedule.type === "interval"
+      ? routine.schedule.weekdays
+      : [1, 2, 3, 4, 5],
+  );
+  const [everyMinutes, setEveryMinutes] = useState(
+    routine?.schedule.type === "interval" ? routine.schedule.everyMinutes : 30,
+  );
+  const [windowStart, setWindowStart] = useState(
+    routine?.schedule.type === "interval" ? (routine.schedule.start ?? "") : "",
+  );
+  const [windowEnd, setWindowEnd] = useState(
+    routine?.schedule.type === "interval" ? (routine.schedule.end ?? "") : "",
   );
   const [durationMinutes, setDurationMinutes] = useState(routine?.durationMinutes ?? 30);
   const [saving, setSaving] = useState(false);
@@ -344,7 +377,15 @@ export function RoutineEditor({
       schedule:
         kind === "once"
           ? { type: "once", at: new Date(at).getTime() }
-          : { type: "daily", time, weekdays },
+          : kind === "interval"
+            ? {
+                type: "interval",
+                everyMinutes,
+                ...(windowStart ? { start: windowStart } : {}),
+                ...(windowEnd ? { end: windowEnd } : {}),
+                weekdays,
+              }
+            : { type: "daily", time, weekdays },
     };
     setSaving(true);
     setError("");
@@ -431,15 +472,33 @@ export function RoutineEditor({
           <div>
             <div className="mb-2 text-[12px] font-medium text-ink-secondary">When?</div>
             <div className="mb-3 inline-flex rounded-xl bg-inset p-1">
-              {(["once", "daily"] as const).map((value) => (
-                <button key={value} onClick={() => setKind(value)} className={cn("rounded-lg px-4 py-1.5 text-[13px] capitalize", kind === value ? "bg-raised text-ink shadow" : "text-ink-secondary hover:text-ink")}>{value === "daily" ? "Repeating" : "Once"}</button>
+              {(["once", "daily", "interval"] as const).map((value) => (
+                <button key={value} onClick={() => setKind(value)} className={cn("rounded-lg px-4 py-1.5 text-[13px] capitalize", kind === value ? "bg-raised text-ink shadow" : "text-ink-secondary hover:text-ink")}>{value === "daily" ? "Repeating" : value === "interval" ? "Watch" : "Once"}</button>
               ))}
             </div>
             {kind === "once" ? (
               <input type="datetime-local" value={at} onChange={(event) => setAt(event.target.value)} className="block rounded-xl border border-hairline/60 bg-inset px-3.5 py-2.5 text-[14px] text-ink outline-none focus:border-accent/70 [color-scheme:dark]" />
             ) : (
               <div className="space-y-3">
-                <input type="time" value={time} onChange={(event) => setTime(event.target.value)} className="rounded-xl border border-hairline/60 bg-inset px-3.5 py-2.5 text-[14px] text-ink outline-none focus:border-accent/70 [color-scheme:dark]" />
+                {kind === "interval" ? (
+                  <>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[13px] text-ink-secondary">Runs every</span>
+                      <select value={everyMinutes} onChange={(event) => setEveryMinutes(Number(event.target.value))} className="rounded-xl border border-hairline/60 bg-inset px-3.5 py-2.5 text-[14px] text-ink outline-none focus:border-accent/70">
+                        {[5, 10, 15, 30, 60, 120, 180, 360].map((minutes) => <option key={minutes} value={minutes}>{minutes < 60 ? `${minutes} minutes` : `${minutes / 60} ${minutes === 60 ? "hour" : "hours"}`}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[13px] text-ink-secondary">Between</span>
+                      <input type="time" value={windowStart} onChange={(event) => setWindowStart(event.target.value)} className="rounded-xl border border-hairline/60 bg-inset px-3.5 py-2.5 text-[14px] text-ink outline-none focus:border-accent/70 [color-scheme:dark]" />
+                      <span className="text-[13px] text-ink-secondary">and</span>
+                      <input type="time" value={windowEnd} onChange={(event) => setWindowEnd(event.target.value)} className="rounded-xl border border-hairline/60 bg-inset px-3.5 py-2.5 text-[14px] text-ink outline-none focus:border-accent/70 [color-scheme:dark]" />
+                      {(windowStart || windowEnd) && <button type="button" onClick={() => { setWindowStart(""); setWindowEnd(""); }} className="text-[12px] text-ink-secondary hover:text-ink">All day</button>}
+                    </div>
+                  </>
+                ) : (
+                  <input type="time" value={time} onChange={(event) => setTime(event.target.value)} className="rounded-xl border border-hairline/60 bg-inset px-3.5 py-2.5 text-[14px] text-ink outline-none focus:border-accent/70 [color-scheme:dark]" />
+                )}
                 <div className="flex flex-wrap gap-1.5">
                   {DAY_NAMES.map((label, day) => (
                     <button key={label} type="button" onClick={() => setWeekdays((current) => current.includes(day) ? (current.length === 1 ? current : current.filter((value) => value !== day)) : [...current, day].sort())} className={cn("size-10 rounded-xl border text-[11px] font-medium", weekdays.includes(day) ? "border-accent bg-accent text-white" : "border-hairline/50 bg-inset text-ink-secondary hover:text-ink")}>{label.slice(0, 2)}</button>

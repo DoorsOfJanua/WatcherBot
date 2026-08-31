@@ -107,6 +107,15 @@ function routineScheduleLabel(routine: Routine) {
       : days.join(",") === "1,2,3,4,5"
         ? "Weekdays"
         : days.map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ");
+  if (routine.schedule.type === "interval") {
+    const every = routine.schedule.everyMinutes % 60 === 0
+      ? `${routine.schedule.everyMinutes / 60}h`
+      : `${routine.schedule.everyMinutes}m`;
+    const window = routine.schedule.start || routine.schedule.end
+      ? ` · ${routine.schedule.start ?? "00:00"}–${routine.schedule.end ?? "23:59"}`
+      : "";
+    return `${cadence} · every ${every}${window}`;
+  }
   const [hour, minute] = routine.schedule.time.split(":").map(Number);
   return `${cadence} · ${new Date(2000, 0, 1, hour, minute).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }

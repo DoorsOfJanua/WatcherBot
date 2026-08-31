@@ -96,6 +96,13 @@ const storedScheduleSchema = z.discriminatedUnion("type", [
     time: z.string().regex(TIME),
     weekdays: storedWeekdaysSchema,
   }).strict(),
+  z.object({
+    type: z.literal("interval"),
+    everyMinutes: z.number().int().min(5).max(1440),
+    start: z.string().regex(TIME).optional(),
+    end: z.string().regex(TIME).optional(),
+    weekdays: storedWeekdaysSchema,
+  }).strict(),
 ]);
 const storedDefinitionSchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -381,9 +388,17 @@ function normalizedOperation(
 }
 
 function asSchedule(schedule: RoutineRequestSchedule): RoutineSchedule {
-  return schedule.type === "once"
-    ? { type: "once", at: schedule.at }
-    : { type: "daily", time: schedule.time, weekdays: [...schedule.weekdays] };
+  if (schedule.type === "once") return { type: "once", at: schedule.at };
+  if (schedule.type === "daily") {
+    return { type: "daily", time: schedule.time, weekdays: [...schedule.weekdays] };
+  }
+  return {
+    type: "interval",
+    everyMinutes: schedule.everyMinutes,
+    ...(schedule.start ? { start: schedule.start } : {}),
+    ...(schedule.end ? { end: schedule.end } : {}),
+    weekdays: [...schedule.weekdays],
+  };
 }
 
 function nextForOperation(operation: RoutineRequestOperation, manager: RoutineManager, now: number): number | null {
@@ -414,6 +429,12 @@ function formatInstant(at: number, timeZone: string): string {
 function scheduleText(schedule: RoutineRequestSchedule, timeZone: string): string {
   if (schedule.type === "once") return `${formatInstant(schedule.at, timeZone)} (${timeZone})`;
   const days = schedule.weekdays.map((day) => WEEKDAY_LABEL[day]).join(", ");
+  if (schedule.type === "interval") {
+    const window = schedule.start || schedule.end
+      ? ` from ${schedule.start ?? "00:00"} to ${schedule.end ?? "23:59"}`
+      : "";
+    return `${days}, every ${schedule.everyMinutes} minutes${window} (${timeZone})`;
+  }
   return `${days} at ${schedule.time} (${timeZone})`;
 }
 

@@ -212,6 +212,8 @@ export interface TaskRecord {
   threadId: ThreadId;
   title: string;
   createdAt: number;
+  /** Persistent home of a webhook feed. */
+  routineId?: string;
   /** provider-native continuation per instance, for THIS task only */
   resumeCursors: Record<string, unknown>;
   /** which instance dispatched the most recent turn. A cursor alone can't
@@ -1415,6 +1417,26 @@ export class Store {
     }
     this.saveBots();
     this.emit({ type: "bot", botId });
+    return task;
+  }
+
+  /** Return the one persistent, non-active task owned by an automation feed.
+   * Each delivery starts a fresh provider session over its durable transcript. */
+  taskForRoutine(botId: string, routineId: string, title: string): TaskRecord | null {
+    const bot = this.bot(botId);
+    if (!bot) return null;
+    const existing = bot.tasks?.find((task) => task.routineId === routineId);
+    if (existing) {
+      if (Object.keys(existing.resumeCursors).length > 0) {
+        existing.resumeCursors = {};
+        this.saveBots();
+      }
+      return existing;
+    }
+    const task = this.createTask(botId, title, false);
+    if (!task) return null;
+    task.routineId = routineId;
+    this.saveBots();
     return task;
   }
 

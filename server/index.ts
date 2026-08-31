@@ -2315,6 +2315,8 @@ async function startTurn(
     automationSource?: RoutineRunTrigger;
     /** the caller was already running unattended, so this turn is too */
     unattended?: boolean;
+    /** Optional routine-only model selection. Never mutates the bot profile. */
+    modelSelection?: ModelSelection;
     /** Resume an agent after the user completed an inline connection or credential card.
      * The prompt is control-plane context: it reaches the provider without
      * masquerading as another message authored by the user. */
@@ -2346,24 +2348,25 @@ async function startTurn(
   // a task takes its name from the first thing you asked it to do
   if (text.trim() && !opts?.cardContinuation) store.titleTaskFromFirstMessage(bot.id, text, threadId);
 
+  const selectedModel = opts?.modelSelection ?? bot.modelSelection;
   const instance = opts?.runOn === "cloud"
     ? registry.instances().find((candidate) => candidate.driverKind === "boxAgent") ?? null
-    : registry.get(bot.modelSelection.instanceId);
+    : registry.get(selectedModel.instanceId);
   if (!instance) {
     throw Object.assign(
       new Error(
         opts?.runOn === "cloud"
           ? "the Cloud VM runner is unavailable — configure Box in App Settings"
-          : `provider instance "${bot.modelSelection.instanceId}" is unavailable — pick another model in settings`,
+          : `provider instance "${selectedModel.instanceId}" is unavailable — pick another model in settings`,
       ),
       { status: 409 },
     );
   }
   const instanceId = instance.instanceId;
-  const model = opts?.runOn === "cloud" ? instance.models.default : bot.modelSelection.model;
+  const model = opts?.runOn === "cloud" ? instance.models.default : selectedModel.model;
   // a cloud routine borrows the instance default model, so it borrows no
   // per-bot effort either
-  const effort = opts?.runOn === "cloud" ? undefined : bot.modelSelection.effort;
+  const effort = opts?.runOn === "cloud" ? undefined : selectedModel.effort;
   // A selection can be persisted while its engine is offline. Re-check when
   // the engine returns so an old or unsupported value never reaches a CLI.
   if (effort && !instance.adapter.capabilities.effortLevels?.includes(effort)) {
@@ -2988,9 +2991,27 @@ routines = new RoutineManager({
     if (task && bot) broadcast({ kind: "bot", bot: publicBot(bot) });
     return task;
   },
-  startTurn: (botId, threadId, prompt, runOn, triggerSource, onDispatchError) =>
-    startTurn(botId, prompt, { threadId, runOn, automationSource: triggerSource, onDispatchError })
+  taskForRun: (botId, routineId, title) => {
+    const task = store.taskForRoutine(botId, routineId, title);
+    const bot = store.bot(botId);
+    if (task && bot) broadcast({ kind: "bot", bot: publicBot(bot) });
+    return task;
+  },
+  startTurn: (botId, threadId, prompt, runOn, triggerSource, onDispatchError, modelSelection) =>
+    startTurn(botId, prompt, { threadId, runOn, automationSource: triggerSource, onDispatchError, modelSelection })
       .then(() => undefined),
+  validateModelSelection: (selection) => {
+    const instance = registry.get(selection.instanceId);
+    if (!instance) {
+      throw new Error(`provider instance "${selection.instanceId}" is unavailable — pick another model in settings`);
+    }
+    if (selection.effort && !instance.adapter.capabilities.effortLevels?.includes(selection.effort)) {
+      throw new Error(`effort "${selection.effort}" is not offered by this bot's engine — choose another level in settings`);
+    }
+    if (!instance.models.options.some((option) => option.id === selection.model) && selection.model !== instance.models.default) {
+      throw new Error(`model "${selection.model}" is not offered by this provider instance`);
+    }
+  },
   interruptTurn: async (botId, threadId, runOn) => {
     const bot = store.bot(botId);
     cancelDirectTurnDispatch(botId, threadId);
@@ -3094,11 +3115,19 @@ const agentRoutine = (
     durationMinutes: routine.durationMinutes,
     schedule: routine.schedule.type === "once"
       ? { type: "once" as const, at: new Date(routine.schedule.at).toISOString() }
-      : {
+      : routine.schedule.type === "daily"
+        ? {
           type: "weekly" as const,
           time: routine.schedule.time,
           weekdays: routine.schedule.weekdays.map((day) => ROUTINE_WEEKDAY_NAMES[day]),
-        },
+        }
+        : {
+            type: "interval" as const,
+            everyMinutes: routine.schedule.everyMinutes,
+            start: routine.schedule.start,
+            end: routine.schedule.end,
+            weekdays: routine.schedule.weekdays.map((day) => ROUTINE_WEEKDAY_NAMES[day]),
+          },
     nextRunAt: routine.nextRunAt === null ? null : new Date(routine.nextRunAt).toISOString(),
     latestRun: latestRun
       ? {

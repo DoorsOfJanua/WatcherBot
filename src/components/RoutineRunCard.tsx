@@ -19,6 +19,7 @@ const COPY = {
   running: { label: "Running", tone: "text-accent", border: "border-accent/30" },
   waiting: { label: "Needs your input", tone: "text-warning", border: "border-warning/35" },
   completed: { label: "Completed", tone: "text-success", border: "border-success/30" },
+  skipped: { label: "No change", tone: "text-ink-secondary", border: "border-hairline/45" },
   failed: { label: "Failed", tone: "text-danger", border: "border-danger/35" },
   cancelled: { label: "Cancelled", tone: "text-ink-secondary", border: "border-hairline/45" },
   missed: { label: "Missed", tone: "text-danger", border: "border-danger/35" },

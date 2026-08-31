@@ -22,9 +22,11 @@ function harness(start = new Date(2026, 7, 17, 8, 0, 0).getTime()) {
   let now = start;
   let bot: "ready" | "busy" | "missing" = "ready";
   let task = 0;
+  const routineTasks = new Map<string, string>();
   const started: Array<{ botId: string; threadId: string; prompt: string }> = [];
   const runOns: string[] = [];
   const triggerSources: string[] = [];
+  const modelSelections: Array<unknown> = [];
   const taskActivations: boolean[] = [];
   const emitted: any[] = [];
   const changed: any[] = [];
@@ -38,10 +40,19 @@ function harness(start = new Date(2026, 7, 17, 8, 0, 0).getTime()) {
       taskActivations.push(activate);
       return { threadId: `thread-${++task}` };
     },
-    startTurn: async (botId, threadId, prompt, runOn, triggerSource) => {
+    taskForRun: (_botId, routineId) => {
+      let threadId = routineTasks.get(routineId);
+      if (!threadId) {
+        threadId = `thread-${++task}`;
+        routineTasks.set(routineId, threadId);
+      }
+      return { threadId };
+    },
+    startTurn: async (botId, threadId, prompt, runOn, triggerSource, _onDispatchError, modelSelection) => {
       started.push({ botId, threadId, prompt });
       runOns.push(runOn);
       triggerSources.push(triggerSource);
+      modelSelections.push(modelSelection);
     },
     onRunChanged: (run) => changed.push(run),
     onRunFailed: (run) => failed.push(run),
@@ -54,6 +65,7 @@ function harness(start = new Date(2026, 7, 17, 8, 0, 0).getTime()) {
     started,
     runOns,
     triggerSources,
+    modelSelections,
     taskActivations,
     changed,
     failed,
@@ -79,6 +91,107 @@ describe("nextOccurrence", () => {
   it("returns a one-off only while it is still in the future", () => {
     expect(nextOccurrence({ type: "once", at: 200 }, 100)).toBe(200);
     expect(nextOccurrence({ type: "once", at: 100 }, 100)).toBeNull();
+  });
+
+  it("steps an interval on marks anchored to the window start", () => {
+    const monday = new Date(2026, 7, 17, 10, 7, 0).getTime();
+    const next = nextOccurrence(
+      { type: "interval", everyMinutes: 30, start: "09:00", end: "22:00", weekdays: [1, 2, 3, 4, 5] },
+      monday,
+    )!;
+    const d = new Date(next);
+    expect([d.getDay(), d.getHours(), d.getMinutes()]).toEqual([1, 10, 30]);
+  });
+
+  it("rolls an interval past its window to the next allowed day", () => {
+    const lateMonday = new Date(2026, 7, 17, 22, 5, 0).getTime();
+    const next = nextOccurrence(
+      { type: "interval", everyMinutes: 30, start: "09:00", end: "22:00", weekdays: [1, 2, 3, 4, 5] },
+      lateMonday,
+    )!;
+    const d = new Date(next);
+    expect([d.getDay(), d.getHours(), d.getMinutes()]).toEqual([2, 9, 0]);
+  });
+
+  it("validates interval schedules on create", () => {
+    const h = harness();
+    expect(() => h.manager.create({
+      name: "Too tight",
+      prompt: "watch",
+      botId: "maus-1",
+      schedule: { type: "interval", everyMinutes: 2, weekdays: [1] },
+    })).toThrow(/5 minutes/);
+    expect(() => h.manager.create({
+      name: "Backwards window",
+      prompt: "watch",
+      botId: "maus-1",
+      schedule: { type: "interval", everyMinutes: 30, start: "18:00", end: "09:00", weekdays: [1] },
+    })).toThrow(/end time/);
+  });
+
+  it("runs a local pre-check once, then writes a skipped receipt when unchanged", async () => {
+    const h = harness(new Date(2026, 7, 17, 8, 0, 0).getTime());
+    const routine = h.manager.create({
+      name: "Cheap watch",
+      prompt: "Only inspect the changed item",
+      botId: "maus-1",
+      precheck: { kind: "command", command: "printf stable" },
+      schedule: { type: "daily", time: "08:30", weekdays: [0, 1, 2, 3, 4, 5, 6] },
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    expect(h.started).toHaveLength(1);
+    const next = h.manager.listRoutines()[0]!.nextRunAt!;
+    h.setNow(next);
+    await h.manager.tick();
+    expect(h.started).toHaveLength(1);
+    expect(h.manager.listRuns()[0]).toMatchObject({
+      status: "skipped",
+      precheckNote: "Pre-check: no change",
+    });
+  });
+
+  it("rejects a non-local HTTP pre-check", () => {
+    const h = harness();
+    expect(() => h.manager.create({
+      name: "Unsafe watch",
+      prompt: "Check",
+      botId: "maus-1",
+      precheck: { kind: "http", url: "https://example.com/changed" },
+      schedule: { type: "daily", time: "08:30", weekdays: [0, 1, 2, 3, 4, 5, 6] },
+    })).toThrow("Pre-check URL must point to localhost");
+  });
+
+  it("records an honest missed receipt when an interval run is still active", async () => {
+    const start = new Date(2026, 7, 17, 8, 0, 0).getTime();
+    const h = harness(start);
+    const routine = h.manager.create({
+      name: "X watch",
+      prompt: "Check for new posts",
+      botId: "maus-1",
+      schedule: {
+        type: "interval",
+        everyMinutes: 30,
+        start: "08:00",
+        end: "22:00",
+        weekdays: [0, 1, 2, 3, 4, 5, 6],
+      },
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    expect(h.started).toHaveLength(1);
+
+    const nextMark = h.manager.listRoutines()[0]!.nextRunAt!;
+    h.setNow(nextMark);
+    await h.manager.tick();
+
+    expect(h.started).toHaveLength(1);
+    expect(h.manager.listRuns()[0]).toMatchObject({
+      status: "missed",
+      scheduledFor: nextMark,
+    });
+    expect(h.manager.listRuns()[0]!.error).toContain("still going");
+    expect(h.manager.listRoutines()[0]!.nextRunAt).toBeGreaterThan(nextMark);
   });
 });
 
@@ -380,6 +493,32 @@ describe("RoutineManager", () => {
     expect(h.started).toHaveLength(0);
   });
 
+  it("pauses definitions and cancels active work during an emergency stop", async () => {
+    const h = harness();
+    const interrupt = vi.fn(async () => {});
+    h.options.interruptTurn = interrupt;
+    const routine = h.manager.create({
+      name: "Overnight scout",
+      prompt: "Keep researching",
+      botId: "maus-scout",
+      schedule: { type: "daily", time: "23:00", weekdays: [0, 1, 2, 3, 4, 5, 6] },
+    });
+    h.manager.runNow(routine.id);
+    await h.manager.tick();
+
+    await expect(h.manager.pauseAll()).resolves.toEqual({
+      pausedRoutines: 1,
+      cancelledRuns: 1,
+      interruptedRuns: 1,
+    });
+    expect(h.manager.listRoutines()[0]).toMatchObject({ enabled: false, nextRunAt: null });
+    expect(h.manager.listRuns()[0]).toMatchObject({
+      status: "cancelled",
+      error: "Emergency stop pressed",
+    });
+    expect(interrupt).toHaveBeenCalledWith("maus-scout", "thread-1", "maus");
+  });
+
   it("snapshots queued instructions so later edits do not rewrite a receipt", async () => {
     const h = harness();
     h.setBot("busy");
@@ -425,6 +564,28 @@ describe("RoutineManager", () => {
     expect(h.manager.listRoutines()[0]).toMatchObject({ runOn: "maus" });
   });
 
+  it("snapshots and dispatches a per-routine model selection", async () => {
+    const h = harness();
+    const validate = vi.fn();
+    h.options.validateModelSelection = validate;
+    const selection = { instanceId: "claude-fast", model: "sonnet", effort: "high" as const };
+    const routine = h.manager.create({
+      name: "Fast review",
+      prompt: "Review this quickly",
+      botId: "maus-model",
+      modelSelection: selection,
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    h.manager.update(routine.id, {
+      modelSelection: { instanceId: "claude-deep", model: "opus", effort: "xhigh" },
+    });
+    expect(validate).toHaveBeenCalled();
+    expect(h.modelSelections).toEqual([selection]);
+    expect(h.manager.listRuns()[0]).toMatchObject({ modelSelection: selection });
+  });
+
   it("opens webhook jobs in the assigned bot's live chat", async () => {
     const h = harness();
     const receivedAt = new Date(2026, 7, 17, 8, 2).getTime();
@@ -450,7 +611,27 @@ describe("RoutineManager", () => {
     expect(h.started).toEqual([{ botId: "maus-webhook", threadId: "thread-1", prompt: "Handle ticket 42" }]);
     expect(h.runOns).toEqual(["cloud"]);
     expect(h.triggerSources).toEqual(["webhook"]);
-    expect(h.taskActivations).toEqual([true]);
+    expect(h.taskActivations).toEqual([]);
+  });
+
+  it("drains webhook deliveries oldest-first into one persistent thread", async () => {
+    const h = harness();
+    h.setBot("busy");
+    for (const n of [1, 2, 3]) {
+      h.manager.enqueueWebhook({
+        webhookId: "hook-sniper",
+        webhookName: "Sniper signals",
+        prompt: `signal ${n}`,
+        botId: "maus-sniper",
+        runOn: "maus",
+        deliveryId: `delivery-${n}`,
+        receivedAt: n,
+      });
+    }
+    h.setBot("ready");
+    await h.manager.tick();
+    expect(h.started.map((started) => started.prompt)).toEqual(["signal 1", "signal 2", "signal 3"]);
+    expect(new Set(h.started.map((started) => started.threadId)).size).toBe(1);
   });
 
   it("folds provider lifecycle events into the calendar receipt", async () => {
@@ -492,6 +673,75 @@ describe("RoutineManager", () => {
       output: "Report shipped.",
       cost: 0.02,
     });
+  });
+
+  it("never stores an internal autonomy envelope in a routine receipt", async () => {
+    const h = harness();
+    const routine = h.manager.create({
+      name: "Sensei nudge",
+      prompt: "Send a midday nudge",
+      botId: "sensei",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    h.manager.handleRuntimeEvent({
+      eventId: "sensei-output",
+      provider: "fake",
+      threadId: "thread-1",
+      createdAt: new Date().toISOString(),
+      type: "item.completed",
+      itemType: "assistant_text",
+      text: "Move and drink water.\n\n```autonomy-outcome\n{\"kind\":\"autonomy-outcome\",\"status\":\"ok\"}\n```",
+    });
+    expect(h.manager.listRuns()[0]?.output).toBe("Move and drink water.");
+  });
+
+  it("uses the summary from an envelope-only successful reminder", async () => {
+    const h = harness();
+    const routine = h.manager.create({
+      name: "Sensei nudge",
+      prompt: "Send a midday nudge",
+      botId: "sensei",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    h.manager.handleRuntimeEvent({
+      eventId: "sensei-envelope",
+      provider: "fake",
+      threadId: "thread-1",
+      createdAt: new Date().toISOString(),
+      type: "item.completed",
+      itemType: "assistant_text",
+      text: "```autonomy-outcome\n{\"kind\":\"autonomy-outcome\",\"status\":\"ok\",\"notify\":true,\"summary\":\"Move and drink water, grasshopper.\"}\n```",
+    });
+    expect(h.manager.listRuns()[0]?.output).toBe("Move and drink water, grasshopper.");
+  });
+
+  it("fails a scheduled run that completed without a deliverable message", async () => {
+    const h = harness();
+    const routine = h.manager.create({
+      name: "Silent reminder",
+      prompt: "Come back to me",
+      botId: "sensei",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    h.manager.handleRuntimeEvent({
+      eventId: "silent-completion",
+      provider: "fake",
+      threadId: "thread-1",
+      createdAt: new Date().toISOString(),
+      type: "turn.completed",
+      ok: true,
+    });
+    expect(h.manager.listRuns()[0]).toMatchObject({
+      status: "failed",
+      error: "The bot finished without producing a message for you",
+    });
+    expect(h.failed).toHaveLength(1);
   });
 
   it("reports a failed run once with its detached thread", async () => {

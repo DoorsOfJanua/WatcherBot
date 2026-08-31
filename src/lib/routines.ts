@@ -1,6 +1,7 @@
 export type RoutineSchedule =
   | { type: "once"; at: number }
-  | { type: "daily"; time: string; weekdays: number[] };
+  | { type: "daily"; time: string; weekdays: number[] }
+  | { type: "interval"; everyMinutes: number; start?: string; end?: string; weekdays: number[] };
 
 export type RoutineRunOn = "maus" | "cloud";
 
@@ -11,6 +12,7 @@ export type RoutineRunStatus =
   | "running"
   | "waiting"
   | "completed"
+  | "skipped"
   | "failed"
   | "cancelled"
   | "missed";
@@ -24,6 +26,9 @@ export interface Routine {
   enabled: boolean;
   schedule: RoutineSchedule;
   durationMinutes: number;
+  precheck?: RoutinePrecheck;
+  precheckState?: string;
+  modelSelection?: RoutineModelSelection;
   nextRunAt: number | null;
   createdAt: number;
   updatedAt: number;
@@ -48,6 +53,8 @@ export interface RoutineRun {
   finishedAt?: number;
   output?: string;
   error?: string;
+  precheckNote?: string;
+  modelSelection?: RoutineModelSelection;
   /** Concise, redacted question or approval reason while status is waiting. */
   attention?: string;
   cost?: number | null;
@@ -64,4 +71,16 @@ export interface RoutineInput {
   enabled?: boolean;
   schedule: RoutineSchedule;
   durationMinutes?: number;
+  precheck?: RoutinePrecheck;
+  modelSelection?: RoutineModelSelection;
 }
+
+export interface RoutineModelSelection {
+  instanceId: string;
+  model: string;
+  effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
+}
+
+export type RoutinePrecheck =
+  | { kind: "http"; url: string; jsonPath?: string }
+  | { kind: "command"; command: string };

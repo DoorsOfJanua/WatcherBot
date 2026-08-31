@@ -144,7 +144,15 @@ describe("RoutineRequestService", () => {
           durationMinutes: routine.durationMinutes,
           schedule: routine.schedule.type === "once"
             ? { at: routine.schedule.at, type: "once" }
-            : { weekdays: [...routine.schedule.weekdays], time: routine.schedule.time, type: "daily" },
+            : routine.schedule.type === "daily"
+              ? { weekdays: [...routine.schedule.weekdays], time: routine.schedule.time, type: "daily" }
+              : {
+                  weekdays: [...routine.schedule.weekdays],
+                  everyMinutes: routine.schedule.everyMinutes,
+                  ...(routine.schedule.start ? { start: routine.schedule.start } : {}),
+                  ...(routine.schedule.end ? { end: routine.schedule.end } : {}),
+                  type: "interval",
+                },
           instructions: routine.instructions,
           runOn: routine.runOn,
           name: routine.name,
