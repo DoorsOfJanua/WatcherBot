@@ -686,7 +686,7 @@ describe("busy retries and receipts", () => {
   it("writes a dropped receipt for every handoff a failed turn discards", async () => {
     const queued = queueDelegation(commsBus, from, { toBotId: target.id, message: "never runs", depth: 0 }, 1);
     const { discardDelegations } = await import("./delegations.ts");
-    discardDelegations(commsBus, from.threadId);
+    expect(discardDelegations(commsBus, from.threadId)).toBe(1);
     expect(_pendingCount(from.threadId)).toBe(0);
     expect(findDelegationReceipt(queued.id!)).toMatchObject({ status: "dropped" });
   });
