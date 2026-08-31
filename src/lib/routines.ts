@@ -83,4 +83,5 @@ export interface RoutineModelSelection {
 
 export type RoutinePrecheck =
   | { kind: "http"; url: string; jsonPath?: string }
-  | { kind: "command"; command: string };
+  | { kind: "command"; command: string }
+  | { kind: "monitor"; source: Record<string, unknown>; config?: Record<string, unknown> };

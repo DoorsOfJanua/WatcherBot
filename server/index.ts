@@ -193,6 +193,8 @@ import { createTeamManifest, importedMemberProfile, parseTeamManifest } from "./
 import { readThreadEvents } from "./thread-events.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
 import { memberTurnSelection } from "./member-turn.ts";
+import { createMonitorPrecheckProvider } from "./monitor-evaluator.ts";
+import { createHttpMonitorAdapter } from "./monitor-http-adapter.ts";
 import { WebhookManager } from "./webhooks.ts";
 import { SPAWNED_PROXIES } from "./proxy-paths.ts";
 import { loadBundledSkills, loadUserSkills, mergeSkills, renderSkillInstructions, selectBundledSkills } from "./skill-library.ts";
@@ -3011,6 +3013,11 @@ routines = new RoutineManager({
     if (!instance.models.options.some((option) => option.id === selection.model) && selection.model !== instance.models.default) {
       throw new Error(`model "${selection.model}" is not offered by this provider instance`);
     }
+  },
+  precheckProviders: {
+    monitor: createMonitorPrecheckProvider({
+      adapters: { http: createHttpMonitorAdapter() },
+    }),
   },
   interruptTurn: async (botId, threadId, runOn) => {
     const bot = store.bot(botId);

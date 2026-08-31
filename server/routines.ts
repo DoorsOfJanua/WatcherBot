@@ -137,7 +137,17 @@ export interface RoutineInput {
 
 export type RoutinePrecheck =
   | { kind: "http"; url: string; jsonPath?: string }
-  | { kind: "command"; command: string };
+  | { kind: "command"; command: string }
+  | { kind: "monitor"; source: Record<string, unknown>; config?: Record<string, unknown> };
+
+export interface RoutinePrecheckResult {
+  value?: string;
+  error?: string;
+}
+
+export type RoutinePrecheckProvider = (
+  precheck: RoutinePrecheck,
+) => Promise<RoutinePrecheckResult>;
 
 interface RoutineFile {
   version: 1;
@@ -178,6 +188,7 @@ export interface RoutineManagerOptions {
   onRunChanged?: (run: RoutineRun) => void;
   onRunFailed?: (run: RoutineRun) => void;
   validateModelSelection?: (selection: ModelSelection) => void;
+  precheckProviders?: Partial<Record<RoutinePrecheck["kind"], RoutinePrecheckProvider>>;
 }
 
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
@@ -266,7 +277,24 @@ function cleanPrecheck(value: unknown): RoutinePrecheck | undefined {
     const jsonPath = candidate.jsonPath == null ? undefined : String(candidate.jsonPath).trim().slice(0, 200);
     return { kind: "http", url: parsed.toString(), ...(jsonPath ? { jsonPath } : {}) };
   }
-  throw new Error("Pre-check must be a local HTTP URL or command");
+  if (candidate.kind === "monitor") {
+    if (!candidate.source || typeof candidate.source !== "object" || Array.isArray(candidate.source)) {
+      throw new Error("Monitor pre-check needs a source");
+    }
+    const source = structuredClone(candidate.source as Record<string, unknown>);
+    const sourceKind = typeof source.kind === "string" ? source.kind.trim().slice(0, 80) : "";
+    if (!sourceKind) throw new Error("Monitor pre-check source kind is required");
+    source.kind = sourceKind;
+    const config = candidate.config == null
+      ? undefined
+      : candidate.config && typeof candidate.config === "object" && !Array.isArray(candidate.config)
+        ? structuredClone(candidate.config as Record<string, unknown>)
+        : null;
+    if (config === null) throw new Error("Monitor pre-check config must be an object");
+    if (JSON.stringify({ source, config }).length > 20_000) throw new Error("Monitor pre-check is too large");
+    return { kind: "monitor", source, ...(config ? { config } : {}) };
+  }
+  throw new Error("Choose a supported pre-check");
 }
 
 /** Next wall-clock occurrence in this computer's timezone, strictly after `after`. */
@@ -344,8 +372,13 @@ function jsonPathValue(value: unknown, jsonPath?: string): unknown {
   }, value);
 }
 
-async function readPrecheck(precheck: RoutinePrecheck): Promise<{ value?: string; error?: string }> {
+async function readPrecheck(
+  precheck: RoutinePrecheck,
+  providers: RoutineManagerOptions["precheckProviders"],
+): Promise<RoutinePrecheckResult> {
   try {
+    const provider = providers?.[precheck.kind];
+    if (provider) return await provider(precheck);
     let raw: unknown;
     if (precheck.kind === "command") {
       const result = await execFileAsync("/bin/zsh", ["-lc", precheck.command], {
@@ -353,7 +386,7 @@ async function readPrecheck(precheck: RoutinePrecheck): Promise<{ value?: string
         maxBuffer: 64 * 1024,
       });
       raw = result.stdout.trim();
-    } else {
+    } else if (precheck.kind === "http") {
       const response = await fetch(precheck.url, { signal: AbortSignal.timeout(10_000) });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const text = await response.text();
@@ -363,6 +396,8 @@ async function readPrecheck(precheck: RoutinePrecheck): Promise<{ value?: string
         raw = text.trim();
       }
       raw = jsonPathValue(raw, precheck.jsonPath);
+    } else {
+      throw new Error(`No pre-check provider registered for kind "${precheck.kind}"`);
     }
     if (raw == null) return { value: "<missing>" };
     return { value: typeof raw === "string" ? raw : JSON.stringify(raw) };
@@ -850,7 +885,7 @@ export class RoutineManager {
           missed.error = "Skipped: the previous run of this routine was still going";
           this.emitRun(missed);
         } else if (routine.precheck) {
-          const check = await readPrecheck(routine.precheck);
+          const check = await readPrecheck(routine.precheck, this.options.precheckProviders);
           if (check.value !== undefined && routine.precheckState === check.value) {
             const skipped = this.newRun(routine, scheduledFor, false);
             skipped.status = "skipped";
