@@ -12,6 +12,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
 import { parseReplyDraftBatch } from "../lib/reply-draft-deck";
+import { chatBlockKind, isArrowOutline } from "../lib/chat-blocks";
 import { ReplyDraftDeck } from "./ReplyDraftDeck";
 
 // tiny highlight cache so revisiting a thread doesn't re-tokenize settled
@@ -234,6 +235,26 @@ function Spoiler({ children }: { children?: ReactNode }) {
   );
 }
 
+/** Agent-authored diagrams and prose fences should read like a note from a
+ * teammate, not like a terminal. */
+function NoteBlock({ text }: { text: string }) {
+  if (!isArrowOutline(text)) {
+    return <div className="my-2 max-w-[65ch] whitespace-pre-wrap py-1 text-[13.5px] leading-relaxed text-ink-secondary">{text}</div>;
+  }
+  return (
+    <div className="my-2 grid max-w-[65ch] gap-0.5 py-1 text-[13.5px] leading-snug">
+      {text.split("\n").map((raw, index) => {
+        const line = raw.trim();
+        if (!line) return <div key={index} className="h-1" aria-hidden="true" />;
+        const arrow = /^(?:↓|→|->|=>)\s*(.*)$/.exec(line);
+        return arrow
+          ? <div key={index} className="flex items-baseline gap-2 pl-3 text-ink-secondary"><span aria-hidden="true" className="text-[12px] text-accent-text">↓</span><span>{arrow[1]}</span></div>
+          : <div key={index} className="font-medium text-ink">{line}</div>;
+      })}
+    </div>
+  );
+}
+
 function ChatMarkdownComponent({ text, streaming = false, threadId }: { text: string; streaming?: boolean; threadId?: string }) {
   return (
     <div className="chat-md min-w-0 [&>*+*]:mt-2">
@@ -254,6 +275,9 @@ function ChatMarkdownComponent({ text, streaming = false, threadId }: { text: st
               const batch = parseReplyDraftBatch(code);
               return batch ? <ReplyDraftDeck batch={batch} threadId={threadId} /> : <CodeBlock code={code} lang={lang} streaming={streaming} />;
             }
+            const kind = chatBlockKind(lang, code);
+            if (kind === "hidden") return null;
+            if (kind === "note") return <NoteBlock text={code} />;
             return <CodeBlock code={code} lang={lang} streaming={streaming} />;
           },
           img({ src, alt }: { src?: string; alt?: string }) {

@@ -5054,6 +5054,67 @@ const server = createServer(async (req, res) => {
       return json(res, 404, { error: "unknown internal endpoint" });
     }
 
+    // Read-only projection for the Watchers/Missions overview. Monitors are
+    // routine definitions with a fingerprinting precheck after the P8 merge.
+    if (path === "/api/autonomy" && method === "GET") {
+      const monitorRoutines = routines!.listRoutines().filter((routine) => routine.precheck?.kind === "monitor");
+      const runs = routines!.listRuns();
+      return json(res, 200, {
+        monitors: monitorRoutines.map((routine) => {
+          const latest = runs.find((run) => run.routineId === routine.id);
+          const source = routine.precheck?.kind === "monitor" ? routine.precheck.source : {};
+          const intervalMinutes = routine.schedule.type === "interval" ? routine.schedule.everyMinutes : 0;
+          return {
+            id: routine.id,
+            botId: routine.botId,
+            threadId: routine.sourceThreadId ?? store.bot(routine.botId)?.threadId ?? "",
+            name: routine.name,
+            description: routine.prompt,
+            status: routine.enabled ? "active" : "paused",
+            source: { kind: source.kind, url: source.url },
+            schedule: {
+              intervalMinutes,
+              nextDueAt: routine.nextRunAt,
+              ...(latest ? { lastRunAt: latest.finishedAt ?? latest.startedAt ?? latest.scheduledFor } : {}),
+            },
+            ...(routine.precheckState ? { baseline: { capturedAt: routine.updatedAt, fingerprint: routine.precheckState } } : {}),
+            ...(latest ? {
+              lastObservation: {
+                observedAt: latest.finishedAt ?? latest.startedAt ?? latest.scheduledFor,
+                status: latest.status === "skipped" ? "ok" : latest.status === "completed" ? "changed" : "error",
+                ...(latest.status === "completed" ? { changedAt: latest.finishedAt ?? latest.scheduledFor } : {}),
+                ...(latest.error ? { error: latest.error } : {}),
+              },
+            } : {}),
+            createdAt: routine.createdAt,
+            updatedAt: routine.updatedAt,
+          };
+        }),
+        missions: missions.list().map((mission) => ({
+          id: mission.id,
+          title: mission.title,
+          leadAgentId: mission.leadAgentId,
+          ownerThreadId: mission.ownerThreadId,
+          objective: mission.objective,
+          status: mission.status,
+          workItems: mission.workItems.map((item) => ({
+            id: item.id,
+            title: item.title,
+            description: item.description,
+            assignee: item.assignee,
+            status: item.status,
+            attempts: item.attempts,
+            result: item.result,
+            error: item.error,
+            updatedAt: item.updatedAt,
+            completedAt: item.completedAt,
+          })),
+          createdAt: mission.createdAt,
+          updatedAt: mission.updatedAt,
+        })),
+      });
+    }
+
     // Live Team Map metadata. Prompts and replies never leave their
     // transcripts: this projection carries only ids, status relationships,
     // optional delegation labels, and timestamps.

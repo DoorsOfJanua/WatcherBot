@@ -8,9 +8,11 @@ import {
   Bot as BotIcon,
   CalendarDays,
   Check,
+  ChevronDown,
   ClipboardCopy,
   Copy,
   Crown,
+  FolderClosed,
   FolderMinus,
   FolderPlus,
   Library,
@@ -47,7 +49,9 @@ import { RenameTitle } from "./RenameTitle";
 import { BotPickerList } from "./BotPickerList";
 import {
   loadSidebarDensity,
+  loadSidebarOrganization,
   saveSidebarDensity,
+  saveSidebarOrganization,
   type SidebarDensity,
 } from "@/lib/sidebar-preferences";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
@@ -475,6 +479,69 @@ function SectionDivider({ name }: { name: string }) {
       <span className="h-px flex-1 bg-hairline/40" />
     </div>
   );
+}
+
+function CollapsibleSectionHeader({
+  name,
+  count,
+  collapsed,
+  density,
+  kind,
+  hasUnread = false,
+  working = false,
+  onToggle,
+}: {
+  name: string;
+  count: number;
+  collapsed: boolean;
+  density: SidebarDensity;
+  kind: "rooms" | "folder";
+  hasUnread?: boolean;
+  working?: boolean;
+  onToggle: () => void;
+}) {
+  const Icon = kind === "rooms" ? Users : FolderClosed;
+  if (density === "icons") {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        aria-label={`${collapsed ? "Expand" : "Collapse"} ${name}`}
+        title={`${name} · ${count}`}
+        className="relative mx-auto flex size-10 items-center justify-center rounded-lg text-ink-secondary hover:bg-raised hover:text-ink"
+      >
+        <Icon size={17} />
+        {(hasUnread || working) && (
+          <span className={cn("absolute right-1.5 top-1.5 size-1.5 rounded-full bg-accent", working && "animate-pulse motion-reduce:animate-none")} />
+        )}
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 pt-1 text-left text-ink-secondary hover:bg-raised/50 hover:text-ink"
+      data-section={name}
+    >
+      <ChevronDown
+        size={14}
+        className={cn("shrink-0 transition-transform duration-200 motion-reduce:transition-none", collapsed && "-rotate-90")}
+      />
+      <Icon size={14} className="shrink-0" />
+      <span className="truncate text-[11px] font-semibold uppercase tracking-[0.07em]">{name}</span>
+      <span className="text-[10.5px] tabular-nums text-ink-secondary/70">{count}</span>
+      {(hasUnread || working) && (
+        <span className={cn("ml-auto size-1.5 shrink-0 rounded-full bg-accent", working && "animate-pulse motion-reduce:animate-none")} />
+      )}
+    </button>
+  );
+}
+
+function CollapsibleSectionBody({ expanded, children }: { expanded: boolean; children: React.ReactNode }) {
+  return expanded ? <div className="flex flex-col gap-0.5">{children}</div> : null;
 }
 
 /** Move-to-section popover: existing sections as chips (checkmark on the
@@ -1030,11 +1097,33 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   } | null>(null);
   const [query, setQuery] = useState("");
   const [density, setDensityState] = useState<SidebarDensity>(() => loadSidebarDensity());
+  const [organization, setOrganization] = useState(() => loadSidebarOrganization());
   const [lastExpandedDensity, setLastExpandedDensity] = useState<Exclude<SidebarDensity, "icons">>(() => {
     const saved = loadSidebarDensity();
     return saved === "icons" ? "comfortable" : saved;
   });
   const [densityOpen, setDensityOpen] = useState(false);
+
+  const updateOrganization = (update: (current: typeof organization) => typeof organization) => {
+    setOrganization((current) => {
+      const next = update(current);
+      saveSidebarOrganization(next);
+      return next;
+    });
+  };
+
+  const toggleRooms = () => {
+    updateOrganization((current) => ({ ...current, roomsCollapsed: !current.roomsCollapsed }));
+  };
+
+  const toggleFolder = (folder: string) => {
+    updateOrganization((current) => {
+      const collapsed = new Set(current.collapsedFolders);
+      if (collapsed.has(folder)) collapsed.delete(folder);
+      else collapsed.add(folder);
+      return { ...current, collapsedFolders: [...collapsed] };
+    });
+  };
 
   const setDensity = (next: SidebarDensity) => {
     setDensityState(next);
@@ -1251,6 +1340,9 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     if (!sectionNames.includes(group.section!)) sectionNames.push(group.section!);
   }
   const activeBotCount = state.bots.filter((bot) => !bot.hidden).length;
+  const roomsExpanded = Boolean(q) || !organization.roomsCollapsed;
+  const roomsHaveUnread = unsectionedGroups.some((group) => group.unread);
+  const roomsWorking = unsectionedGroups.some((group) => Boolean(group.busyBotId));
   const archivedBots = state.bots.filter((bot) => bot.hidden);
   const pendingTeamUndo = teamFeedback?.undo;
   const pendingBotUndo = teamFeedback?.restoreBot;
@@ -1449,10 +1541,25 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               />
             </div>
           )}
-          {unsectionedGroups.length > 0 && density !== "icons" && <SectionDivider name="Channels" />}
-          {unsectionedGroups.map((g) => (
-            <GroupListItem key={g.id} group={g} density={density} onMenu={setRoomMenu} />
-          ))}
+          {unsectionedGroups.length > 0 && (
+            <>
+              <CollapsibleSectionHeader
+                name="Rooms"
+                count={unsectionedGroups.length}
+                collapsed={!roomsExpanded}
+                density={density}
+                kind="rooms"
+                hasUnread={roomsHaveUnread}
+                working={roomsWorking}
+                onToggle={toggleRooms}
+              />
+              <CollapsibleSectionBody expanded={roomsExpanded}>
+                {unsectionedGroups.map((group) => (
+                  <GroupListItem key={group.id} group={group} density={density} onMenu={setRoomMenu} />
+                ))}
+              </CollapsibleSectionBody>
+            </>
+          )}
           {visibleBots.length > 0 && density !== "icons" && <SectionDivider name="Bots" />}
           {visibleBots.map((b) => (
             <BotListItem
@@ -1466,36 +1573,51 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           ))}
           {sectionNames.map((name) => (
             <Fragment key={name}>
-              {density !== "icons" && <SectionDivider name={name} />}
-              {sectionChiefs
-                .filter((bot) => bot.section === name)
-                .map((bot) => (
-                  <BotListItem
-                    key={bot.id}
-                    bot={bot}
-                    density={density}
-                    onMenu={setMenu}
-                    onArchive={(candidate) => void archiveBot(candidate)}
-                    archiveDisabled
-                  />
-                ))}
-              {sectionedGroups
-                .filter((g) => g.section === name)
-                .map((g) => (
-                  <GroupListItem key={g.id} group={g} density={density} onMenu={setRoomMenu} />
-                ))}
-              {sectionedBots
-                .filter((b) => b.section === name)
-                .map((b) => (
-                  <BotListItem
-                    key={b.id}
-                    bot={b}
-                    density={density}
-                    onMenu={setMenu}
-                    onArchive={(bot) => void archiveBot(bot)}
-                    archiveDisabled={activeBotCount <= 1}
-                  />
-                ))}
+              {(() => {
+                const folderChiefs = sectionChiefs.filter((bot) => bot.section === name);
+                const folderGroups = sectionedGroups.filter((group) => group.section === name);
+                const folderBots = sectionedBots.filter((bot) => bot.section === name);
+                const folderExpanded = Boolean(q) || !organization.collapsedFolders.includes(name);
+                return (
+                  <>
+                    <CollapsibleSectionHeader
+                      name={name}
+                      count={folderChiefs.length + folderGroups.length + folderBots.length}
+                      collapsed={!folderExpanded}
+                      density={density}
+                      kind="folder"
+                      hasUnread={[...folderChiefs, ...folderBots].some((bot) => bot.unread) || folderGroups.some((group) => group.unread)}
+                      working={[...folderChiefs, ...folderBots].some((bot) => bot.busy) || folderGroups.some((group) => Boolean(group.busyBotId))}
+                      onToggle={() => toggleFolder(name)}
+                    />
+                    <CollapsibleSectionBody expanded={folderExpanded}>
+                      {folderChiefs.map((bot) => (
+                        <BotListItem
+                          key={bot.id}
+                          bot={bot}
+                          density={density}
+                          onMenu={setMenu}
+                          onArchive={(candidate) => void archiveBot(candidate)}
+                          archiveDisabled
+                        />
+                      ))}
+                      {folderGroups.map((group) => (
+                        <GroupListItem key={group.id} group={group} density={density} onMenu={setRoomMenu} />
+                      ))}
+                      {folderBots.map((bot) => (
+                        <BotListItem
+                          key={bot.id}
+                          bot={bot}
+                          density={density}
+                          onMenu={setMenu}
+                          onArchive={(candidate) => void archiveBot(candidate)}
+                          archiveDisabled={activeBotCount <= 1}
+                        />
+                      ))}
+                    </CollapsibleSectionBody>
+                  </>
+                );
+              })()}
             </Fragment>
           ))}
           <SearchResults query={query} onLanded={() => setQuery("")} />
