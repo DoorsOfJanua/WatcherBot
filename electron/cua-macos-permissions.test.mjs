@@ -29,4 +29,3 @@ test("reports missing permissions without invoking a request API", () => {
 
   assert.deepEqual(status, { accessibility: false, screenRecording: false });
 });
-

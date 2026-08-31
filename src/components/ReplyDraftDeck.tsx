@@ -171,4 +171,3 @@ export function ReplyDraftDeck({ batch, threadId }: { batch: ReplyDraftBatch; th
     </section>
   );
 }
-

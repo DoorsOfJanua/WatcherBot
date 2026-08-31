@@ -101,4 +101,3 @@ export function relativeTime(at: number | null | undefined, now = Date.now()): s
   const days = Math.round(hours / 24);
   return future ? `in ${days} d` : `${days} d ago`;
 }
-

@@ -9,4 +9,3 @@ function readMacOSPermissionStatus(systemPreferences) {
 }
 
 module.exports = { readMacOSPermissionStatus };
-

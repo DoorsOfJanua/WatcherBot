@@ -260,4 +260,3 @@ export function AutonomyPanel({ view, bots }: { view: View; bots: Bot[] }) {
     </div>
   );
 }
-

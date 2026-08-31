@@ -133,4 +133,3 @@ describe("ReplyGuy batch approval", () => {
     expect(calls[1].init?.body).toBe(JSON.stringify({ reviewedBy: "operator" }));
   });
 });
-

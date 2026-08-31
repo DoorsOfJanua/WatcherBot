@@ -18,4 +18,3 @@ describe("chatBlockKind", () => {
     expect(chatBlockKind("", '{"answer":42}')).toBe("code");
   });
 });
-

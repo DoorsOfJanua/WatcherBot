@@ -45,4 +45,3 @@ describe("autonomy presentation helpers", () => {
     expect(relativeTime(now - 2 * 60 * 60_000, now)).toBe("2 hr ago");
   });
 });
-

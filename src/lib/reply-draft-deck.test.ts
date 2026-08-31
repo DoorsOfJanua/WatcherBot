@@ -27,4 +27,3 @@ describe("reply draft deck", () => {
     }))).toBeNull();
   });
 });
-

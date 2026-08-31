@@ -42,4 +42,3 @@ export function isArrowOutline(source: string): boolean {
     .split("\n")
     .filter((line) => /^\s*(?:↓|→|->|=>)\s*\S/.test(line)).length >= 2;
 }
-

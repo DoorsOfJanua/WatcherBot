@@ -48,4 +48,3 @@ export function parseReplyDraftBatch(raw: string): ReplyDraftBatch | null {
     return null;
   }
 }
-
