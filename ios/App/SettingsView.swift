@@ -231,7 +231,7 @@ struct ConnectedComputersView: View {
                                 pendingRemoval = computer
                             }
                         }
-                        .accessibilityHint("Switches OpenMausMobile to this computer")
+                        .accessibilityHint("Switches The WatcherBot to this computer")
                     }
                 }
             }

@@ -47,6 +47,7 @@ final class SpeechDictation: ObservableObject {
     private var recognitionTask: SFSpeechRecognitionTask?
     private var tapInstalled = false
     private var stopping = false
+    private var timeline: [SpeechSegment] = []
     /// Bumped on every start/stop so an authorization that finishes after
     /// the user already cancelled cannot open the mic.
     private var generation = 0
@@ -65,6 +66,7 @@ final class SpeechDictation: ObservableObject {
         error = nil
         self.base = base.trimmingCharacters(in: .whitespacesAndNewlines)
         transcript = ""
+        timeline = []
         isStarting = true
         generation += 1
         let gen = generation
@@ -204,7 +206,8 @@ final class SpeechDictation: ObservableObject {
         // new draft or stopping the new capture.
         guard gen == generation, !stopping, isListening else { return }
         if let result {
-            transcript = result.bestTranscription.formattedString
+            merge(result.bestTranscription.segments)
+            transcript = renderedTimeline
             // Composer dictation does not wait for isFinal — the last
             // partial is what you send. If the recognizer finalizes on
             // its own (rare without endAudio), just stop listening.
@@ -225,6 +228,42 @@ final class SpeechDictation: ObservableObject {
         }
         self.error = "Couldn't transcribe that."
         stop()
+    }
+
+    /// Merge by position in the recording, not by the current text. Apple's
+    /// recognizer can restart its visible hypothesis after a pause and return
+    /// only the newest phrase. Those words have later timestamps, so they are
+    /// appended. Genuine corrections occupy the same audio interval and
+    /// replace only that interval.
+    private func merge(_ segments: [SFTranscriptionSegment]) {
+        guard !segments.isEmpty else { return }
+        let incoming = segments.map {
+            SpeechSegment(
+                start: $0.timestamp,
+                end: $0.timestamp + max($0.duration, 0.04),
+                text: $0.substring
+            )
+        }
+        guard let first = incoming.first, let last = incoming.last else { return }
+        let replacementStart = first.start - 0.08
+        let replacementEnd = last.end + 0.08
+
+        timeline.removeAll { segment in
+            segment.start < replacementEnd && segment.end > replacementStart
+        }
+        timeline.append(contentsOf: incoming)
+        timeline.sort { left, right in
+            if abs(left.start - right.start) < 0.001 { return left.end < right.end }
+            return left.start < right.start
+        }
+    }
+
+    private var renderedTimeline: String {
+        timeline.map(\.text)
+            .joined(separator: " ")
+            .replacingOccurrences(of: #"\s+([,.!?;:])"#, with: "$1", options: .regularExpression)
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
     }
 
     private func teardown() {
@@ -252,7 +291,13 @@ final class SpeechDictation: ObservableObject {
     }
 
     static let speechDeniedMessage =
-        "Dictation needs Speech Recognition access. Enable it in Settings → OpenMausMobile."
+        "Dictation needs Speech Recognition access. Enable it in Settings → The WatcherBot."
     static let micDeniedMessage =
-        "Dictation needs Microphone access. Enable it in Settings → OpenMausMobile."
+        "Dictation needs Microphone access. Enable it in Settings → The WatcherBot."
+}
+
+private struct SpeechSegment {
+    let start: TimeInterval
+    let end: TimeInterval
+    let text: String
 }
