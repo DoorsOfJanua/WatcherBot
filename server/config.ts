@@ -427,9 +427,11 @@ export function builtInBrowserEnabled(cfg: AppConfig): boolean {
   return cfg.features?.browser === true;
 }
 
-// OMB_DATA_DIR isolates test/soak rigs from the user's real fleet.
-export const DATA_DIR = process.env.OMB_DATA_DIR ?? join(homedir(), ".openmausbot");
-const LEGACY_DATA_DIR = join(homedir(), ".opengrokbot");
+// MYAGENT_ROOM_DATA_DIR is the explicit data-dir override. OMB_DATA_DIR stays
+// supported as a legacy environment alias so existing installations survive.
+export const DATA_DIR =
+  process.env.MYAGENT_ROOM_DATA_DIR ?? process.env.OMB_DATA_DIR ?? join(homedir(), ".myagent-room");
+const LEGACY_DATA_DIR = join(homedir(), ".openmausbot");
 export const EVENTS_DIR = join(DATA_DIR, "events");
 export const NATIVE_DIR = join(DATA_DIR, "native");
 
