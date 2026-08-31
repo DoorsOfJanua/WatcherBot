@@ -171,6 +171,8 @@ import { LocalVmLease, LocalVmLeasePool } from "./local-vm-lease.ts";
 import { RepeatDetector, callKey } from "./repeat-detector.ts";
 import { redactSecretsInText } from "./redact.ts";
 import * as vps from "./vps-computer.ts";
+import { MissionDispatcher, type MissionExecutionResult } from "./mission-dispatcher.ts";
+import { MissionManager, type Mission, type WorkItem } from "./missions.ts";
 import { RoutineManager, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import {
   BUILT_IN_BROWSER_SYSTEM_PROMPT,
@@ -1470,6 +1472,8 @@ function isUnattended(botId?: string | null): boolean {
   return true;
 }
 let routines: RoutineManager | null = null;
+const missions = new MissionManager();
+missions.recoverOrphanedClaims();
 const localVmOwnerBusy = (botId: string) => store.bot(botId)?.busy === true;
 const localVmLeases = new LocalVmLeasePool(30 * 60_000);
 const localVmLifecycleBusy = new Set<string>();
@@ -2901,7 +2905,7 @@ function routineSourceOwner(run: RoutineRun) {
   if (!threadId) return null;
   // Validate before messagesFor(): Store lazily opens transcript storage, so
   // reading an orphan id first would recreate a deleted conversation.
-  const bot = store.bot(run.botId);
+  const bot = store.bot(run.sourceBotId ?? run.botId);
   if (!bot) return null;
   if (store.taskByThread(bot.id, threadId)) return { bot, group: undefined, threadId };
   const group = store.groupByThread(threadId);
@@ -2981,6 +2985,41 @@ function syncRoutineRunToSource(run: RoutineRun): string | null {
   return sourceThreadId;
 }
 
+interface MissionRunWaiter {
+  resolve: (result: MissionExecutionResult) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const missionRunWaiters = new Map<string, MissionRunWaiter>();
+
+function settleMissionRun(run: RoutineRun): void {
+  if (run.triggerSource !== "mission") return;
+  const waiter = missionRunWaiters.get(run.id);
+  if (!waiter) return;
+  let result: MissionExecutionResult | null = null;
+  if (run.status === "completed") {
+    if (run.autonomyStatus === "blocked") {
+      result = { status: "block", reason: run.output || "Mission work is blocked" };
+    } else if (run.autonomyStatus === "failed") {
+      result = { status: "fail", reason: run.output || "Mission work failed" };
+    } else {
+      result = {
+        status: "complete",
+        result: run.output,
+        ...(run.cost == null ? {} : { usage: { cost: run.cost } }),
+      };
+    }
+  } else if (run.status === "failed" || run.status === "missed") {
+    result = { status: "fail", reason: run.error || "Mission execution failed" };
+  } else if (run.status === "cancelled") {
+    result = { status: "block", reason: run.error || "Mission execution was cancelled" };
+  }
+  if (!result) return;
+  missionRunWaiters.delete(run.id);
+  clearTimeout(waiter.timer);
+  waiter.resolve(result);
+}
+
 routines = new RoutineManager({
   emit: broadcast,
   botState: (botId) => {
@@ -3029,7 +3068,10 @@ routines = new RoutineManager({
         : null;
     await instance?.adapter.interruptTurn(threadId);
   },
-  onRunChanged: syncRoutineRunToSource,
+  onRunChanged: (run) => {
+    syncRoutineRunToSource(run);
+    settleMissionRun(run);
+  },
   onRunFailed: (run) => {
     const bot = store.bot(run.botId);
     if (!bot) return;
@@ -3037,6 +3079,87 @@ routines = new RoutineManager({
     notify(buildNotification("routine-failed", bot, routineSourceThread(run) ?? run.threadId ?? bot.threadId, detail));
   },
 });
+
+const MISSION_TURN_CEILING_MS = 60 * 60_000;
+
+function missionWorkPrompt(mission: Mission, item: WorkItem): string {
+  const dependencies = item.dependsOn.flatMap((dependencyId) => {
+    const dependency = mission.workItems.find((candidate) => candidate.id === dependencyId);
+    return dependency ? [`- ${dependency.title}: ${dependency.result ?? "completed"}`] : [];
+  });
+  return [
+    `Mission: ${mission.title}`,
+    `Objective: ${mission.objective}`,
+    mission.successCriteria.length > 0
+      ? `Success criteria:\n${mission.successCriteria.map((criterion) => `- ${criterion}`).join("\n")}`
+      : "",
+    `Current work item: ${item.title}`,
+    item.description ? `Instructions: ${item.description}` : "",
+    dependencies.length > 0 ? `Completed dependencies:\n${dependencies.join("\n")}` : "",
+    "Complete this work item without expanding the mission scope. Return exactly one ```autonomy-outcome fenced JSON object. Use status completed with a concise human-facing summary/details when done, blocked when human input is required, or failed when the work cannot be completed.",
+  ].filter(Boolean).join("\n\n");
+}
+
+function executeMissionWorkItem(
+  mission: Mission,
+  item: WorkItem,
+  agentId: string,
+): Promise<MissionExecutionResult> {
+  if (!routines) return Promise.resolve({ status: "fail", reason: "Routine execution is unavailable" });
+  let run: RoutineRun;
+  try {
+    run = routines.enqueueMission({
+      missionId: mission.id,
+      missionTitle: mission.title,
+      workItemId: item.id,
+      workItemTitle: item.title,
+      prompt: missionWorkPrompt(mission, item),
+      botId: agentId,
+      sourceBotId: mission.leadAgentId,
+      sourceThreadId: mission.ownerThreadId,
+    });
+  } catch (error) {
+    return Promise.resolve({
+      status: "fail",
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      const waiter = missionRunWaiters.get(run.id);
+      if (!waiter) return;
+      missionRunWaiters.delete(run.id);
+      waiter.resolve({ status: "block", reason: "Mission work exceeded the one-hour execution ceiling" });
+      void routines?.cancelRun(run.id);
+    }, MISSION_TURN_CEILING_MS);
+    timer.unref?.();
+    missionRunWaiters.set(run.id, { resolve, timer });
+  });
+}
+
+const missionDispatcher = new MissionDispatcher({
+  manager: missions,
+  maxItemsPerTick: 4,
+  canExecute: (_mission, _item, agentId) => {
+    const bot = store.bot(agentId);
+    return Boolean(bot && !bot.busy && !routines?.activeRunForBot(agentId));
+  },
+  execute: executeMissionWorkItem,
+});
+
+let missionTicking = false;
+
+function kickMissionDispatcher(): void {
+  if (missionTicking) return;
+  missionTicking = true;
+  void missionDispatcher.runOnce().finally(() => {
+    missionTicking = false;
+  });
+}
+
+const missionTimer = setInterval(kickMissionDispatcher, 10_000);
+missionTimer.unref?.();
+if (missions.list().some((mission) => mission.status === "running")) queueMicrotask(kickMissionDispatcher);
 const recoveryOwners = routines.routineRequestReceiptOwners();
 if (recoveryOwners.length > 0) {
   // A normal launch has no crash-gap receipts, so it must not eagerly load
@@ -4861,6 +4984,91 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { collaborations, queued, running });
     }
 
+    // ── missions: sibling DAG scheduler, routine-backed execution ───────
+    if (path === "/api/missions" && method === "GET") {
+      return json(res, 200, { missions: missions.list() });
+    }
+    if (path === "/api/missions" && method === "POST") {
+      const body = await readBody(req);
+      const leadAgentId = String(body.leadAgentId ?? "").trim();
+      const lead = store.bot(leadAgentId);
+      if (!lead) return json(res, 400, { error: "Choose an existing lead agent" });
+      const ownerThreadId = String(body.ownerThreadId ?? lead.threadId).trim();
+      const ownerGroup = store.groupByThread(ownerThreadId);
+      if (!store.taskByThread(lead.id, ownerThreadId) && !ownerGroup?.memberIds.includes(lead.id)) {
+        return json(res, 400, { error: "Mission owner conversation does not belong to the lead agent" });
+      }
+      try {
+        const mission = missions.create({
+          title: String(body.title ?? ""),
+          leadAgentId,
+          ownerThreadId,
+          objective: String(body.objective ?? ""),
+          successCriteria: Array.isArray(body.successCriteria) ? body.successCriteria.map(String) : [],
+          team: Array.isArray(body.team)
+            ? body.team.flatMap((member: unknown) => {
+                if (!member || typeof member !== "object") return [];
+                const record = member as Record<string, unknown>;
+                const agentId = String(record.agentId ?? "").trim();
+                if (!store.bot(agentId)) return [];
+                const role = String(record.role ?? "").trim();
+                return [{ agentId, ...(role ? { role } : {}) }];
+              })
+            : [],
+          budget: body.budget && typeof body.budget === "object"
+            ? body.budget as { maxTokens?: number; maxCost?: number; maxAttempts?: number }
+            : undefined,
+        });
+        return json(res, 201, { mission });
+      } catch (error) {
+        return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    const missionItemMatch = path.match(/^\/api\/missions\/([\w-]+)\/items$/);
+    if (missionItemMatch && method === "POST") {
+      const body = await readBody(req);
+      const assignee = body.assignee == null ? undefined : String(body.assignee).trim();
+      if (assignee && !store.bot(assignee)) return json(res, 400, { error: "Choose an existing assignee" });
+      try {
+        const item = missions.addWorkItem(missionItemMatch[1], {
+          id: body.id == null ? undefined : String(body.id),
+          title: String(body.title ?? ""),
+          description: body.description == null ? undefined : String(body.description),
+          assignee,
+          dependsOn: Array.isArray(body.dependsOn) ? body.dependsOn.map(String) : [],
+        });
+        return json(res, 201, { item, mission: missions.get(missionItemMatch[1]) });
+      } catch (error) {
+        return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    const missionActionMatch = path.match(/^\/api\/missions\/([\w-]+)\/(start|pause|resume|cancel|retry)$/);
+    if (missionActionMatch && method === "POST") {
+      const [missionId, action] = missionActionMatch.slice(1) as [string, "start" | "pause" | "resume" | "cancel" | "retry"];
+      try {
+        const body = action === "retry" ? await readBody(req) : {};
+        const mission = action === "start"
+          ? missions.start(missionId)
+          : action === "pause"
+            ? missions.pause(missionId)
+            : action === "resume"
+              ? missions.resume(missionId)
+              : action === "retry"
+                ? missions.retryWorkItem(missionId, String(body.itemId ?? ""))
+                : missions.cancel(missionId);
+        if (action === "start" || action === "resume" || action === "retry") queueMicrotask(kickMissionDispatcher);
+        if (action === "cancel") {
+          const activeRuns = routines!.listRuns().filter((run) =>
+            run.missionId === missionId && ["queued", "running", "waiting"].includes(run.status),
+          );
+          await Promise.allSettled(activeRuns.map((run) => routines!.cancelRun(run.id)));
+        }
+        return json(res, 200, { mission });
+      } catch (error) {
+        return json(res, 409, { error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+
     // ── routines calendar ────────────────────────────────────────────────
     if (path === "/api/routines" && method === "GET") {
       const fromParam = url.searchParams.get("from");
@@ -6322,6 +6530,10 @@ const server = createServer(async (req, res) => {
         activeVpsThreads.delete(bot.id);
         routines!.disableForBot(bot.id);
         webhooks.disableForBot(bot.id);
+        for (const mission of missions.list()) {
+          if (mission.leadAgentId !== bot.id || ["completed", "failed", "cancelled"].includes(mission.status)) continue;
+          missions.cancel(mission.id);
+        }
         lastReply.delete(bot.threadId);
         // a peer approval naming this bot can never be meaningfully answered
         // now, and its caller would otherwise wait out the 15-minute timeout

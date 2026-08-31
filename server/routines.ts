@@ -10,6 +10,7 @@ import {
   formatAutonomyOutcome,
   parseAutonomyOutcomeEnvelope,
   stripAutonomyOutcomeEnvelope,
+  type AutonomyStatus,
 } from "./autonomy-outcome.ts";
 import type { ModelSelection, RuntimeEvent } from "./contracts.ts";
 import { redactSecretsInText } from "./redact.ts";
@@ -31,7 +32,7 @@ export type RoutineRunOn = "maus" | "cloud";
 
 const persistedSourceThreadId = z.string().trim().min(1).optional().catch(undefined);
 
-export type RoutineRunTrigger = "schedule" | "manual" | "webhook";
+export type RoutineRunTrigger = "schedule" | "manual" | "webhook" | "mission";
 
 export type RoutineRunStatus =
   | "queued"
@@ -79,13 +80,18 @@ export interface RoutineRun {
   triggerSource?: RoutineRunTrigger;
   webhookId?: string;
   deliveryId?: string;
+  missionId?: string;
+  workItemId?: string;
   /** Snapshot the routine's reporting destination. Execution remains on the
    * separate `threadId` so recurring work never contaminates chat context. */
   sourceThreadId?: string;
+  /** Mission lead that owns sourceThreadId when another bot executes work. */
+  sourceBotId?: string;
   threadId?: string;
   startedAt?: number;
   finishedAt?: number;
   output?: string;
+  autonomyStatus?: AutonomyStatus;
   /** Human-readable reason the detached execution is waiting. */
   attention?: string;
   error?: string;
@@ -434,6 +440,7 @@ export class RoutineManager {
             ...run,
             runOn: run.runOn ?? "maus",
             sourceThreadId: persistedSourceThreadId.parse(run.sourceThreadId),
+            sourceBotId: persistedSourceThreadId.parse(run.sourceBotId),
           }))
         : [];
       this.routineRequestReceipts = Array.isArray(disk.routineRequestReceipts)
@@ -796,6 +803,47 @@ export class RoutineManager {
     return { ...run };
   }
 
+  /** Queue one mission work item through the same durable execution receipt
+   * and lifecycle reporting path without representing the mission DAG as a
+   * routine definition. */
+  enqueueMission(input: {
+    missionId: string;
+    missionTitle: string;
+    workItemId: string;
+    workItemTitle: string;
+    prompt: string;
+    botId: string;
+    sourceBotId: string;
+    sourceThreadId: string;
+  }): RoutineRun {
+    if (this.options.botState(input.botId) === "missing") {
+      throw new Error("The assigned mission agent no longer exists");
+    }
+    const run: RoutineRun = {
+      id: randomUUID(),
+      routineId: `mission:${input.missionId}`,
+      routineName: `Mission: ${input.missionTitle} — ${input.workItemTitle}`.slice(0, 240),
+      prompt: input.prompt,
+      botId: input.botId,
+      runOn: "maus",
+      scheduledFor: this.now(),
+      status: "queued",
+      manual: false,
+      triggerSource: "mission",
+      missionId: input.missionId,
+      workItemId: input.workItemId,
+      sourceThreadId: input.sourceThreadId,
+      sourceBotId: input.sourceBotId,
+      createdAt: this.now(),
+    };
+    this.runs.push(run);
+    if (this.runs.length > MAX_RUNS) this.runs.splice(0, this.runs.length - MAX_RUNS);
+    this.save();
+    this.emitRun(run);
+    queueMicrotask(() => void this.tick());
+    return { ...run };
+  }
+
   activeWebhookRunCount(webhookId: string): number {
     return this.runs.filter(
       (run) => run.webhookId === webhookId && ["queued", "running", "waiting"].includes(run.status),
@@ -973,6 +1021,7 @@ export class RoutineManager {
       const prose = stripAutonomyOutcomeEnvelope(redacted);
       const outcome = parseAutonomyOutcomeEnvelope(redacted);
       run.output = (prose || (outcome ? formatAutonomyOutcome(outcome) : "")).slice(0, 2_000);
+      run.autonomyStatus = outcome?.status;
     } else if (event.type === "runtime.error") {
       run.error = redactSecretsInText(event.message).slice(0, 500);
     } else if (event.type === "turn.retrying") {
