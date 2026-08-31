@@ -141,6 +141,16 @@ describe("nextOccurrence", () => {
     h.setNow(routine.nextRunAt!);
     await h.manager.tick();
     expect(h.started).toHaveLength(1);
+    // settle the first run — an active run would (honestly) produce a
+    // missed receipt before the precheck is even consulted
+    const settle = {
+      eventId: "event-precheck-1",
+      provider: "fake",
+      threadId: h.started[0]!.threadId,
+      createdAt: new Date(h.manager.listRuns()[0]!.startedAt!).toISOString(),
+    };
+    h.manager.handleRuntimeEvent({ ...settle, type: "item.completed", itemType: "assistant_text", text: "Inspected." });
+    h.manager.handleRuntimeEvent({ ...settle, type: "turn.completed", ok: true, cost: 0 });
     const next = h.manager.listRoutines()[0]!.nextRunAt!;
     h.setNow(next);
     await h.manager.tick();

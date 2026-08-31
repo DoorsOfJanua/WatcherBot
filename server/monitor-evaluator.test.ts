@@ -74,6 +74,16 @@ describe("MonitorEvaluator", () => {
     await manager.tick();
     expect(startTurn).toHaveBeenCalledTimes(1);
     expect(createTask).toHaveBeenCalledTimes(1);
+    // settle the first run — an active run would (honestly) produce a
+    // missed receipt before the precheck is even consulted
+    const settle = {
+      eventId: "event-monitor-1",
+      provider: "fake",
+      threadId: "monitor-thread",
+      createdAt: new Date(manager.listRuns()[0]!.startedAt!).toISOString(),
+    };
+    manager.handleRuntimeEvent({ ...settle, type: "item.completed", itemType: "assistant_text", text: "Checked." });
+    manager.handleRuntimeEvent({ ...settle, type: "turn.completed", ok: true, cost: 0 });
 
     now = manager.listRoutines()[0]!.nextRunAt!;
     await manager.tick();

@@ -919,13 +919,13 @@ export class RoutineManager {
           this.emitRun(missed);
           missedRuns.push({ ...missed });
         } else if (
-          routine.schedule.type === "interval" &&
           this.runs.some((run) =>
             run.routineId === routine.id && ["queued", "running", "waiting"].includes(run.status),
           )
         ) {
-          // A tight interval must not stack work behind a slow or stuck run;
-          // that would drain as a burst of stale back-to-back turns. The
+          // No schedule may stack work behind a slow or stuck run — a daily
+          // blocked on an unanswered card would otherwise queue a silent
+          // backlog that drains as a burst of stale back-to-back turns. The
           // skipped occurrence still receives an honest terminal receipt.
           const missed = this.newRun(routine, scheduledFor, false);
           missed.status = "missed";
@@ -934,6 +934,12 @@ export class RoutineManager {
           this.emitRun(missed);
         } else if (routine.precheck) {
           const check = await readPrecheck(routine.precheck, this.options.precheckProviders);
+          // A precheck's value and error come from arbitrary commands and
+          // HTTP bodies — the only fields in this engine that would otherwise
+          // reach routines.json and the source thread unredacted. Redact at
+          // acquisition so the fingerprint comparison stays consistent.
+          if (check.value !== undefined) check.value = redactSecretsInText(check.value);
+          if (check.error) check.error = redactSecretsInText(check.error);
           if (check.value !== undefined && routine.precheckState === check.value) {
             const skipped = this.newRun(routine, scheduledFor, false);
             skipped.status = "skipped";
@@ -1042,6 +1048,17 @@ export class RoutineManager {
       const triggerSource = run.triggerSource ?? (run.manual ? "manual" : "schedule");
       if (triggerSource !== "webhook" && !run.output?.trim()) {
         this.failRun(run, "The bot finished without producing a message for you");
+        queueMicrotask(() => void this.tick());
+        return { ...run };
+      }
+      // The bot's own autonomy-outcome verdict outranks "text was produced":
+      // a run the bot reports failed or blocked must not get a green receipt.
+      // Missions settle their own outcome through settleMissionRun.
+      if (
+        run.triggerSource !== "mission" &&
+        (run.autonomyStatus === "failed" || run.autonomyStatus === "blocked")
+      ) {
+        this.failRun(run, run.output?.trim() || `The bot reported this run as ${run.autonomyStatus}`);
         queueMicrotask(() => void this.tick());
         return { ...run };
       }

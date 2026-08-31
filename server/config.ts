@@ -437,8 +437,12 @@ export const NATIVE_DIR = join(DATA_DIR, "native");
 
 export function ensureDirs() {
   // one-time migration from the pre-rename data dir — bots, transcripts,
-  // config and keys all carry over
-  if (!existsSync(DATA_DIR) && existsSync(LEGACY_DATA_DIR)) {
+  // config and keys all carry over. Only when the dir resolved to the
+  // built-in default: an explicit env override (a test rig, a scratch
+  // server, a cloned-data gate) must get a fresh directory, never steal
+  // the legacy install out from under the real machine.
+  const explicitOverride = Boolean(process.env.MYAGENT_ROOM_DATA_DIR ?? process.env.OMB_DATA_DIR);
+  if (!explicitOverride && !existsSync(DATA_DIR) && existsSync(LEGACY_DATA_DIR)) {
     try {
       renameSync(LEGACY_DATA_DIR, DATA_DIR);
     } catch {
