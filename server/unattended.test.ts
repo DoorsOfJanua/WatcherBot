@@ -70,9 +70,9 @@ posixOnly("unattended turns keep asking", () => {
   beforeAll(async () => {
     chmodSync(FAKE_CLI, 0o755);
     home = mkdtempSync(join(tmpdir(), "omb-unattended-"));
-    mkdirSync(join(home, ".openmausbot"), { recursive: true });
+    mkdirSync(join(home, ".myagent-room"), { recursive: true });
     writeFileSync(
-      join(home, ".openmausbot", "config.json"),
+      join(home, ".myagent-room", "config.json"),
       JSON.stringify({
         instances: {
           // asks the client for permission mid-turn, which is exactly the

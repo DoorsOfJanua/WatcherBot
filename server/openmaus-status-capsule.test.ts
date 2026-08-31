@@ -84,7 +84,7 @@ function successCapsule(options: {
   const expected = options.expected === undefined ? DUAL_VIEW_SHA : options.expected;
   const twoUp = options.twoUp ?? (source !== null && source === expected);
   return sign({
-    schema: "aos.openmausbot_status.v1",
+    schema: "aos.myagent-room_status.v1",
     observed_at: "2026-08-22T06:30:00Z",
     fresh_until: "2026-08-22T06:35:00Z",
     ttl_seconds: 300,
@@ -123,7 +123,7 @@ function failedCapsule(
   expected: string | null = DUAL_VIEW_SHA,
 ): TestCapsule {
   return sign({
-    schema: "aos.openmausbot_status.v1",
+    schema: "aos.myagent-room_status.v1",
     observed_at: "2026-08-22T06:30:00Z",
     fresh_until: "2026-08-22T06:35:00Z",
     ttl_seconds: 300,
