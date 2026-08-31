@@ -598,16 +598,52 @@ function createWindow() {
   // A dead renderer or failed load must never strand a solid-black window:
   // the window's #070707 background is all that renders once webContents die,
   // and nothing short of a full app quit brings the UI back. Reload with
-  // backoff; after repeated failures land on ERROR_PAGE instead of black.
+  // backoff; after repeated failures land on ERROR_PAGE, then keep probing
+  // the server so the window rejoins it the moment it answers again.
+  // Attempts only reset when the previous page survived a while (or the
+  // probe sees a healthy server) — a page that dies right after loading must
+  // keep climbing toward the backstop, not loop at 500ms forever.
   let reloadAttempts = 0;
+  let lastGoodLoadAt = 0;
+  let recoverTimer = null;
+  let probeTimer = null;
+  const appUrl = () => (app.isPackaged ? `http://127.0.0.1:${SERVER_PORT}` : DEV_URL);
+  const probeUntilServerReturns = () => {
+    if (probeTimer || win.isDestroyed()) return;
+    probeTimer = setInterval(async () => {
+      try {
+        const res = await fetch(`http://127.0.0.1:${SERVER_PORT}/api/health`, {
+          signal: AbortSignal.timeout(2000),
+        });
+        if (!res.ok) return;
+        clearInterval(probeTimer);
+        probeTimer = null;
+        reloadAttempts = 0;
+        if (win.isDestroyed()) return;
+        void win.loadURL(appUrl()).catch((e) => {
+          console.error("[desktop] rejoin after server recovery failed:", e?.message ?? e);
+        });
+      } catch {
+        // server still down — keep probing
+      }
+    }, 5000);
+  };
   const recoverContent = () => {
     if (win.isDestroyed()) return;
+    if (lastGoodLoadAt && Date.now() - lastGoodLoadAt > 30_000) reloadAttempts = 0;
+    lastGoodLoadAt = 0;
+    if (recoverTimer) clearTimeout(recoverTimer);
     reloadAttempts += 1;
-    const target = app.isPackaged ? `http://127.0.0.1:${SERVER_PORT}` : DEV_URL;
-    const url = reloadAttempts > 5 || !serverReady ? ERROR_PAGE : target;
-    setTimeout(
+    const failedOut = reloadAttempts > 5 || !serverReady;
+    const url = failedOut ? ERROR_PAGE : appUrl();
+    recoverTimer = setTimeout(
       () => {
-        if (!win.isDestroyed()) void win.loadURL(url);
+        recoverTimer = null;
+        if (win.isDestroyed()) return;
+        void win.loadURL(url).catch((e) => {
+          console.error("[desktop] recovery load failed:", e?.message ?? e);
+        });
+        if (failedOut) probeUntilServerReturns();
       },
       Math.min(500 * reloadAttempts, 3000),
     );
@@ -617,13 +653,19 @@ function createWindow() {
     console.error(`[desktop] renderer gone (${details.reason}) — reloading`);
     recoverContent();
   });
-  win.webContents.on("did-fail-load", (_event, code, description, _url, isMainFrame) => {
-    if (!isMainFrame || code === -3 /* ERR_ABORTED: in-page navigation races */) return;
+  win.webContents.on("did-fail-load", (_event, code, description, failedUrl, isMainFrame) => {
+    // data: guard mirrors the desktop-viewer handler above — ERROR_PAGE is
+    // itself a data: URL, and a failing backstop must not re-enter recovery.
+    if (!isMainFrame || code === -3 /* ERR_ABORTED: in-page navigation races */ || failedUrl.startsWith("data:")) return;
     console.error(`[desktop] main window load failed (${code} ${description}) — retrying`);
     recoverContent();
   });
   win.webContents.on("did-finish-load", () => {
-    reloadAttempts = 0;
+    lastGoodLoadAt = Date.now();
+  });
+  win.on("closed", () => {
+    if (recoverTimer) clearTimeout(recoverTimer);
+    if (probeTimer) clearInterval(probeTimer);
   });
 
   if (app.isPackaged) {
@@ -966,13 +1008,6 @@ app.on("window-all-closed", () => {
 const CUA_STOP_TIMEOUT_MS = 2500;
 let cuaCleanedUp = false;
 app.on("before-quit", (e) => {
-  // Release the single-instance lock the moment quit begins: the deferred
-  // cleanup below keeps this process alive for up to ~2.5s, and a relaunch
-  // inside that window would see the lock held and silently exit
-  // (upstream OpenMausBot issue #618).
-  try {
-    app.releaseSingleInstanceLock();
-  } catch {}
   if (cuaCleanedUp) return;
   e.preventDefault();
   try {
@@ -990,6 +1025,15 @@ app.on("before-quit", (e) => {
   ]);
   cleanup.then(() => {
     cuaCleanedUp = true;
+    // Release the single-instance lock only after CUA teardown: released any
+    // earlier, a relaunch could start its own CUA host and have its live
+    // cua-connection.json overwritten by this instance's terminal
+    // "unavailable" write. Released here, a relaunch during the final quit
+    // no longer sees the lock held and silently exits
+    // (upstream OpenMausBot issue #618).
+    try {
+      app.releaseSingleInstanceLock();
+    } catch {}
     app.quit();
   });
 });
